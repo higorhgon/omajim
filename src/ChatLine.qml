@@ -46,6 +46,52 @@ Item {
         return qsTr("Failed")
     }
     readonly property bool busy: ["active", "uploading", "downloading"].indexOf(transferState) >= 0
+
+    // A copy of the file on this computer: the file itself once it's here,
+    // or the preview of a picture still on the server.
+    readonly property string localPath: transferState === "done" && filePath !== "" ? filePath
+                                      : preview !== "" ? decodeURIComponent(preview.replace("file://", "")) : ""
+
+    // Size, and how it's going while it isn't done.
+    readonly property string fileDetails: [fileSize,
+        transferState === "done" ? "" : stateLabel,
+        busy || transferState === "offered" ? routeLabel : ""].filter(part => part !== "").join(" · ")
+
+    readonly property string fileIcon: {
+        const suffix = body.split(".").pop().toLowerCase()
+        if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].indexOf(suffix) >= 0) return "file-image"
+        if (["mp4", "mkv", "webm", "mov", "avi"].indexOf(suffix) >= 0) return "file-video"
+        if (["mp3", "ogg", "opus", "flac", "wav", "m4a"].indexOf(suffix) >= 0) return "file-audio"
+        if (["zip", "tar", "gz", "xz", "bz2", "7z", "rar", "zst"].indexOf(suffix) >= 0) return "file-archive"
+        if (["html", "htm", "css", "js", "ts", "json", "xml", "py", "php", "c", "cpp", "h", "rs", "sh", "sql", "qml"].indexOf(suffix) >= 0) return "file-code"
+        if (["txt", "md", "pdf", "doc", "docx", "odt", "rtf", "csv", "xls", "xlsx", "ods"].indexOf(suffix) >= 0) return "file-text"
+        return "file"
+    }
+
+    // The icon buttons a file's line offers, as {icon, label, action}.
+    readonly property var fileActions: {
+        const actions = []
+        if (kind !== "file")
+            return actions
+        if (!outgoing && url !== "" && ["remote", "failed", "canceled"].indexOf(transferState) >= 0)
+            actions.push({icon: "download", label: transferState === "remote" ? qsTr("Download") : qsTr("Try again"), action: "download"})
+        if (busy || (outgoing && transferState === "offered"))
+            actions.push({icon: "close", label: qsTr("Cancel"), action: "cancel"})
+        if (transferState === "done" && filePath !== "")
+            actions.push({icon: "folder", label: qsTr("Open the folder"), action: "folder"})
+        if (localPath !== "" && !busy)
+            actions.push({icon: "save", label: qsTr("Save as…"), action: "save"})
+        return actions
+    }
+
+    function runFileAction(action) {
+        switch (action) {
+        case "download": backend.downloadFile(line.messageId); break
+        case "cancel": backend.cancelTransfer(line.messageId); break
+        case "folder": backend.openFolder(line.filePath); break
+        case "save": backend.saveFileAs(line.localPath, line.body); break
+        }
+    }
     // The way a direct transfer goes, as the Python Omajim showed it.
     readonly property string routeLabel: {
         switch (route) {
@@ -81,7 +127,7 @@ Item {
         x: line.outgoing ? line.width - width - 20 : 20
         // Sized from the text laid out on one line, so short messages get a
         // snug bubble and long ones wrap at the maximum width.
-        width: Math.min(line.width * 0.72, line.kind === "file" ? 340
+        width: Math.min(line.width * 0.72, line.kind === "file" ? 420
                         : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2,
                                    line.reply && line.reply.id ? 220 : 64, reactionRow.implicitWidth,
                                    Math.ceil(stampRow.implicitWidth) + 2) + 28)
@@ -186,65 +232,128 @@ Item {
                 }
             }
 
-            // A picture shared as a file shows itself; a click opens it.
-            Image {
-                id: picture
-                visible: line.preview !== "" && status === Image.Ready
-                Layout.preferredWidth: Math.min(implicitWidth, bubble.width - 28)
-                Layout.preferredHeight: implicitWidth > 0 ? Layout.preferredWidth * implicitHeight / implicitWidth : 0
-                Layout.maximumHeight: 260
-                source: line.preview
-                sourceSize.width: 600
-                fillMode: Image.PreserveAspectFit
-                horizontalAlignment: Image.AlignLeft
-                asynchronous: true
-                smooth: true
-                mipmap: true
+            // A picture as a file: the picture fills the bubble, with the
+            // name, size, and actions over its lower edge, as in Gajim.
+            Item {
+                id: pictureCard
+                visible: line.kind === "file" && line.preview !== "" && picture.status === Image.Ready
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(260, picture.implicitWidth > 0
+                                        ? width * picture.implicitHeight / picture.implicitWidth : 0)
 
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    onTapped: backend.openFile(line.transferState === "done" && line.filePath !== ""
-                                               ? line.filePath : decodeURIComponent(line.preview.replace("file://", "")))
+                Image {
+                    id: picture
+                    anchors.fill: parent
+                    source: line.preview
+                    sourceSize.width: 700
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    smooth: true
+                    mipmap: true
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: backend.openFile(line.localPath) }
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 46
+                    color: Qt.rgba(0, 0, 0, 0.6)
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 4
+                        spacing: 4
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Label {
+                                Layout.fillWidth: true
+                                text: line.body
+                                color: "white"
+                                font.pixelSize: 12
+                                elide: Text.ElideMiddle
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: line.fileDetails
+                                color: Qt.rgba(1, 1, 1, 0.75)
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+                        }
+                        Repeater {
+                            model: line.fileActions
+                            delegate: IconButton {
+                                required property var modelData
+                                implicitWidth: 34
+                                implicitHeight: 34
+                                iconName: modelData.icon
+                                description: modelData.label
+                                ink: "white"
+                                framed: true
+                                frameColor: Qt.rgba(1, 1, 1, 0.14)
+                                onClicked: line.runFileAction(modelData.action)
+                            }
+                        }
+                    }
+                    // Progress along the very bottom while it moves.
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        visible: line.busy
+                        width: parent.width * line.progress
+                        height: 3
+                        color: line.ui.accent
+                    }
                 }
             }
 
+            // Any other file: its kind, name, and size, with the actions on
+            // the right, as in Gajim.
             RowLayout {
-                visible: line.kind === "file"
+                visible: line.kind === "file" && !pictureCard.visible
                 Layout.fillWidth: true
                 spacing: 12
 
                 Rectangle {
                     Layout.alignment: Qt.AlignTop
-                    implicitWidth: 40
-                    implicitHeight: 40
+                    implicitWidth: 48
+                    implicitHeight: 48
                     radius: Math.min(4, theme.radius)
                     color: line.ui.background
                     border.color: line.ui.border
                     AppIcon {
                         anchors.centerIn: parent
-                        width: 20
-                        height: 20
-                        name: "file"
+                        width: 26
+                        height: 26
+                        name: line.fileIcon
                         color: line.ui.accent
                     }
+                    HoverHandler { cursorShape: line.localPath !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                    TapHandler { onTapped: if (line.localPath !== "") backend.openFile(line.localPath) }
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 3
 
+                    // The whole name, as Gajim shows it, over two lines at most.
                     Label {
                         Layout.fillWidth: true
                         text: line.body
                         color: line.ui.foreground
-                        font.bold: true
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                        maximumLineCount: 2
                         elide: Text.ElideMiddle
+                        HoverHandler { cursorShape: line.localPath !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                        TapHandler { onTapped: if (line.localPath !== "") backend.openFile(line.localPath) }
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: [line.fileSize, line.stateLabel,
-                               ["offered", "active", "done"].indexOf(line.transferState) >= 0 ? line.routeLabel : ""]
-                              .filter(part => part !== "").join(" · ")
+                        text: line.fileDetails
                         wrapMode: Text.Wrap
                         color: line.transferState === "failed" ? line.ui.error : line.ui.muted
                         font.pixelSize: 12
@@ -264,44 +373,36 @@ Item {
                             color: line.ui.accent
                         }
                     }
+                    // A direct transfer waits for an answer.
                     RowLayout {
                         Layout.topMargin: 4
+                        visible: !line.outgoing && line.transferState === "offered"
                         spacing: 8
-                        // A file on the server comes down only when asked for.
                         AppButton {
-                            visible: !line.outgoing && line.url !== ""
-                                     && ["remote", "failed", "canceled"].indexOf(line.transferState) >= 0
-                            primary: true
-                            implicitHeight: 32
-                            text: line.transferState === "remote" ? qsTr("Download") : qsTr("Try again")
-                            onClicked: backend.downloadFile(line.messageId)
-                        }
-                        AppButton {
-                            visible: !line.outgoing && line.transferState === "offered"
                             primary: true
                             implicitHeight: 32
                             text: qsTr("Accept")
                             onClicked: backend.acceptFile(line.messageId)
                         }
                         AppButton {
-                            visible: !line.outgoing && line.transferState === "offered"
                             flat: true
                             implicitHeight: 32
                             text: qsTr("Decline")
                             onClicked: backend.refuseFile(line.messageId)
                         }
-                        AppButton {
-                            visible: line.busy || (line.outgoing && line.transferState === "offered")
-                            implicitHeight: 32
-                            text: qsTr("Cancel")
-                            onClicked: backend.cancelTransfer(line.messageId)
-                        }
-                        AppButton {
-                            visible: line.transferState === "done" && line.filePath !== ""
-                            implicitHeight: 32
-                            text: qsTr("Open")
-                            onClicked: backend.openFile(line.filePath)
-                        }
+                    }
+                }
+
+                Repeater {
+                    model: line.fileActions
+                    delegate: IconButton {
+                        required property var modelData
+                        Layout.alignment: Qt.AlignVCenter
+                        iconName: modelData.icon
+                        description: modelData.label
+                        framed: true
+                        frameColor: line.ui.background
+                        onClicked: line.runFileAction(modelData.action)
                     }
                 }
             }

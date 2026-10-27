@@ -14,10 +14,15 @@ public:
     using FilePicker::FilePicker;
 
     void openFile(const QString &title) override;
+    void saveFile(const QString &title, const QString &suggestedName) override;
 
 private slots:
     void onResponse(uint response, const QVariantMap &results);
 
 private:
+    // OpenFile or SaveFile, with its options; both answer the same way.
+    void request(const QString &method, const QString &title, QVariantMap options);
+
     QString m_requestPath;
+    bool m_saving = false;
 };

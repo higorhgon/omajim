@@ -67,7 +67,12 @@ public:
 class FakeFilePicker : public FilePicker {
 public:
     QString lastTitle;
+    QString saveTo;
     void openFile(const QString &title) override { lastTitle = title; }
+    void saveFile(const QString &title, const QString &) override {
+        lastTitle = title;
+        emit savePicked(saveTo);
+    }
 };
 
 class OmajimTests : public QObject {
@@ -1115,6 +1120,29 @@ private slots:
         // Text stays text.
         clipboard->setText("just words");
         QVERIFY(backend.clipboardContent().isEmpty());
+    }
+
+    void filesCanBeSavedElsewhere() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        FakeFilePicker picker;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), &picker, &secrets);
+        const QByteArray content(300000, 'z');
+        write(dir.filePath("report.pdf"), content);
+        QDir(dir.path()).mkpath("elsewhere");
+        picker.saveTo = dir.filePath("elsewhere/copy.pdf");
+
+        backend.saveFileAs(dir.filePath("report.pdf"), "report.pdf");
+        QVERIFY(picker.lastTitle.contains("report.pdf"));
+        QFile copy(picker.saveTo);
+        QVERIFY(copy.open(QIODevice::ReadOnly));
+        QCOMPARE(copy.readAll(), content);
+
+        // Closing the dialog saves nothing; a file that's gone says so.
+        picker.saveTo.clear();
+        backend.saveFileAs(dir.filePath("report.pdf"), "report.pdf");
+        backend.saveFileAs(dir.filePath("gone.pdf"), "gone.pdf");
+        QVERIFY(backend.errorText().contains("gone.pdf"));
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

@@ -9,6 +9,9 @@
 #include <QNetworkReply>
 #include <QSaveFile>
 #include <QClipboard>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
 #include <QImage>
 #include <QMimeData>
 #include <QDesktopServices>
@@ -362,6 +365,25 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
                 sendFile(path, m_pickMethod);
         });
         connect(m_filePicker, &FilePicker::failed, this, &Backend::setError);
+        connect(m_filePicker, &FilePicker::savePicked, this, [this](const QString &target) {
+            const QString source = m_saveSource;
+            m_saveSource.clear();
+            if (target.isEmpty() || source.isEmpty() || target == source)
+                return;
+            // Written beside the target and renamed, so a failed copy never
+            // leaves half a file.
+            QFile in(source);
+            QSaveFile out(target);
+            if (!in.open(QIODevice::ReadOnly) || !out.open(QIODevice::WriteOnly)) {
+                setError(tr("%1 couldn't be saved to %2.").arg(QFileInfo(source).fileName(), target));
+                return;
+            }
+            while (!in.atEnd())
+                if (out.write(in.read(1 << 20)) < 0)
+                    break;
+            if (!out.commit())
+                setError(tr("%1 couldn't be saved to %2.").arg(QFileInfo(source).fileName(), target));
+        });
     }
     if (m_notifier) {
         connect(m_notifier, &Notifier::activated, this, [this](const QString &jid) {
@@ -2239,4 +2261,32 @@ void Backend::setShowAllContacts(bool show) {
     m_contacts.setBrowsing(show);
     m_settings.setValue("ui/showAllContacts", show);
     emit showAllContactsChanged();
+}
+
+void Backend::openFolder(const QString &path) {
+    if (!QFileInfo::exists(path)) {
+        setError(tr("%1 isn't there anymore.").arg(path));
+        return;
+    }
+    // Most file managers show the file selected; the folder alone if none answers.
+    QDBusMessage call = QDBusMessage::createMethodCall("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",
+                                                       "org.freedesktop.FileManager1", "ShowItems");
+    call << QStringList{QUrl::fromLocalFile(path).toString()} << QString();
+    auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(call, 3000), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [path](QDBusPendingCallWatcher *watcher) {
+        if (watcher->isError())
+            QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+        watcher->deleteLater();
+    });
+}
+
+void Backend::saveFileAs(const QString &path, const QString &suggestedName) {
+    if (!m_filePicker)
+        return;
+    if (!QFileInfo::exists(path)) {
+        setError(tr("%1 isn't there anymore.").arg(path));
+        return;
+    }
+    m_saveSource = path;
+    m_filePicker->saveFile(tr("Save %1").arg(suggestedName), suggestedName);
 }

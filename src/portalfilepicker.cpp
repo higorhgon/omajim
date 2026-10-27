@@ -12,6 +12,16 @@ static const char *Service = "org.freedesktop.portal.Desktop";
 static const char *Path = "/org/freedesktop/portal/desktop";
 
 void PortalFilePicker::openFile(const QString &title) {
+    m_saving = false;
+    request("OpenFile", title, {{"multiple", false}});
+}
+
+void PortalFilePicker::saveFile(const QString &title, const QString &suggestedName) {
+    m_saving = true;
+    request("SaveFile", title, {{"current_name", suggestedName}});
+}
+
+void PortalFilePicker::request(const QString &method, const QString &title, QVariantMap options) {
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         emit failed(tr("There's no session D-Bus, so the file chooser can't open."));
@@ -30,8 +40,9 @@ void PortalFilePicker::openFile(const QString &title) {
     bus.connect(Service, m_requestPath, "org.freedesktop.portal.Request", "Response", this,
                 SLOT(onResponse(uint, QVariantMap)));
 
-    QDBusMessage call = QDBusMessage::createMethodCall(Service, Path, "org.freedesktop.portal.FileChooser", "OpenFile");
-    call << QString() << title << QVariantMap{{"handle_token", token}, {"multiple", false}};
+    options.insert("handle_token", token);
+    QDBusMessage call = QDBusMessage::createMethodCall(Service, Path, "org.freedesktop.portal.FileChooser", method);
+    call << QString() << title << options;
     auto *watcher = new QDBusPendingCallWatcher(bus.asyncCall(call), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *watcher) {
         QDBusPendingReply<QDBusObjectPath> reply = *watcher;
@@ -44,7 +55,10 @@ void PortalFilePicker::openFile(const QString &title) {
 void PortalFilePicker::onResponse(uint response, const QVariantMap &results) {
     // 0 is a pick, 1 the user cancelling, anything else a portal error.
     if (response == 1) {
-        emit picked({});
+        if (m_saving)
+            emit savePicked({});
+        else
+            emit picked({});
         return;
     }
     const QStringList uris = results.value("uris").toStringList();
@@ -52,5 +66,9 @@ void PortalFilePicker::onResponse(uint response, const QVariantMap &results) {
         emit failed(tr("The file chooser couldn't hand over the file."));
         return;
     }
-    emit picked(QUrl(uris.first()).toLocalFile());
+    const QString path = QUrl(uris.first()).toLocalFile();
+    if (m_saving)
+        emit savePicked(path);
+    else
+        emit picked(path);
 }

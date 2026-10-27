@@ -9,6 +9,13 @@ ToolButton {
     required property string iconName
     required property string description
     property bool primary: false
+    // The icon's color; white over a picture, for instance.
+    property color ink: lit || framed ? ui.foreground : ui.muted
+    // A visible button shape at rest, for actions inside content (a file's
+    // folder and save buttons), where a bare icon wouldn't read as one.
+    property bool framed: false
+    // The framed fill; translucent over a picture.
+    property color frameColor: ui.button
     readonly property var ui: theme.colors
     readonly property bool lit: hovered || down || checked
 
@@ -28,14 +35,16 @@ ToolButton {
             height: 18
             name: button.iconName
             opacity: button.enabled ? 1 : 0.4
-            color: button.primary ? button.ui.accentText : button.lit ? button.ui.foreground : button.ui.muted
+            color: button.primary ? button.ui.accentText : button.ink
         }
     }
 
     background: Rectangle {
-        radius: Math.min(3, theme.radius)
+        radius: Math.min(4, theme.radius)
         color: button.primary ? (button.lit ? button.ui.accentHover : button.ui.accent)
-             : button.lit ? button.ui.hover : "transparent"
-        border.color: button.visualFocus ? button.ui.accent : "transparent"
+             : button.lit ? button.ui.hover
+             : button.framed ? button.frameColor : "transparent"
+        border.color: button.visualFocus ? button.ui.accent
+                    : button.framed ? Qt.alpha(button.ui.foreground, 0.18) : "transparent"
     }
 }

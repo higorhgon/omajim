@@ -148,6 +148,10 @@ public:
     Q_INVOKABLE void refuseFile(qint64 messageId);
     Q_INVOKABLE void cancelTransfer(qint64 messageId);
     Q_INVOKABLE void openFile(const QString &path);
+    // The file manager at a file's folder, with the file picked out.
+    Q_INVOKABLE void openFolder(const QString &path);
+    // A copy of a file wherever the user picks, from the save dialog.
+    Q_INVOKABLE void saveFileAs(const QString &path, const QString &suggestedName);
     // A message as rich text with clickable links, and opening one of them.
     Q_INVOKABLE QString formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor) const;
     Q_INVOKABLE void openLink(const QString &url);
@@ -331,6 +335,7 @@ private:
     QSet<QString> m_knownContacts;
     QString m_pickMethod = QStringLiteral("server");
     QString m_proxy;
+    QString m_saveSource;
     qint64 m_editingId = 0;
     qint64 m_replyId = 0;
     // The status before automatic away, to come back to; empty when not away.

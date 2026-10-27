@@ -76,7 +76,10 @@ janela: seus contatos à esquerda e a conversa à direita.
 
   Os arquivos recebidos vão para a pasta de Downloads e só ganham o nome
   final quando estão completos. Um arquivo que já existe nunca é
-  substituído.
+  substituído. Como no Gajim, cada arquivo mostra o ícone do tipo, o nome e
+  o tamanho, com botões para abrir a pasta, salvar como (pelo diálogo do
+  sistema) ou baixar; imagens aparecem inteiras, com essas ações sobre a
+  imagem.
 - Para os contatos, o cliente se apresenta como Omajim (versão e
   capabilities, XEP-0092/0115).
 - A senha fica no chaveiro da sessão (Secret Service, via `secret-tool`),
