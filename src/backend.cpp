@@ -1,6 +1,8 @@
 #include "backend.h"
 
 #include <QCollator>
+#include <QDnsLookup>
+#include <QElapsedTimer>
 #include <QCryptographicHash>
 #include <QMimeDatabase>
 #include <QNetworkAccessManager>
@@ -20,6 +22,7 @@
 #include <QXmppConfiguration.h>
 #include <QXmppMamManager.h>
 #include <QXmppHttpUploadManager.h>
+#include <QXmppLogger.h>
 #include <QXmppMessage.h>
 #include <QXmppMessageReceiptManager.h>
 #include <QXmppMucData.h>
@@ -43,6 +46,24 @@
 
 static const int HistoryLimit = 300;
 
+// For diagnosing a slow sign-in: OMAJIM_DEBUG=1 prints when each step
+// happens, counted from startup. Never the stanzas themselves, since
+// authentication carries the password.
+static bool tracing() {
+    static const bool enabled = qEnvironmentVariableIsSet("OMAJIM_DEBUG");
+    return enabled;
+}
+
+static void trace(const QString &step) {
+    static QElapsedTimer clock = [] {
+        QElapsedTimer timer;
+        timer.start();
+        return timer;
+    }();
+    if (tracing())
+        fprintf(stderr, "[omajim %6lld ms] %s\n", clock.elapsed(), qPrintable(step));
+}
+
 // Contacts connect to this port to fetch a file sent directly. QXmpp picks a
 // random one, which no firewall rule can allow, so use a fixed port, the one
 // the Python Omajim used, and an existing ufw rule keeps working.
@@ -64,6 +85,16 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
       m_secrets(secrets),
       m_notifier(notifier),
       m_client(std::make_unique<QXmppClient>()) {
+    trace("start");
+    if (tracing()) {
+        auto *logger = new QXmppLogger(this);
+        logger->setLoggingType(QXmppLogger::SignalLogging);
+        logger->setMessageTypes(QXmppLogger::InformationMessage | QXmppLogger::WarningMessage);
+        connect(logger, &QXmppLogger::message, this, [](QXmppLogger::MessageType, const QString &text) {
+            trace("qxmpp: " + text);
+        });
+        m_client->setLogger(logger);
+    }
     m_jid = m_settings.value("account/jid").toString();
     m_status = m_settings.value("account/status", "online").toString();
 
@@ -96,6 +127,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
         }
     };
     connect(m_bookmarks, &QXmppPepBookmarkManager::bookmarksReset, this, [this, loadBookmarks] {
+        trace("bookmarks: loaded");
         if (const auto &bookmarks = m_bookmarks->bookmarks())
             loadBookmarks(*bookmarks);
     });
@@ -204,6 +236,8 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     }
 
     connect(m_client.get(), &QXmppClient::stateChanged, this, [this](QXmppClient::State state) {
+        trace(QStringLiteral("state: %1").arg(state == QXmppClient::ConnectedState ? "connected"
+                                              : state == QXmppClient::ConnectingState ? "connecting" : "disconnected"));
         if (state == QXmppClient::DisconnectedState) {
             m_contacts.setAllOffline();
             emit currentChatChanged();
@@ -316,7 +350,9 @@ void Backend::start() {
         return;
     m_starting = true;
     emit signedInChanged();
+    trace("keyring: looking up the password");
     m_secrets->lookup(m_jid, [this](const QString &password, const QString &error) {
+        trace("keyring: done");
         m_starting = false;
         if (!error.isEmpty())
             setError(error);
@@ -520,24 +556,65 @@ QList<QSslCertificate> Backend::trustedCertificates() const {
 }
 
 void Backend::connectToServer() {
-    if (m_jid.isEmpty() || m_password.isEmpty() || m_status == "offline")
+    if (m_jid.isEmpty() || m_password.isEmpty() || m_status == "offline" || m_resolving)
         return;
+    const QString server = host();
+    if (!server.isEmpty()) {
+        // "host" or "host:port", typed in by the user.
+        const qsizetype colon = server.lastIndexOf(':');
+        bool numeric = false;
+        const int port = colon > 0 ? server.mid(colon + 1).toInt(&numeric) : 0;
+        connectTo(numeric ? server.left(colon) : server, numeric ? port : 5222);
+        return;
+    }
+
+    // Without SRV records QXmpp first tries direct TLS on port 5223, and a
+    // firewall that drops packets there (srv005 does) holds the sign-in for
+    // minutes before it falls back to 5222. So look the records up here:
+    // with any, QXmpp follows them; without, go straight to 5222 with
+    // STARTTLS, as Gajim does.
+    const QString domain = QXmppUtils::jidToDomain(m_jid);
+    trace("dns: looking up SRV records of " + domain);
+    m_resolving = true;
+    auto pending = std::make_shared<int>(2);
+    auto found = std::make_shared<bool>(false);
+    for (const QString &service : {QStringLiteral("_xmpp-client._tcp."), QStringLiteral("_xmpps-client._tcp.")}) {
+        auto *lookup = new QDnsLookup(QDnsLookup::SRV, service + domain, this);
+        connect(lookup, &QDnsLookup::finished, this, [this, lookup, pending, found, domain] {
+            *found = *found || (lookup->error() == QDnsLookup::NoError && !lookup->serviceRecords().isEmpty());
+            lookup->deleteLater();
+            if (--*pending > 0)
+                return;
+            m_resolving = false;
+            trace(*found ? "dns: SRV records found" : "dns: no SRV records, using port 5222");
+            // Signed out or switched accounts while looking up.
+            if (QXmppUtils::jidToDomain(m_jid) != domain || m_password.isEmpty() || m_status == "offline")
+                return;
+            if (*found)
+                connectTo({}, 0);
+            else
+                connectTo(domain, 5222);
+        });
+        lookup->lookup();
+    }
+}
+
+void Backend::connectTo(const QString &server, int port) {
     QXmppConfiguration configuration;
     configuration.setJid(m_jid);
     configuration.setPassword(m_password);
     configuration.setResource("omajim");
     configuration.setAutoReconnectionEnabled(true);
     configuration.setCaCertificates(trustedCertificates());
-    const QString server = host();
+    // Never fall back to an unencrypted stream: the password and every
+    // message would go in the clear.
+    configuration.setStreamSecurityMode(QXmppConfiguration::TLSRequired);
     if (!server.isEmpty()) {
-        // "host" or "host:port", for servers without SRV records.
-        const qsizetype colon = server.lastIndexOf(':');
-        bool numeric = false;
-        const int port = colon > 0 ? server.mid(colon + 1).toInt(&numeric) : 0;
-        configuration.setHost(numeric ? server.left(colon) : server);
-        if (numeric)
-            configuration.setPort(port);
+        configuration.setHost(server);
+        configuration.setPort(port);
     }
+    trace(server.isEmpty() ? QStringLiteral("connecting through the SRV records")
+                           : QStringLiteral("connecting to %1:%2").arg(server).arg(port));
     m_client->connectToServer(configuration, presenceFor(m_status));
 }
 
@@ -566,6 +643,7 @@ void Backend::setSignedIn(bool signedIn) {
 }
 
 void Backend::syncRoster() {
+    trace(QStringLiteral("roster: %1 contacts").arg(m_roster->getRosterBareJids().size()));
     const QStringList jids = m_roster->getRosterBareJids();
     for (const QString &jid : jids)
         showContact(jid);
@@ -782,6 +860,7 @@ void Backend::syncArchive(bool firstPage) {
 }
 
 void Backend::finishArchiveSync() {
+    trace("archive: synced");
     if (m_reloadCurrentChat && !m_currentChat.isEmpty())
         m_messages.reset(m_history.recent(m_currentChat, HistoryLimit));
     m_reloadCurrentChat = false;

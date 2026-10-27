@@ -171,6 +171,8 @@ private:
     };
 
     void connectToServer();
+    // An empty server follows the domain's SRV records.
+    void connectTo(const QString &server, int port);
     void openHistory();
     void setError(const QString &text);
     void setSignedIn(bool signedIn);
@@ -265,6 +267,7 @@ private:
     QHash<qint64, Transfer> m_jobs;
 
     bool m_starting = false;
+    bool m_resolving = false;
     bool m_signedIn = false;
     QString m_jid;
     QString m_password;
