@@ -100,9 +100,67 @@ void Theme::reload() {
         if (QFileInfo::exists(path))
             m_watcher.addPath(path);
 
-    const auto accent = readAccent(m_directory + "/theme/colors.toml");
-    if (accent != m_accent) {
+    const QString path = m_directory + "/theme/colors.toml";
+    const auto accent = readAccent(path);
+    const QVariantMap colors = palette(readColors(path));
+    if (accent != m_accent || colors != m_colors) {
         m_accent = accent;
+        m_colors = colors;
         emit changed();
     }
+}
+
+QMap<QString, QColor> Theme::readColors(const QString &path) {
+    QMap<QString, QColor> values;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return values;
+    // Quoted or bare hex, with an optional comment after it.
+    const QRegularExpression entry(R"re(^\s*([a-z_]+)\s*=\s*(["']?)(#[0-9a-fA-F]{6})\2\s*(?:#.*)?\s*$)re");
+    while (!file.atEnd()) {
+        const auto match = entry.match(QString::fromUtf8(file.readLine()));
+        if (match.hasMatch())
+            values[match.captured(1)] = QColor(match.captured(3));
+    }
+    return values;
+}
+
+// The palette follows Hype (MIT, David Heinemeier Hansson): surfaces are the
+// theme's background nudged toward its foreground or accent, so every theme
+// gets a coherent set without listing them all.
+static QColor mix(const QColor &base, const QColor &ink, double amount) {
+    return QColor::fromRgbF(base.redF() + (ink.redF() - base.redF()) * amount,
+                            base.greenF() + (ink.greenF() - base.greenF()) * amount,
+                            base.blueF() + (ink.blueF() - base.blueF()) * amount);
+}
+
+static QColor contrastInk(const QColor &color) {
+    auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
+    const double luminance = .2126 * linear(color.redF()) + .7152 * linear(color.greenF()) + .0722 * linear(color.blueF());
+    return luminance > .179 ? QColor("#111111") : QColor("#ffffff");
+}
+
+QVariantMap Theme::palette(const QMap<QString, QColor> &values) {
+    // Without Omarchy: a dark neutral with the default yellow accent.
+    const QColor background = values.value("background", QColor("#16161a"));
+    const QColor foreground = values.value("foreground", QColor("#e4e4e7"));
+    const QColor accent = values.value("accent", QColor("#FFD60A"));
+    const QColor selection = values.value("selection", mix(background, accent, .3));
+    const QColor border = mix(background, foreground, .22);
+    return {{"background", background},
+            {"foreground", foreground},
+            {"accent", accent},
+            {"panel", mix(background, foreground, .025)},
+            {"button", values.value("lighter_background", mix(background, foreground, .08))},
+            {"hover", mix(background, accent, .22)},
+            {"border", border},
+            {"muted", mix(background, foreground, .62)},
+            {"selection", selection},
+            {"selectionText", contrastInk(selection)},
+            {"accentText", contrastInk(accent)},
+            {"accentHover", mix(accent, foreground, .15)},
+            {"error", values.value("red", QColor("#e5534b"))},
+            {"green", values.value("green", QColor("#4ade80"))},
+            {"yellow", values.value("yellow", QColor("#facc15"))},
+            {"orange", values.value("orange", values.value("yellow", QColor("#fb923c")))}};
 }

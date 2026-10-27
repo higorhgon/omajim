@@ -13,7 +13,7 @@ Item {
     property string presence: "offline"
     // A group chat shows # instead of an initial.
     property bool isRoom: false
-    property color ringColor: win.panelColor
+    property color ringColor: theme.colors.panel
 
     implicitWidth: 36
     implicitHeight: 36
@@ -67,7 +67,6 @@ Item {
             width: parent.width - 4
             height: width
             presence: avatar.presence
-            border.color: "#8b8b94"
         }
     }
 }

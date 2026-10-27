@@ -1,186 +1,89 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 
+// The sidebar: a search field, requests and invitations waiting for an
+// answer, then rooms and people.
 Rectangle {
     id: pane
-    color: win.panelColor
-    Material.theme: Material.Dark
-    Material.accent: theme.accent
-    Material.roundedScale: theme.radius
 
-    signal addContactRequested()
-    signal joinRoomRequested()
+    readonly property var ui: theme.colors
+    color: ui.panel
 
     function focusSearch() {
         search.forceActiveFocus()
         search.selectAll()
     }
 
-    readonly property string ownPresence: backend.connectionState === "online" ? backend.status
-                                         : backend.connectionState === "connecting" ? "connecting" : "offline"
+    // A pending question (a contact request or a room invitation), as a
+    // card with its two answers.
+    component RequestCard: Rectangle {
+        id: card
+        property string message
+        property string detail
+        property string acceptText
+        signal accept()
+        signal decline()
+
+        Layout.fillWidth: true
+        Layout.leftMargin: 12
+        Layout.rightMargin: 12
+        implicitHeight: cardColumn.implicitHeight + 24
+        radius: theme.radius
+        color: pane.ui.background
+        border.color: pane.ui.border
+
+        ColumnLayout {
+            id: cardColumn
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 6
+            Label {
+                Layout.fillWidth: true
+                text: card.message
+                color: pane.ui.foreground
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: text !== ""
+                text: card.detail
+                color: pane.ui.muted
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.topMargin: 4
+                spacing: 8
+                Item { Layout.fillWidth: true }
+                AppButton {
+                    flat: true
+                    implicitHeight: 32
+                    text: qsTr("Decline")
+                    onClicked: card.decline()
+                }
+                AppButton {
+                    primary: true
+                    implicitHeight: 32
+                    text: card.acceptText
+                    onClicked: card.accept()
+                }
+            }
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 0
+        anchors.topMargin: 12
+        spacing: 10
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.margins: 12
-            Layout.bottomMargin: 4
-            spacing: 10
-
-            PresenceDot { presence: pane.ownPresence }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
-                Label {
-                    Layout.fillWidth: true
-                    text: backend.jid
-                    color: win.textColor
-                    elide: Text.ElideRight
-                    font.weight: Font.Medium
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: win.presenceLabel(pane.ownPresence)
-                    color: win.mutedColor
-                    font.pixelSize: 12
-                    elide: Text.ElideRight
-                }
-            }
-            ToolButton {
-                Material.roundedScale: theme.radius
-                text: "⋮"
-                font.pixelSize: 18
-                onClicked: accountMenu.popup()
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Status and account")
-
-                Menu {
-                    id: accountMenu
-                    Material.roundedScale: theme.radius
-                    Repeater {
-                        model: ["online", "chat", "away", "xa", "dnd", "offline"]
-                        MenuItem {
-                            required property string modelData
-                            text: win.presenceLabel(modelData)
-                            checkable: true
-                            checked: backend.status === modelData
-                            onTriggered: backend.setStatus(modelData)
-                        }
-                    }
-                    MenuSeparator {}
-                    MenuItem {
-                        text: qsTr("Add contact…")
-                        onTriggered: pane.addContactRequested()
-                    }
-                    MenuItem {
-                        text: qsTr("Join a group chat…")
-                        onTriggered: pane.joinRoomRequested()
-                    }
-                    MenuItem {
-                        text: qsTr("Sign out")
-                        onTriggered: backend.signOut()
-                    }
-                }
-            }
-        }
-
-        Repeater {
-            model: backend.subscriptionRequests
-            delegate: Rectangle {
-                required property string modelData
-                Layout.fillWidth: true
-                Layout.leftMargin: 8
-                Layout.rightMargin: 8
-                Layout.topMargin: 6
-                implicitHeight: requestColumn.implicitHeight + 16
-                radius: theme.radius
-                color: win.surfaceColor
-
-                ColumnLayout {
-                    id: requestColumn
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 4
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("%1 wants to add you as a contact.").arg(modelData)
-                        color: win.textColor
-                        wrapMode: Text.WrapAnywhere
-                    }
-                    RowLayout {
-                        Item { Layout.fillWidth: true }
-                        Button {
-                            Material.roundedScale: theme.radius
-                            text: qsTr("Refuse")
-                            flat: true
-                            onClicked: backend.refuseRequest(modelData)
-                        }
-                        AccentButton {
-                            text: qsTr("Accept")
-                            onClicked: backend.acceptRequest(modelData)
-                        }
-                    }
-                }
-            }
-        }
-
-        Repeater {
-            model: backend.invitations
-            delegate: Rectangle {
-                required property var modelData
-                required property int index
-                Layout.fillWidth: true
-                Layout.leftMargin: 8
-                Layout.rightMargin: 8
-                Layout.topMargin: 6
-                implicitHeight: invitationColumn.implicitHeight + 16
-                radius: theme.radius
-                color: win.surfaceColor
-
-                ColumnLayout {
-                    id: invitationColumn
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 4
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("%1 invites you to %2").arg(modelData.from).arg(modelData.room)
-                        color: win.textColor
-                        wrapMode: Text.WrapAnywhere
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        visible: modelData.reason !== ""
-                        text: modelData.reason
-                        color: win.mutedColor
-                        wrapMode: Text.Wrap
-                    }
-                    RowLayout {
-                        Item { Layout.fillWidth: true }
-                        Button {
-                            Material.roundedScale: theme.radius
-                            text: qsTr("Decline")
-                            flat: true
-                            onClicked: backend.declineInvitation(index)
-                        }
-                        AccentButton {
-                            text: qsTr("Join")
-                            onClicked: backend.acceptInvitation(index)
-                        }
-                    }
-                }
-            }
-        }
-
-        TextField {
-            Material.roundedScale: Math.min(4, theme.radius)
+        AppTextField {
             id: search
             Layout.fillWidth: true
-            Layout.margins: 8
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            implicitHeight: 36
+            leftPadding: 34
             placeholderText: qsTr("Search contacts")
             onTextChanged: backend.contacts.filter = text
             Keys.onDownPressed: {
@@ -194,6 +97,39 @@ Rectangle {
                     text = ""
                 }
             }
+
+            AppIcon {
+                x: 10
+                anchors.verticalCenter: parent.verticalCenter
+                width: 16
+                height: 16
+                name: "search"
+                color: pane.ui.muted
+            }
+        }
+
+        Repeater {
+            model: backend.subscriptionRequests
+            delegate: RequestCard {
+                required property string modelData
+                message: qsTr("%1 wants to add you as a contact.").arg(modelData)
+                acceptText: qsTr("Accept")
+                onAccept: backend.acceptRequest(modelData)
+                onDecline: backend.refuseRequest(modelData)
+            }
+        }
+
+        Repeater {
+            model: backend.invitations
+            delegate: RequestCard {
+                required property var modelData
+                required property int index
+                message: qsTr("%1 invites you to %2").arg(modelData.from).arg(modelData.room)
+                detail: modelData.reason
+                acceptText: qsTr("Join")
+                onAccept: backend.acceptInvitation(index)
+                onDecline: backend.declineInvitation(index)
+            }
         }
 
         ListView {
@@ -203,6 +139,7 @@ Rectangle {
             clip: true
             model: backend.contacts
             keyNavigationEnabled: true
+            boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
 
             Keys.onReturnPressed: backend.openChat(backend.contacts.jidAt(currentIndex))
@@ -218,49 +155,60 @@ Rectangle {
                 required property string avatar
                 required property bool isRoom
 
+                readonly property bool selected: jid === backend.currentChat
+                readonly property bool focusedRow: list.activeFocus && ListView.isCurrentItem
+                readonly property color ink: selected ? pane.ui.selectionText : pane.ui.foreground
+
                 width: ListView.view.width
-                height: 54
-                highlighted: jid === backend.currentChat || (list.activeFocus && ListView.isCurrentItem)
+                height: 56
+                leftPadding: 20
+                rightPadding: 16
                 onClicked: backend.openChat(jid)
+
+                background: Rectangle {
+                    color: row.selected ? pane.ui.selection
+                         : row.hovered || row.focusedRow ? pane.ui.hover : "transparent"
+                }
 
                 TapHandler {
                     acceptedButtons: Qt.RightButton
                     onTapped: contactMenu.popup()
                 }
-                Menu {
+                AppMenu {
                     id: contactMenu
-                    Material.roundedScale: theme.radius
-                    MenuItem {
+                    AppMenuItem {
                         text: row.isRoom ? qsTr("Leave %1").arg(row.name) : qsTr("Remove %1").arg(row.name)
+                        destructive: true
                         onTriggered: row.isRoom ? backend.leaveRoom(row.jid) : backend.removeContact(row.jid)
                     }
                 }
 
                 contentItem: RowLayout {
-                    spacing: 10
+                    spacing: 12
                     ContactAvatar {
                         jid: row.jid
                         name: row.name
                         source: row.avatar
                         presence: row.presence
                         isRoom: row.isRoom
-                        // Under the highlight, the ring takes its color.
-                        ringColor: row.highlighted ? Qt.lighter(win.panelColor, 1.6) : win.panelColor
+                        // The ring takes the row's color, so the dot stands apart.
+                        ringColor: row.background.color.a > 0 ? row.background.color : pane.ui.panel
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 0
+                        spacing: 1
                         Label {
                             Layout.fillWidth: true
                             text: row.name
-                            color: win.textColor
+                            color: row.ink
                             elide: Text.ElideRight
                             font.weight: row.unread > 0 ? Font.DemiBold : Font.Normal
                         }
                         Label {
                             Layout.fillWidth: true
                             text: row.statusText !== "" ? row.statusText : row.jid
-                            color: win.mutedColor
+                            color: row.selected ? row.ink : pane.ui.muted
+                            opacity: row.selected ? 0.75 : 1
                             font.pixelSize: 12
                             elide: Text.ElideRight
                         }
@@ -270,14 +218,14 @@ Rectangle {
                         implicitWidth: Math.max(20, unreadLabel.implicitWidth + 10)
                         implicitHeight: 20
                         radius: 10
-                        color: theme.accent
+                        color: pane.ui.accent
                         Label {
                             id: unreadLabel
                             anchors.centerIn: parent
                             text: translator.language, row.unread.toLocaleString(Qt.locale(), 'f', 0)
-                            color: theme.accentForeground
+                            color: pane.ui.accentText
                             font.pixelSize: 11
-                            font.weight: Font.DemiBold
+                            font.bold: true
                         }
                     }
                 }
@@ -285,11 +233,11 @@ Rectangle {
 
             Label {
                 anchors.centerIn: parent
-                width: parent.width - 32
+                width: parent.width - 40
                 visible: list.count === 0
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                color: win.mutedColor
+                color: pane.ui.muted
                 text: search.text !== "" ? qsTr("No contact matches “%1”.").arg(search.text)
                     : backend.connectionState === "online" ? qsTr("No contacts yet. Ctrl+N adds one.")
                     : qsTr("Contacts show up once you're connected.")

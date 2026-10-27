@@ -1,13 +1,14 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-Item {
+// The open conversation, on the theme's background like Hype's stage: who
+// it's with, the messages, and the field to write in.
+Rectangle {
     id: pane
-    Material.theme: Material.Dark
-    Material.accent: theme.accent
-    Material.roundedScale: theme.radius
+
+    readonly property var ui: theme.colors
+    color: ui.background
 
     function send() {
         if (backend.sendMessage(composer.text))
@@ -25,17 +26,25 @@ Item {
     ColumnLayout {
         anchors.centerIn: parent
         visible: backend.currentChat === ""
-        spacing: 6
-        Label {
+        spacing: 8
+        AppIcon {
             Layout.alignment: Qt.AlignHCenter
-            text: qsTr("Pick a conversation")
-            color: win.textColor
-            font.pixelSize: 18
+            Layout.preferredWidth: 40
+            Layout.preferredHeight: 40
+            name: "message"
+            color: pane.ui.border
         }
         Label {
             Layout.alignment: Qt.AlignHCenter
-            text: qsTr("Ctrl+K searches your contacts. F1 lists every shortcut.")
-            color: win.mutedColor
+            text: qsTr("Pick a conversation")
+            color: pane.ui.foreground
+            font.pixelSize: 16
+            font.bold: true
+        }
+        Label {
+            Layout.alignment: Qt.AlignHCenter
+            text: qsTr("Ctrl+K searches your contacts. ? lists every shortcut.")
+            color: pane.ui.muted
         }
     }
 
@@ -46,8 +55,11 @@ Item {
 
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: 14
-            spacing: 10
+            Layout.preferredHeight: 60
+            Layout.leftMargin: 20
+            Layout.rightMargin: 14
+            spacing: 12
+
             ContactAvatar {
                 implicitWidth: 32
                 implicitHeight: 32
@@ -56,49 +68,54 @@ Item {
                 source: backend.currentChatAvatar
                 presence: backend.currentChatPresence
                 isRoom: backend.currentChatIsRoom
-                ringColor: win.color
+                ringColor: pane.ui.background
             }
-            Label {
-                text: backend.currentChatName
-                color: win.textColor
-                font.pixelSize: 17
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
-                Layout.maximumWidth: pane.width * 0.45
-            }
-            Label {
+            ColumnLayout {
                 Layout.fillWidth: true
+                spacing: 1
+                Label {
+                    Layout.fillWidth: true
+                    text: backend.currentChatName
+                    color: pane.ui.foreground
+                    font.pixelSize: 15
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
                 // A room shows its subject, or whether we're in it; a person
-                // their status.
-                text: backend.currentChatIsRoom
-                      ? (backend.currentChatStatusText !== "" ? backend.currentChatStatusText
-                         : backend.currentChatPresence === "online" ? qsTr("Group chat") : qsTr("Not in the room"))
-                      : backend.currentChatTyping ? qsTr("typing…")
-                      : backend.currentChatStatusText !== ""
-                      ? "%1 — %2".arg(win.presenceLabel(backend.currentChatPresence)).arg(backend.currentChatStatusText)
-                      : win.presenceLabel(backend.currentChatPresence)
-                color: backend.currentChatTyping && !backend.currentChatIsRoom ? theme.accent : win.mutedColor
-                elide: Text.ElideRight
+                // their status, or that they're typing.
+                Label {
+                    Layout.fillWidth: true
+                    text: backend.currentChatIsRoom
+                          ? (backend.currentChatStatusText !== "" ? backend.currentChatStatusText
+                             : backend.currentChatPresence === "online" ? qsTr("Group chat") : qsTr("Not in the room"))
+                          : backend.currentChatTyping ? qsTr("typing…")
+                          : backend.currentChatStatusText !== ""
+                          ? "%1 — %2".arg(win.presenceLabel(backend.currentChatPresence)).arg(backend.currentChatStatusText)
+                          : win.presenceLabel(backend.currentChatPresence)
+                    color: backend.currentChatTyping && !backend.currentChatIsRoom ? pane.ui.accent : pane.ui.muted
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                }
             }
-            Button {
-                Material.roundedScale: theme.radius
+            AppButton {
+                id: peopleButton
                 visible: backend.currentChatIsRoom && backend.currentRoomParticipants.length > 0
                 flat: true
+                implicitHeight: 32
                 text: qsTr("%n people", "", backend.currentRoomParticipants.length)
                 onClicked: participantsPopup.open()
 
                 Popup {
                     id: participantsPopup
-                    y: parent.height
+                    y: parent.height + 4
                     x: parent.width - width
                     width: 240
-                    height: Math.min(360, participantList.contentHeight + 16)
-                    padding: 8
-                    Material.roundedScale: theme.radius
+                    height: Math.min(360, participantList.contentHeight + 12)
+                    padding: 6
                     background: Rectangle {
                         radius: theme.radius
-                        color: win.panelColor
-                        border.color: win.lineColor
+                        color: pane.ui.panel
+                        border.color: pane.ui.border
                     }
                     ListView {
                         id: participantList
@@ -109,9 +126,12 @@ Item {
                         delegate: Label {
                             required property string modelData
                             width: ListView.view.width
-                            padding: 6
+                            height: 30
+                            leftPadding: 10
+                            verticalAlignment: Text.AlignVCenter
                             text: modelData
-                            color: win.textColor
+                            color: pane.ui.foreground
+                            font.pixelSize: 13
                             elide: Text.ElideRight
                         }
                     }
@@ -120,8 +140,10 @@ Item {
         }
         Rectangle {
             Layout.fillWidth: true
+            Layout.leftMargin: 20
+            Layout.rightMargin: 20
             Layout.preferredHeight: 1
-            color: win.lineColor
+            color: pane.ui.border
         }
 
         ListView {
@@ -129,10 +151,11 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 6
-            topMargin: 12
-            bottomMargin: 12
+            spacing: 8
+            topMargin: 16
+            bottomMargin: 16
             model: backend.messages
+            boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
             delegate: ChatLine {}
 
@@ -146,61 +169,68 @@ Item {
                 anchors.centerIn: parent
                 visible: messages.count === 0
                 text: qsTr("No messages with %1 yet.").arg(backend.currentChatName)
-                color: win.mutedColor
+                color: pane.ui.muted
             }
         }
 
+        // The message field, framed like Hype's editors: the panel color,
+        // a border that takes the accent while you write.
         Rectangle {
             Layout.fillWidth: true
-            Layout.margins: 12
-            Layout.topMargin: 0
-            implicitHeight: Math.min(160, composerRow.implicitHeight + 12)
+            Layout.leftMargin: 20
+            Layout.rightMargin: 20
+            Layout.bottomMargin: 20
+            implicitHeight: Math.min(180, composerRow.implicitHeight + 16)
             radius: theme.radius
-            color: win.surfaceColor
-            border.color: composer.activeFocus ? theme.accent : win.lineColor
+            color: pane.ui.panel
+            border.color: composer.activeFocus ? pane.ui.accent : pane.ui.border
 
             RowLayout {
                 id: composerRow
                 anchors.fill: parent
-                anchors.margins: 6
-                spacing: 4
+                anchors.margins: 8
+                spacing: 6
 
-                ToolButton {
-                    Material.roundedScale: theme.radius
+                IconButton {
+                    id: attachButton
                     Layout.alignment: Qt.AlignBottom
-                    text: "+"
-                    font.pixelSize: 20
-                    onClicked: sendMenu.popup()
-                    ToolTip.visible: hovered && !sendMenu.visible
-                    ToolTip.text: qsTr("Send a file")
+                    iconName: "paperclip"
+                    description: qsTr("Send a file")
+                    checked: sendMenu.visible
+                    onClicked: sendMenu.visible ? sendMenu.close() : sendMenu.popup(attachButton, 0, -sendMenu.implicitHeight - 4)
 
-                    Menu {
+                    AppMenu {
                         id: sendMenu
-                        Material.roundedScale: theme.radius
-                        MenuItem {
-                            text: qsTr("Through the server (Ctrl+O)")
+                        AppMenuItem {
+                            text: qsTr("Through the server")
+                            hint: "Ctrl+O"
                             enabled: backend.serverUploadAvailable
                             onTriggered: backend.chooseFileToSend("server")
                         }
                         // Straight to the person's device, as Pidgin takes
                         // files; a room has no device to send to.
-                        MenuItem {
-                            text: qsTr("Directly (Ctrl+Shift+O)")
+                        AppMenuItem {
+                            text: qsTr("Directly")
+                            hint: "Ctrl+Shift+O"
                             enabled: !backend.currentChatIsRoom
                             onTriggered: backend.chooseFileToSend("direct")
                         }
                     }
                 }
+
                 ScrollView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.minimumHeight: 40
+                    Layout.minimumHeight: 36
                     TextArea {
                         id: composer
                         wrapMode: TextEdit.Wrap
                         background: null
-                        color: win.textColor
-                        // Enter sends; Shift+Enter starts a new line.
+                        color: pane.ui.foreground
+                        selectionColor: pane.ui.selection
+                        selectedTextColor: pane.ui.selectionText
+                        font.pixelSize: 14
+                        verticalAlignment: TextEdit.AlignVCenter
                         onTextChanged: backend.setComposing(text.length > 0)
                         // Up in an empty field brings back our last line to correct.
                         Keys.onUpPressed: event => {
@@ -220,6 +250,7 @@ Item {
                                 event.accepted = false
                             }
                         }
+                        // Enter sends; Shift+Enter starts a new line.
                         Keys.onReturnPressed: event => {
                             if (event.modifiers & Qt.ShiftModifier)
                                 event.accepted = false
@@ -233,17 +264,18 @@ Item {
                             y: composer.topPadding
                             visible: composer.text === "" && !composer.preeditText
                             text: backend.editing ? qsTr("Correcting your last message (Esc cancels)")
-                                  : backend.connectionState === "online"
-                                  ? qsTr("Message %1").arg(backend.currentChatName)
+                                  : backend.connectionState === "online" ? qsTr("Message %1").arg(backend.currentChatName)
                                   : qsTr("You're offline")
-                            color: win.mutedColor
+                            color: backend.editing ? pane.ui.accent : pane.ui.muted
                             font: composer.font
                         }
                     }
                 }
-                AccentButton {
+
+                AppButton {
                     Layout.alignment: Qt.AlignBottom
-                    text: qsTr("Send")
+                    primary: true
+                    text: backend.editing ? qsTr("Correct") : qsTr("Send")
                     enabled: composer.text.trim() !== "" && backend.connectionState === "online"
                     onClicked: pane.send()
                 }
@@ -263,16 +295,16 @@ Item {
         }
         Rectangle {
             anchors.fill: parent
-            anchors.margins: 8
+            anchors.margins: 12
             visible: parent.containsDrag
             radius: theme.radius
-            color: Qt.alpha(theme.accent, 0.08)
-            border.color: theme.accent
+            color: Qt.alpha(pane.ui.accent, 0.08)
+            border.color: pane.ui.accent
             border.width: 2
             Label {
                 anchors.centerIn: parent
                 text: qsTr("Drop to send to %1").arg(backend.currentChatName)
-                color: win.textColor
+                color: pane.ui.foreground
                 font.pixelSize: 16
             }
         }

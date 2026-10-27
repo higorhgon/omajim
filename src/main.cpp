@@ -1,6 +1,10 @@
 // Omajim: an XMPP chat client for Omarchy.
 
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusVariant>
 #include <QDir>
+#include <QFont>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -19,7 +23,29 @@
 #include "tray.h"
 #include "translator.h"
 
+// The desktop's interface font, e.g. "Adwaita Sans 11", from the settings
+// portal, as Hype does; without it Qt's default font stays.
+static void adoptDesktopFont() {
+    auto call = QDBusMessage::createMethodCall("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+                                               "org.freedesktop.portal.Settings", "ReadOne");
+    call.setArguments({"org.gnome.desktop.interface", "font-name"});
+    const auto reply = QDBusConnection::sessionBus().call(call, QDBus::Block, 500);
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty())
+        return;
+    const QString name = reply.arguments().first().value<QDBusVariant>().variant().toString();
+    const int space = name.lastIndexOf(' ');
+    const double size = name.mid(space + 1).toDouble();
+    if (space <= 0 || size <= 0)
+        return;
+    QFont font(name.left(space));
+    font.setPointSizeF(size);
+    QGuiApplication::setFont(font);
+}
+
 int main(int argc, char *argv[]) {
+    // Omajim draws every control in the Omarchy theme's colors itself; the
+    // gtk3 platform theme would only bring GTK's own look and font rules.
+    qputenv("QT_QPA_PLATFORMTHEME", "generic");
     QGuiApplication app(argc, argv);
     app.setApplicationName("omajim");
     app.setApplicationVersion("0.1.0");
@@ -37,7 +63,10 @@ int main(int argc, char *argv[]) {
     // the app decides itself when to quit.
     app.setQuitOnLastWindowClosed(false);
 
-    QQuickStyle::setStyle("Material");
+    adoptDesktopFont();
+    // The plain Basic style, restyled in QML with the theme's palette, the
+    // way Omarchy's own apps (Hype) look.
+    QQuickStyle::setStyle("Basic");
 
     // Installed before anything is translated, and every qsTr() binding is
     // re-evaluated when the Omarchy language changes.

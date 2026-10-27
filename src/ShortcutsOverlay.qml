@@ -1,88 +1,100 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-Rectangle {
+// Every shortcut, grouped, in the layout of Hype's overlay.
+Popup {
     id: overlay
-    Material.theme: Material.Dark
-    Material.accent: theme.accent
-    Material.roundedScale: theme.radius
-    color: Qt.rgba(0, 0, 0, 0.6)
 
-    signal closeRequested()
+    readonly property var ui: theme.colors
 
-    readonly property var shortcuts: [
-        ["Ctrl+K", qsTr("Search contacts")],
-        ["Alt+↑ / Alt+↓", qsTr("Previous or next conversation")],
-        ["Enter", qsTr("Send the message")],
-        ["Shift+Enter", qsTr("New line in the message")],
-        ["↑", qsTr("Correct your last message")],
-        ["Ctrl+O", qsTr("Send a file through the server")],
-        ["Ctrl+Shift+O", qsTr("Send a file directly")],
-        ["Ctrl+N", qsTr("Add a contact")],
-        ["Ctrl+J", qsTr("Join a group chat")],
-        ["Ctrl+W", qsTr("Close the conversation")],
-        ["F1", qsTr("Show or hide these shortcuts")],
-        ["Ctrl+Q", qsTr("Quit")],
-    ]
-
-    MouseArea {
-        anchors.fill: parent
-        onClicked: overlay.closeRequested()
+    parent: Overlay.overlay
+    anchors.centerIn: parent
+    modal: true
+    focus: true
+    padding: 28
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.35) }
+    background: Rectangle {
+        color: Qt.alpha(overlay.ui.panel, 0.96)
+        border.color: overlay.ui.accent
+        border.width: 2
+        radius: theme.radius
     }
 
-    Rectangle {
-        anchors.centerIn: parent
-        width: Math.min(520, parent.width - 32)
-        height: column.implicitHeight + 48
-        radius: theme.radius
-        color: win.panelColor
-        border.color: win.lineColor
+    readonly property var groups: [
+        { title: qsTr("Conversations"), keys: [
+            ["Ctrl+K", qsTr("Search contacts")],
+            ["Alt+↑ / Alt+↓", qsTr("Previous or next conversation")],
+            ["Ctrl+W", qsTr("Close the conversation")],
+            ["Ctrl+N", qsTr("Add a contact")],
+            ["Ctrl+J", qsTr("Join a group chat")] ] },
+        { title: qsTr("Writing"), keys: [
+            ["Enter", qsTr("Send the message")],
+            ["Shift+Enter", qsTr("New line in the message")],
+            ["↑", qsTr("Correct your last message")],
+            ["Esc", qsTr("Stop correcting")] ] },
+        { title: qsTr("Files"), keys: [
+            ["Ctrl+O", qsTr("Send a file through the server")],
+            ["Ctrl+Shift+O", qsTr("Send a file directly")] ] },
+        { title: qsTr("Window"), keys: [
+            ["? / F1", qsTr("Show these shortcuts")],
+            ["Ctrl+Q", qsTr("Quit")] ] }
+    ]
 
-        ColumnLayout {
-            id: column
-            anchors.fill: parent
-            anchors.margins: 24
-            spacing: 16
-
-            Label {
-                text: qsTr("Keyboard shortcuts")
-                color: win.textColor
-                font.pixelSize: 18
-                font.weight: Font.DemiBold
+    contentItem: ColumnLayout {
+        spacing: 22
+        focus: true
+        // Window shortcuts stand down while a modal popup is open, so close from here.
+        Keys.onPressed: event => {
+            if (event.text === "?" || event.key === Qt.Key_F1) {
+                overlay.close()
+                event.accepted = true
             }
+        }
 
-            GridLayout {
-                id: grid
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: 24
-                rowSpacing: 10
+        Label {
+            text: qsTr("Keyboard shortcuts")
+            font.pixelSize: 16
+            font.bold: true
+            color: overlay.ui.foreground
+        }
+        GridLayout {
+            columns: win.width < 820 ? 1 : 2
+            columnSpacing: 48
+            rowSpacing: 22
 
-                Repeater {
-                    model: overlay.shortcuts
-                    delegate: Label {
-                        required property var modelData
-                        required property int index
-                        text: modelData[0]
-                        color: theme.accent
-                        font.family: "monospace"
-                        Layout.row: index
-                        Layout.column: 0
+            Repeater {
+                model: overlay.groups
+                ColumnLayout {
+                    required property var modelData
+                    Layout.alignment: Qt.AlignTop
+                    spacing: 7
+                    Label {
+                        Layout.bottomMargin: 2
+                        text: modelData.title.toUpperCase()
+                        font.pixelSize: 11
+                        font.letterSpacing: 1
+                        color: overlay.ui.accent
                     }
-                }
-                Repeater {
-                    model: overlay.shortcuts
-                    delegate: Label {
-                        required property var modelData
-                        required property int index
-                        text: modelData[1]
-                        color: win.textColor
-                        Layout.fillWidth: true
-                        wrapMode: Text.Wrap
-                        Layout.row: index
-                        Layout.column: 1
+                    Repeater {
+                        model: modelData.keys
+                        RowLayout {
+                            required property var modelData
+                            spacing: 14
+                            Label {
+                                Layout.preferredWidth: 130
+                                text: modelData[0].replace(/\+/g, " + ")
+                                font.family: "monospace"
+                                font.pixelSize: 12
+                                color: overlay.ui.foreground
+                            }
+                            Label {
+                                text: modelData[1]
+                                font.pixelSize: 13
+                                color: overlay.ui.muted
+                            }
+                        }
                     }
                 }
             }

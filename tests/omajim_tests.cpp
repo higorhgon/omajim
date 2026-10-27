@@ -75,6 +75,28 @@ private slots:
         QCOMPARE(theme.accentForeground(), QString("white"));
     }
 
+    void themeBuildsThePaletteFromTheTheme() {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("theme");
+        write(dir.path() + "/theme/colors.toml",
+              "accent = \"#89b4fa\"\nbackground = \"#1e1e2e\"\nforeground = '#cdd6f4' # text\nred = \"#f38ba8\"\n");
+        Theme theme(dir.path());
+        const QVariantMap colors = theme.colors();
+        QCOMPARE(colors.value("background").value<QColor>(), QColor("#1e1e2e"));
+        QCOMPARE(colors.value("error").value<QColor>(), QColor("#f38ba8"));
+        // Text on the accent stays readable: dark on this light blue.
+        QCOMPARE(colors.value("accentText").value<QColor>(), QColor("#111111"));
+        // Surfaces sit between the background and the text.
+        const QColor panel = colors.value("panel").value<QColor>();
+        QVERIFY(panel != QColor("#1e1e2e") && panel.lightness() < QColor("#cdd6f4").lightness());
+
+        // Without Omarchy, a full palette still comes out.
+        QTemporaryDir empty;
+        Theme fallback(empty.path());
+        QCOMPARE(fallback.colors().value("accent").value<QColor>(), QColor("#FFD60A"));
+        QVERIFY(fallback.colors().contains("selectionText"));
+    }
+
     void themeFollowsHyprlandRounding() {
         QTemporaryDir dir;
         const QString response = dir.filePath("response.json"), command = dir.filePath("hyprctl");

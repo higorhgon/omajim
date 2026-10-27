@@ -1,14 +1,22 @@
 <RCC>
     <qresource prefix="/">
-        <file alias="Main.qml">Main.qml</file>
-        <file alias="AccentButton.qml">AccentButton.qml</file>
-        <file alias="SignInView.qml">SignInView.qml</file>
-        <file alias="ContactPane.qml">ContactPane.qml</file>
-        <file alias="ChatPane.qml">ChatPane.qml</file>
+        <file alias="AppButton.qml">AppButton.qml</file>
+        <file alias="AppDialog.qml">AppDialog.qml</file>
+        <file alias="AppIcon.qml">AppIcon.qml</file>
+        <file alias="AppMenu.qml">AppMenu.qml</file>
+        <file alias="AppMenuItem.qml">AppMenuItem.qml</file>
+        <file alias="AppMenuSeparator.qml">AppMenuSeparator.qml</file>
+        <file alias="AppTextField.qml">AppTextField.qml</file>
         <file alias="ChatLine.qml">ChatLine.qml</file>
-        <file alias="PresenceDot.qml">PresenceDot.qml</file>
+        <file alias="ChatPane.qml">ChatPane.qml</file>
         <file alias="ContactAvatar.qml">ContactAvatar.qml</file>
+        <file alias="ContactPane.qml">ContactPane.qml</file>
+        <file alias="IconButton.qml">IconButton.qml</file>
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="PresenceDot.qml">PresenceDot.qml</file>
         <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>
+        <file alias="SignInView.qml">SignInView.qml</file>
+        <file alias="StatusPicker.qml">StatusPicker.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/pt-BR.json">i18n/pt-BR.json</file>
     </qresource>

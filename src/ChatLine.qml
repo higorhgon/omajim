@@ -1,15 +1,11 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 
 // One line of the conversation: a message bubble, or a file with its
 // transfer state. A full-width item, since ListView pins delegates to x: 0.
 Item {
     id: line
-    Material.theme: Material.Dark
-    Material.accent: theme.accent
-    Material.roundedScale: theme.radius
 
     required property var messageId
     required property string body
@@ -24,6 +20,8 @@ Item {
     required property string sender
     required property string url
     required property bool edited
+
+    readonly property var ui: theme.colors
 
     width: ListView.view.width
     height: bubble.height
@@ -41,13 +39,14 @@ Item {
         }
         return qsTr("Failed")
     }
+    readonly property bool busy: ["active", "uploading", "downloading"].indexOf(transferState) >= 0
 
     Text {
         id: senderMeasure
         visible: false
         text: line.outgoing ? "" : line.sender
         font.pixelSize: 12
-        font.weight: Font.DemiBold
+        font.bold: true
     }
 
     Text {
@@ -60,22 +59,23 @@ Item {
 
     Rectangle {
         id: bubble
-        x: line.outgoing ? line.width - width - 16 : 16
+        x: line.outgoing ? line.width - width - 20 : 20
         // Sized from the text laid out on one line, so short messages get a
         // snug bubble and long ones wrap at the maximum width.
-        width: Math.min(line.width * 0.72, line.kind === "file" ? 320
-                        : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2, 64) + 24)
-        height: content.implicitHeight + 16
+        width: Math.min(line.width * 0.72, line.kind === "file" ? 340
+                        : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2, 64) + 28)
+        height: content.implicitHeight + 20
         radius: theme.radius
-        color: line.outgoing ? Qt.alpha(theme.accent, 0.16) : win.surfaceColor
-        border.color: line.outgoing ? Qt.alpha(theme.accent, 0.35) : win.lineColor
+        // Ours in a tint of the accent, theirs on the theme's button color.
+        color: line.outgoing ? Qt.tint(line.ui.background, Qt.alpha(line.ui.accent, 0.16)) : line.ui.button
+        border.color: line.outgoing ? Qt.alpha(line.ui.accent, 0.4) : "transparent"
 
         ColumnLayout {
             id: content
             anchors.fill: parent
-            anchors.margins: 8
-            anchors.leftMargin: 12
-            anchors.rightMargin: 12
+            anchors.margins: 10
+            anchors.leftMargin: 14
+            anchors.rightMargin: 14
             spacing: 4
 
             // In a group chat, who wrote it, in a color that stays theirs.
@@ -83,7 +83,7 @@ Item {
                 visible: !line.outgoing && line.sender !== ""
                 text: line.sender
                 font.pixelSize: 12
-                font.weight: Font.DemiBold
+                font.bold: true
                 color: {
                     let hash = 0
                     for (let i = 0; i < line.sender.length; ++i)
@@ -100,69 +100,103 @@ Item {
                 readOnly: true
                 selectByMouse: true
                 wrapMode: TextEdit.Wrap
-                color: win.textColor
-                selectionColor: theme.accent
-                selectedTextColor: theme.accentForeground
+                color: line.ui.foreground
+                selectionColor: line.ui.selection
+                selectedTextColor: line.ui.selectionText
                 font.pixelSize: 14
             }
 
-            ColumnLayout {
+            RowLayout {
                 visible: line.kind === "file"
                 Layout.fillWidth: true
-                spacing: 4
+                spacing: 12
 
-                Label {
+                Rectangle {
+                    Layout.alignment: Qt.AlignTop
+                    implicitWidth: 40
+                    implicitHeight: 40
+                    radius: Math.min(4, theme.radius)
+                    color: line.ui.background
+                    border.color: line.ui.border
+                    AppIcon {
+                        anchors.centerIn: parent
+                        width: 20
+                        height: 20
+                        name: "file"
+                        color: line.ui.accent
+                    }
+                }
+
+                ColumnLayout {
                     Layout.fillWidth: true
-                    text: line.body
-                    color: win.textColor
-                    font.weight: Font.Medium
-                    elide: Text.ElideMiddle
-                }
-                Label {
-                    text: line.fileSize !== "" ? "%1 · %2".arg(line.fileSize).arg(line.stateLabel) : line.stateLabel
-                    color: win.mutedColor
-                    font.pixelSize: 12
-                }
-                ProgressBar {
-                    Layout.fillWidth: true
-                    visible: ["active", "uploading", "downloading"].indexOf(line.transferState) >= 0
-                    value: line.progress
-                }
-                RowLayout {
                     spacing: 4
-                    // A file on the server comes down only when asked for.
-                    AccentButton {
-                        visible: !line.outgoing && line.url !== ""
-                                 && ["remote", "failed", "canceled"].indexOf(line.transferState) >= 0
-                        text: line.transferState === "remote" ? qsTr("Download") : qsTr("Try again")
-                        onClicked: backend.downloadFile(line.messageId)
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: line.body
+                        color: line.ui.foreground
+                        font.bold: true
+                        elide: Text.ElideMiddle
                     }
-                    AccentButton {
-                        visible: !line.outgoing && line.transferState === "offered"
-                        text: qsTr("Accept")
-                        onClicked: backend.acceptFile(line.messageId)
+                    Label {
+                        Layout.fillWidth: true
+                        text: line.fileSize !== "" ? "%1 · %2".arg(line.fileSize).arg(line.stateLabel) : line.stateLabel
+                        color: line.transferState === "failed" ? line.ui.error : line.ui.muted
+                        font.pixelSize: 12
                     }
-                    Button {
-                        Material.roundedScale: theme.radius
-                        visible: !line.outgoing && line.transferState === "offered"
-                        text: qsTr("Decline")
-                        flat: true
-                        onClicked: backend.refuseFile(line.messageId)
+                    // A thin bar in the accent, like Hype's export progress.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 2
+                        visible: line.busy
+                        implicitHeight: 3
+                        radius: 1.5
+                        color: line.ui.border
+                        Rectangle {
+                            width: parent.width * line.progress
+                            height: parent.height
+                            radius: parent.radius
+                            color: line.ui.accent
+                        }
                     }
-                    Button {
-                        Material.roundedScale: theme.radius
-                        visible: ["active", "uploading", "downloading"].indexOf(line.transferState) >= 0
-                                 || (line.outgoing && line.transferState === "offered")
-                        text: qsTr("Cancel")
-                        flat: true
-                        onClicked: backend.cancelTransfer(line.messageId)
-                    }
-                    Button {
-                        Material.roundedScale: theme.radius
-                        visible: line.transferState === "done" && line.filePath !== ""
-                        text: qsTr("Open")
-                        flat: true
-                        onClicked: backend.openFile(line.filePath)
+                    RowLayout {
+                        Layout.topMargin: 4
+                        spacing: 8
+                        // A file on the server comes down only when asked for.
+                        AppButton {
+                            visible: !line.outgoing && line.url !== ""
+                                     && ["remote", "failed", "canceled"].indexOf(line.transferState) >= 0
+                            primary: true
+                            implicitHeight: 32
+                            text: line.transferState === "remote" ? qsTr("Download") : qsTr("Try again")
+                            onClicked: backend.downloadFile(line.messageId)
+                        }
+                        AppButton {
+                            visible: !line.outgoing && line.transferState === "offered"
+                            primary: true
+                            implicitHeight: 32
+                            text: qsTr("Accept")
+                            onClicked: backend.acceptFile(line.messageId)
+                        }
+                        AppButton {
+                            visible: !line.outgoing && line.transferState === "offered"
+                            flat: true
+                            implicitHeight: 32
+                            text: qsTr("Decline")
+                            onClicked: backend.refuseFile(line.messageId)
+                        }
+                        AppButton {
+                            visible: line.busy || (line.outgoing && line.transferState === "offered")
+                            implicitHeight: 32
+                            text: qsTr("Cancel")
+                            onClicked: backend.cancelTransfer(line.messageId)
+                        }
+                        AppButton {
+                            visible: line.transferState === "done" && line.filePath !== ""
+                            implicitHeight: 32
+                            text: qsTr("Open")
+                            onClicked: backend.openFile(line.filePath)
+                        }
                     }
                 }
             }
@@ -180,25 +214,23 @@ Item {
                         return today ? line.stamp.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
                                      : line.stamp.toLocaleString(Qt.locale(), Locale.ShortFormat)
                     }
-                    color: win.mutedColor
+                    color: line.ui.muted
                     font.pixelSize: 11
                 }
-
                 Label {
                     visible: line.edited
                     text: qsTr("(edited)")
-                    color: win.mutedColor
+                    color: line.ui.muted
                     font.pixelSize: 11
                     font.italic: true
                 }
-
                 // The other side's client confirmed it arrived (XEP-0184).
-                Label {
-                    visible: line.outgoing && line.kind === "text" && line.delivered
-                    text: "✓"
-                    color: theme.accent
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
+                AppIcon {
+                    visible: line.outgoing && line.delivered
+                    implicitWidth: 13
+                    implicitHeight: 13
+                    name: "check"
+                    color: line.ui.accent
                     ToolTip.visible: deliveredHover.hovered
                     ToolTip.text: qsTr("Delivered")
                     HoverHandler { id: deliveredHover }

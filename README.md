@@ -36,8 +36,10 @@ janela: seus contatos à esquerda e a conversa à direita.
   substituído.
 - A senha fica no chaveiro da sessão (Secret Service, via `secret-tool`),
   nunca num arquivo de configuração.
-- Segue a cor de destaque do tema do Omarchy, o arredondamento das janelas do
-  Hyprland e o idioma escolhido em Setup > Language, tudo ao vivo.
+- Visual dos apps do Omarchy, no estilo do [Hype](https://github.com/omacom/hype):
+  usa a paleta inteira do tema atual (fundo, texto, destaque, seleção), a
+  fonte do sistema, o arredondamento das janelas do Hyprland e o idioma
+  escolhido em Setup > Language, tudo ao vivo.
 - Certificados autoassinados: o Omajim mostra a impressão digital SHA-256 e
   só se autentica depois que você confia no certificado.
 - Fica na bandeja: fechar a janela só a esconde e o Omajim continua
@@ -65,12 +67,13 @@ no Gajim, continua na branch `main`.
 | Ctrl+N | Adicionar um contato |
 | Ctrl+J | Entrar numa sala |
 | Ctrl+W | Fechar a conversa |
-| F1 ou Ctrl+/ | Mostrar os atalhos |
+| ? (fora do campo de texto), F1 ou Ctrl+/ | Mostrar os atalhos |
+| ↑ (campo vazio) | Corrigir a última mensagem |
 | Ctrl+Q | Sair |
 
-Num app de chat, teclas sozinhas como `?` e `Q` cairiam no campo de
-mensagem, por isso todos os atalhos usam um modificador ou uma tecla de
-função.
+Num app de chat quase sempre se está digitando, então os atalhos usam um
+modificador. A exceção é o `?`, que mostra os atalhos como nos outros apps
+do Omarchy, mas só quando o foco não está num campo de texto.
 
 ## Firewall para o envio direto
 
