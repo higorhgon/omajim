@@ -17,6 +17,8 @@ ComboBox {
     implicitHeight: 36
     leftPadding: 10
     rightPadding: 30
+    topPadding: 0
+    bottomPadding: 0
     font.pixelSize: 13
     Accessible.name: qsTr("Status: %1").arg(win.presenceLabel(backend.status))
 
@@ -28,6 +30,8 @@ ComboBox {
             presence: backend.status
         }
         Label {
+            Layout.fillHeight: true
+            verticalAlignment: Text.AlignVCenter
             text: win.presenceLabel(backend.status)
             font: picker.font
             color: picker.hovered || picker.popup.visible ? picker.ui.foreground : picker.ui.muted
@@ -55,6 +59,12 @@ ComboBox {
         required property int index
         width: picker.popup.availableWidth
         height: 32
+        // The Basic style's own padding would squeeze the row below its
+        // text, pushing it down; the row centers it instead.
+        topPadding: 0
+        bottomPadding: 0
+        leftPadding: 10
+        rightPadding: 10
         highlighted: picker.highlightedIndex === index
         contentItem: RowLayout {
             spacing: 10
@@ -65,6 +75,8 @@ ComboBox {
             }
             Label {
                 Layout.fillWidth: true
+                Layout.fillHeight: true
+                verticalAlignment: Text.AlignVCenter
                 text: win.presenceLabel(option.modelData)
                 font.pixelSize: 13
                 color: picker.ui.foreground

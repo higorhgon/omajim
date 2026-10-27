@@ -218,10 +218,13 @@ Rectangle {
                     }
                 }
 
+                // As tall as its text, centered in the frame, so the
+                // placeholder sits where the first line will; it grows with
+                // more lines and scrolls past the frame's height.
                 ScrollView {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumHeight: 36
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredHeight: Math.min(composer.implicitHeight, 160)
                     TextArea {
                         id: composer
                         wrapMode: TextEdit.Wrap
@@ -230,7 +233,6 @@ Rectangle {
                         selectionColor: pane.ui.selection
                         selectedTextColor: pane.ui.selectionText
                         font.pixelSize: 14
-                        verticalAlignment: TextEdit.AlignVCenter
                         onTextChanged: backend.setComposing(text.length > 0)
                         // Up in an empty field brings back our last line to correct.
                         Keys.onUpPressed: event => {
@@ -275,6 +277,8 @@ Rectangle {
                 AppButton {
                     Layout.alignment: Qt.AlignBottom
                     primary: true
+                    // Sent many times a minute, so it stays as quiet as the field around it.
+                    font.bold: false
                     text: backend.editing ? qsTr("Correct") : qsTr("Send")
                     enabled: composer.text.trim() !== "" && backend.connectionState === "online"
                     onClicked: pane.send()

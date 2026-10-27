@@ -175,7 +175,7 @@ ApplicationWindow {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
 
-            StatusPicker {}
+            StatusPicker { objectName: "statusPicker" }
             IconButton {
                 iconName: "user-add"
                 description: qsTr("Add a contact (Ctrl+N)")
