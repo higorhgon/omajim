@@ -16,7 +16,9 @@ QVariant ContactModel::data(const QModelIndex &index, int role) const {
     const Contact &contact = m_contacts[m_rows.at(index.row())];
     switch (role) {
     case JidRole: return contact.jid;
-    case NameRole: return displayName(contact.jid, contact.name);
+    case NameRole: return nameOf(contact.jid);
+    case AliasRole: return contact.alias;
+    case RosterNameRole: return displayName(contact.jid, contact.name);
     case PresenceRole: return contact.presence;
     case StatusTextRole: return contact.statusText;
     case UnreadRole: return contact.unread;
@@ -31,7 +33,7 @@ QVariant ContactModel::data(const QModelIndex &index, int role) const {
 
 QHash<int, QByteArray> ContactModel::roleNames() const {
     return {{JidRole, "jid"}, {NameRole, "name"}, {PresenceRole, "presence"},
-            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}, {IsRoomRole, "isRoom"},
+            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}, {IsRoomRole, "isRoom"}, {AliasRole, "alias"}, {RosterNameRole, "rosterName"},
             {LastActivityRole, "lastActivity"}, {LastMessageRole, "lastMessage"}, {LastOutgoingRole, "lastOutgoing"}};
 }
 
@@ -141,6 +143,19 @@ void ContactModel::ensure(const QString &jid) {
     rebuild();
 }
 
+void ContactModel::setAlias(const QString &jid, const QString &alias) {
+    Contact &contact = m_contacts[jid];
+    contact.jid = jid;
+    contact.alias = alias.trimmed();
+    rebuild();
+    emit contactChanged(jid);
+}
+
+QString ContactModel::nameOf(const QString &jid) const {
+    const Contact contact = m_contacts.value(jid);
+    return contact.alias.isEmpty() ? displayName(jid, contact.name) : contact.alias;
+}
+
 void ContactModel::setOpen(const QString &jid, bool open) {
     auto it = m_contacts.find(jid);
     if (it == m_contacts.end() || it->open == open)
@@ -181,6 +196,7 @@ void ContactModel::rebuild() {
     for (const Contact &contact : std::as_const(m_contacts)) {
         if (needle.isEmpty() ? contact.open
                              : contact.jid.contains(needle, Qt::CaseInsensitive) ||
+                                   nameOf(contact.jid).contains(needle, Qt::CaseInsensitive) ||
                                    displayName(contact.jid, contact.name).contains(needle, Qt::CaseInsensitive))
             rows << contact.jid;
     }
@@ -194,7 +210,7 @@ void ContactModel::rebuild() {
             const Contact &ca = m_contacts[a], &cb = m_contacts[b];
             if (ca.lastActivity != cb.lastActivity)
                 return ca.lastActivity > cb.lastActivity;
-            return collator.compare(displayName(ca.jid, ca.name), displayName(cb.jid, cb.name)) < 0;
+            return collator.compare(nameOf(ca.jid), nameOf(cb.jid)) < 0;
         });
     } else std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
         const Contact &ca = m_contacts[a], &cb = m_contacts[b];
@@ -204,7 +220,7 @@ void ContactModel::rebuild() {
         const bool onlineA = ca.presence != "offline", onlineB = cb.presence != "offline";
         if (onlineA != onlineB)
             return onlineA;
-        const int order = collator.compare(displayName(ca.jid, ca.name), displayName(cb.jid, cb.name));
+        const int order = collator.compare(nameOf(ca.jid), nameOf(cb.jid));
         return order != 0 ? order < 0 : a < b;
     });
 

@@ -176,7 +176,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             [this](const QString &roomJid, QXmpp::Muc::LeaveReason reason, const std::optional<QXmpp::Muc::Destroy> &) {
                 const QString room = roomJid.toLower();
                 m_contacts.setPresence(room, "offline", {});
-                const QString name = ContactModel::displayName(room, m_contacts.contact(room).name);
+                const QString name = m_contacts.nameOf(room);
                 switch (reason) {
                 case QXmpp::Muc::LeaveReason::Kicked: setError(tr("You were removed from %1.").arg(name)); break;
                 case QXmpp::Muc::LeaveReason::Banned: setError(tr("You were banned from %1.").arg(name)); break;
@@ -405,7 +405,7 @@ QString Backend::certificateFingerprint() const {
 QString Backend::currentChatName() const {
     if (m_currentChat.isEmpty())
         return {};
-    return ContactModel::displayName(m_currentChat, m_contacts.contact(m_currentChat).name);
+    return m_contacts.nameOf(m_currentChat);
 }
 
 QString Backend::currentChatPresence() const {
@@ -651,6 +651,10 @@ void Backend::openHistory() {
     }
     trace(QStringLiteral("roster: %1 contacts from the cache").arg(cached.size()));
 
+    const auto aliases = m_history.aliases();
+    for (auto it = aliases.cbegin(); it != aliases.cend(); ++it)
+        m_contacts.setAlias(it.key(), it.value());
+
     const QStringList open = m_history.openChats();
     for (const QString &jid : open)
         openConversation(jid);
@@ -791,7 +795,7 @@ qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
         if (delivery == Delivery::Archived) {
             ++m_archivedUnread;
         } else if (m_notifier && m_status != "dnd") {
-            const QString name = ContactModel::displayName(entry.peer, m_contacts.contact(entry.peer).name);
+            const QString name = m_contacts.nameOf(entry.peer);
             const QString body = entry.kind == "file" ? tr("Wants to send you %1").arg(entry.body)
                                                       : entry.body.left(200);
             // A busy group chat would notify all day; only being named, or
@@ -1366,7 +1370,7 @@ void Backend::finishTransfer(qint64 id) {
                 m_notifier->notify("file:" + path, tr("File received"),
                                    tr("%1 from %2 is in %3.")
                                        .arg(QFileInfo(path).fileName(),
-                                            ContactModel::displayName(it->peer, m_contacts.contact(it->peer).name),
+                                            m_contacts.nameOf(it->peer),
                                             QFileInfo(path).absolutePath()));
             }
         }
@@ -1390,7 +1394,7 @@ void Backend::finishTransfer(qint64 id) {
             default:
                 setError(tr("The transfer with %1 failed. If you're sending, the other side may not be able to "
                             "reach this computer: check the firewall (ufw).")
-                             .arg(ContactModel::displayName(it->peer, m_contacts.contact(it->peer).name)));
+                             .arg(m_contacts.nameOf(it->peer)));
             }
         }
         if (!incoming)
@@ -1501,7 +1505,7 @@ void Backend::enterRoom(const QString &jid) {
             m_joiningRooms.remove(jid);
             if (auto *error = std::get_if<QXmppError>(&result)) {
                 setError(tr("Couldn't join %1: %2")
-                             .arg(ContactModel::displayName(jid, m_contacts.contact(jid).name), error->description));
+                             .arg(m_contacts.nameOf(jid), error->description));
             }
             refreshRoom(jid);
         });
@@ -1603,7 +1607,7 @@ void Backend::addInvitation(const QString &room, const QString &from, const QStr
     emit invitationsChanged();
     if (m_notifier && m_status != "dnd")
         m_notifier->notify("invite:" + jid, tr("Group chat invitation"),
-                           tr("%1 invites you to %2").arg(ContactModel::displayName(inviter, m_contacts.contact(inviter).name), jid));
+                           tr("%1 invites you to %2").arg(m_contacts.nameOf(inviter), jid));
 }
 
 void Backend::acceptInvitation(int index) {
@@ -1838,4 +1842,12 @@ void Backend::discoverProxy() {
             });
         }
     });
+}
+
+void Backend::setAlias(const QString &jid, const QString &alias) {
+    const QString bare = normalizedJid(jid);
+    if (bare.isEmpty())
+        return;
+    m_history.setAlias(bare, alias);
+    m_contacts.setAlias(bare, alias);
 }

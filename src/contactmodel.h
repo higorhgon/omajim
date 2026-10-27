@@ -8,6 +8,8 @@
 struct Contact {
     QString jid;
     QString name;
+    // A name given here only, which wins over the roster's.
+    QString alias;
     // online, chat, away, xa, dnd, or offline.
     QString presence = QStringLiteral("offline");
     QString statusText;
@@ -34,7 +36,7 @@ class ContactModel : public QAbstractListModel {
     Q_PROPERTY(int totalUnread READ totalUnread NOTIFY totalUnreadChanged)
 
 public:
-    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole, IsRoomRole,
+    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole, IsRoomRole, AliasRole, RosterNameRole,
                 LastActivityRole, LastMessageRole, LastOutgoingRole };
 
     explicit ContactModel(QObject *parent = nullptr);
@@ -59,6 +61,10 @@ public:
     void setOpen(const QString &jid, bool open);
     // Known for searching, without touching a name already there.
     void ensure(const QString &jid);
+    void setAlias(const QString &jid, const QString &alias);
+    // How a contact is called everywhere: the alias, the roster name, or
+    // the address's user part.
+    QString nameOf(const QString &jid) const;
     bool isOpen(const QString &jid) const { return m_contacts.value(jid).open; }
     void addUnread(const QString &jid);
     void clearUnread(const QString &jid);

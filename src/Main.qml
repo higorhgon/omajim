@@ -298,6 +298,12 @@ ApplicationWindow {
 
                 ContactPane {
                     id: contactPane
+                    onAliasRequested: (jid, alias, rosterName) => {
+                        aliasDialog.jid = jid
+                        aliasDialog.rosterName = rosterName
+                        aliasField.text = alias
+                        aliasDialog.open()
+                    }
                     Layout.preferredWidth: 300
                     Layout.fillHeight: true
                 }
@@ -414,6 +420,29 @@ ApplicationWindow {
                 color: win.ui.muted
                 font.pixelSize: 13
                 wrapMode: Text.Wrap
+            }
+        }
+
+        // A name for a contact on this computer only, like the Python
+        // Omajim's local nickname; the roster keeps its own.
+        AppDialog {
+            id: aliasDialog
+            property string jid
+            property string rosterName
+            title: qsTr("Nickname for %1").arg(rosterName)
+            subtitle: qsTr("Only on this computer: the name on your server, %1, stays as it is.").arg(rosterName)
+            acceptText: qsTr("Save")
+            onOpened: {
+                aliasField.forceActiveFocus()
+                aliasField.selectAll()
+            }
+            onAccepted: backend.setAlias(jid, aliasField.text)
+
+            AppTextField {
+                id: aliasField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Leave empty to use %1").arg(aliasDialog.rosterName)
+                onAccepted: aliasDialog.accept()
             }
         }
 

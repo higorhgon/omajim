@@ -142,6 +142,9 @@ public:
 
     Q_INVOKABLE bool addContact(const QString &jid, const QString &name);
     Q_INVOKABLE void removeContact(const QString &jid);
+    // A name for a contact on this computer only; empty goes back to the
+    // roster's name.
+    Q_INVOKABLE void setAlias(const QString &jid, const QString &alias);
     Q_INVOKABLE void acceptRequest(const QString &jid);
     // Joins a group chat and keeps it as a bookmark on the server, so it's
     // there on the next sign-in too.

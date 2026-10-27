@@ -8,6 +8,7 @@ Rectangle {
     id: pane
 
     readonly property var ui: theme.colors
+    signal aliasRequested(string jid, string alias, string rosterName)
     // A search lists every contact and room; otherwise only the open
     // conversations show.
     readonly property bool searching: search.text.trim() !== ""
@@ -166,6 +167,8 @@ Rectangle {
                 required property var lastActivity
                 required property string lastMessage
                 required property bool lastOutgoing
+                required property string alias
+                required property string rosterName
 
                 readonly property bool selected: jid === backend.currentChat
                 readonly property bool focusedRow: list.activeFocus && ListView.isCurrentItem
@@ -191,6 +194,10 @@ Rectangle {
                 }
                 AppMenu {
                     id: contactMenu
+                    AppMenuItem {
+                        text: qsTr("Set a nickname…")
+                        onTriggered: pane.aliasRequested(row.jid, row.alias, row.rosterName)
+                    }
                     AppMenuItem {
                         visible: !pane.searching
                         height: visible ? implicitHeight : 0

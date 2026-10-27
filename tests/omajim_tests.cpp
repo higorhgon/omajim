@@ -818,6 +818,35 @@ private slots:
         QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(false));
     }
 
+    void nicknamesStayLocal() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        {
+            Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+            backend.setStatus("offline");
+            backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+            auto *contacts = backend.contacts();
+            contacts->upsert("jcp@example.org", "Jean Carlos Pereira");
+            backend.setAlias("JCP@example.org", "  Jean  ");
+            backend.openChat("jcp@example.org");
+            QCOMPARE(backend.currentChatName(), QString("Jean"));
+
+            // Both names find the contact.
+            contacts->setFilter("pereira");
+            QCOMPARE(contacts->rowCount(), 1);
+            QCOMPARE(contacts->data(contacts->index(0), ContactModel::NameRole).toString(), QString("Jean"));
+            QCOMPARE(contacts->data(contacts->index(0), ContactModel::RosterNameRole).toString(), QString("Jean Carlos Pereira"));
+        }
+        // Back on the next start, until cleared.
+        Backend again(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        again.setStatus("offline");
+        again.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        again.contacts()->upsert("jcp@example.org", "Jean Carlos Pereira");
+        QCOMPARE(again.contacts()->nameOf("jcp@example.org"), QString("Jean"));
+        again.setAlias("jcp@example.org", "");
+        QCOMPARE(again.contacts()->nameOf("jcp@example.org"), QString("Jean Carlos Pereira"));
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;

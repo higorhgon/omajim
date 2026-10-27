@@ -80,7 +80,8 @@ bool History::open(const QString &path) {
                                " subscription TEXT,"
                                " approved INTEGER NOT NULL DEFAULT 0)") &&
                     query.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)") &&
-                    query.exec("CREATE TABLE IF NOT EXISTS chats (peer TEXT PRIMARY KEY, open INTEGER NOT NULL)");
+                    query.exec("CREATE TABLE IF NOT EXISTS chats (peer TEXT PRIMARY KEY, open INTEGER NOT NULL)") &&
+                    query.exec("CREATE TABLE IF NOT EXISTS aliases (jid TEXT PRIMARY KEY, alias TEXT NOT NULL)");
     if (!ok) {
         m_error = query.lastError().text();
         db.close();
@@ -416,4 +417,30 @@ QStringList History::knownChats() const {
         while (query.next())
             peers << query.value(0).toString();
     return peers;
+}
+
+QHash<QString, QString> History::aliases() const {
+    QHash<QString, QString> aliases;
+    if (!isOpen())
+        return aliases;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    if (query.exec("SELECT jid, alias FROM aliases"))
+        while (query.next())
+            aliases.insert(query.value(0).toString(), query.value(1).toString());
+    return aliases;
+}
+
+void History::setAlias(const QString &jid, const QString &alias) {
+    if (!isOpen())
+        return;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    if (alias.trimmed().isEmpty()) {
+        query.prepare("DELETE FROM aliases WHERE jid = ?");
+        query.addBindValue(jid);
+    } else {
+        query.prepare("INSERT OR REPLACE INTO aliases (jid, alias) VALUES (?, ?)");
+        query.addBindValue(jid);
+        query.addBindValue(alias.trimmed());
+    }
+    query.exec();
 }

@@ -13,6 +13,9 @@ janela: seus contatos à esquerda e a conversa à direita.
   por todos os contatos e salas, e Enter com um endereço completo começa
   uma conversa nova. Ctrl+W fecha a conversa; o histórico fica, e uma
   mensagem nova a abre de novo.
+- Apelido local (clique direito → "Definir apelido…"): um nome só neste
+  computador, que aparece em todo lugar no lugar do nome do servidor, sem
+  alterá-lo. Vazio volta ao nome do servidor.
 - A lista de contatos fica guardada e aparece na hora ao abrir, antes de
   conectar; o servidor só manda o que mudou (roster versioning).
 - Importa o histórico do Gajim (e do Omajim em Python) pelo menu ⋮: lê uma

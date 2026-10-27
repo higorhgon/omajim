@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -90,6 +91,10 @@ public:
     void setChatOpen(const QString &peer, bool open);
     // The newest line of a conversation; id 0 when there's none.
     HistoryEntry lastLine(const QString &peer) const;
+
+    // Names the user gave contacts here, never sent to the server.
+    QHash<QString, QString> aliases() const;
+    void setAlias(const QString &jid, const QString &alias);
 
     QString rosterVersion() const;
     QList<RosterRow> roster() const;
