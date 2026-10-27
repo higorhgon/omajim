@@ -23,6 +23,7 @@ public:
         StateRole,
         ProgressRole,
         DeliveredRole,
+        SenderRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);

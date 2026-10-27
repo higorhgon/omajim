@@ -1,5 +1,6 @@
 #include "backend.h"
 
+#include <QCollator>
 #include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QDir>
@@ -16,6 +17,10 @@
 #include <QXmppMamManager.h>
 #include <QXmppMessage.h>
 #include <QXmppMessageReceiptManager.h>
+#include <QXmppMucData.h>
+#include <QXmppMucManagerV2.h>
+#include <QXmppPepBookmarkManager.h>
+#include <QXmppPubSubManager.h>
 #include <QXmppPresence.h>
 #include <QXmppRosterManager.h>
 #include <QXmppSocks.h>
@@ -41,6 +46,9 @@ static const quint16 DirectTransferPort = 28011;
 // Messages per archive request. The first sync of an account fetches one page
 // only, so history from years back doesn't download on the first sign-in.
 static const int ArchivePageSize = 100;
+
+// Lines of history to ask a room for the first time we join it.
+static const int RoomHistoryStanzas = 50;
 
 Backend::Backend(const QString &configDirectory, const QString &dataDirectory, FilePicker *filePicker,
                  SecretStore *secrets, Notifier *notifier, QObject *parent)
@@ -68,6 +76,84 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
         if (m_history.markDelivered(peer, id) && peer == m_currentChat)
             m_messages.markDelivered(id);
     });
+
+    // Group chats (XEP-0045), and the rooms kept as bookmarks on the server
+    // (XEP-0402), which needs PubSub underneath.
+    m_client->addNewExtension<QXmppPubSubManager>();
+    m_bookmarks = m_client->addNewExtension<QXmppPepBookmarkManager>();
+    m_muc = m_client->addNewExtension<QXmppMucManagerV2>();
+    auto loadBookmarks = [this](const QList<QXmppMucBookmark> &bookmarks) {
+        for (const QXmppMucBookmark &bookmark : bookmarks) {
+            const QString jid = bookmark.jid().toLower();
+            addRoom(jid, {bookmark.name(), bookmark.nick(), bookmark.password(), bookmark.autojoin()});
+            if (bookmark.autojoin())
+                enterRoom(jid);
+        }
+    };
+    connect(m_bookmarks, &QXmppPepBookmarkManager::bookmarksReset, this, [this, loadBookmarks] {
+        if (const auto &bookmarks = m_bookmarks->bookmarks())
+            loadBookmarks(*bookmarks);
+    });
+    connect(m_bookmarks, &QXmppPepBookmarkManager::bookmarksAdded, this, loadBookmarks);
+    connect(m_bookmarks, &QXmppPepBookmarkManager::bookmarksChanged, this,
+            [loadBookmarks](const QList<QXmppPepBookmarkManager::BookmarkChange> &changes) {
+                QList<QXmppMucBookmark> updated;
+                for (const auto &change : changes)
+                    updated << change.newBookmark;
+                loadBookmarks(updated);
+            });
+    // Removed from another device: leave here too.
+    connect(m_bookmarks, &QXmppPepBookmarkManager::bookmarksRemoved, this, [this](const QList<QString> &jids) {
+        for (const QString &jid : jids)
+            if (m_rooms.contains(jid.toLower()))
+                leaveRoom(jid.toLower());
+    });
+
+    connect(m_muc, &QXmppMucManagerV2::messageReceived, this, [this](const QString &room, const QXmppMessage &message) {
+        ingestRoomMessage(room.toLower(), message, Delivery::Live);
+    });
+    connect(m_muc, &QXmppMucManagerV2::roomHistoryReceived, this,
+            [this](const QString &room, const QList<QXmppMessage> &messages) {
+                for (const QXmppMessage &message : messages)
+                    ingestRoomMessage(room.toLower(), message, Delivery::ArchivedSilently);
+                if (m_reloadCurrentChat && !m_currentChat.isEmpty())
+                    m_messages.reset(m_history.recent(m_currentChat, HistoryLimit));
+                m_reloadCurrentChat = false;
+            });
+    connect(m_muc, &QXmppMucManagerV2::participantJoined, this,
+            [this](const QString &room, const QXmppMucParticipant &) { refreshRoom(room.toLower()); });
+    connect(m_muc, &QXmppMucManagerV2::participantLeft, this,
+            [this](const QString &room, const QXmppMucParticipant &, QXmpp::Muc::LeaveReason) { refreshRoom(room.toLower()); });
+    connect(m_muc, &QXmppMucManagerV2::removedFromRoom, this,
+            [this](const QString &roomJid, QXmpp::Muc::LeaveReason reason, const std::optional<QXmpp::Muc::Destroy> &) {
+                const QString room = roomJid.toLower();
+                m_contacts.setPresence(room, "offline", {});
+                const QString name = ContactModel::displayName(room, m_contacts.contact(room).name);
+                switch (reason) {
+                case QXmpp::Muc::LeaveReason::Kicked: setError(tr("You were removed from %1.").arg(name)); break;
+                case QXmpp::Muc::LeaveReason::Banned: setError(tr("You were banned from %1.").arg(name)); break;
+                case QXmpp::Muc::LeaveReason::RoomDestroyed: setError(tr("%1 was closed.").arg(name)); break;
+                case QXmpp::Muc::LeaveReason::AffiliationChanged:
+                case QXmpp::Muc::LeaveReason::MembersOnly:
+                    setError(tr("%1 is now for members only, and you aren't one.").arg(name));
+                    break;
+                case QXmpp::Muc::LeaveReason::ServiceShutdown:
+                    setError(tr("The group chat service of %1 shut down.").arg(name));
+                    break;
+                case QXmpp::Muc::LeaveReason::Error: setError(tr("You left %1 because of an error.").arg(name)); break;
+                default: break;
+                }
+                if (room == m_currentChat)
+                    emit participantsChanged();
+            });
+    connect(m_muc, &QXmppMucManagerV2::invitationReceived, this,
+            [this](const QString &room, const QXmpp::Muc::Invite &invite, const QString &password) {
+                addInvitation(room, invite.from(), invite.reason(), password, true);
+            });
+    connect(m_muc, &QXmppMucManagerV2::directInvitationReceived, this,
+            [this](const QXmpp::Muc::DirectInvitation &invitation, const QString &from, const QXmppMessage &) {
+                addInvitation(invitation.jid(), from, invitation.reason(), invitation.password(), false);
+            });
 
     // Some clients never send "paused", so a typing notice fades on its own.
     m_typingExpiry = new QTimer(this);
@@ -112,7 +198,14 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             // Whatever arrived while we were away, or went through another
             // of the account's devices.
             syncArchive(m_settings.value("archive/" + m_jid + "/last").toString().isEmpty());
+            // The bookmarks bring their rooms back too, but a server without
+            // bookmarks still has the rooms joined in this session.
+            for (auto it = m_rooms.cbegin(); it != m_rooms.cend(); ++it)
+                if (it->autojoin)
+                    enterRoom(it.key());
         }
+        if (state == QXmppClient::DisconnectedState)
+            m_joiningRooms.clear();
         emit connectionStateChanged();
     });
     connect(m_client.get(), &QXmppClient::errorOccurred, this, [this](const QXmppError &error) {
@@ -314,6 +407,9 @@ void Backend::signIn(const QString &jid, const QString &password, const QString 
 
     if (bare != m_jid) {
         m_contacts.clear();
+        m_rooms.clear();
+        m_invitations.clear();
+        emit invitationsChanged();
         closeChat();
     }
     m_jid = bare;
@@ -349,8 +445,11 @@ void Backend::signOut() {
         });
     m_password.clear();
     m_contacts.clear();
+    m_rooms.clear();
     m_requests.clear();
+    m_invitations.clear();
     emit subscriptionRequestsChanged();
+    emit invitationsChanged();
     closeChat();
     setSignedIn(false);
 }
@@ -565,7 +664,13 @@ qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
             const QString name = ContactModel::displayName(entry.peer, m_contacts.contact(entry.peer).name);
             const QString body = entry.kind == "file" ? tr("Wants to send you %1").arg(entry.body)
                                                       : entry.body.left(200);
-            m_notifier->notify(entry.peer, name, body);
+            // A busy group chat would notify all day; only being named, or
+            // a private message, is worth it.
+            if (!m_rooms.contains(entry.peer))
+                m_notifier->notify(entry.peer, name, body);
+            else if (entry.body.contains(roomNickname(entry.peer), Qt::CaseInsensitive) ||
+                     entry.sender.endsWith(tr("(private)")))
+                m_notifier->notify(entry.peer, tr("%1 in %2").arg(entry.sender, name), body);
         }
     }
     return entry.id;
@@ -581,7 +686,7 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
         return false;
 
     const QString from = QXmppUtils::jidToBareJid(message.from()).toLower();
-    if (delivery == Delivery::Live && from != m_jid && message.state() != QXmppMessage::None)
+    if (delivery == Delivery::Live && from != m_jid && !m_rooms.contains(from) && message.state() != QXmppMessage::None)
         handleChatState(from, message.state());
     if (message.body().isEmpty())
         return false;
@@ -593,6 +698,10 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
     entry.peer = entry.outgoing ? QXmppUtils::jidToBareJid(message.to()).toLower() : from;
     if (entry.peer.isEmpty() || entry.peer == m_jid)
         return false;
+    // A private message from someone in a group chat goes with that chat.
+    if (m_rooms.contains(entry.peer))
+        entry.sender = entry.outgoing ? roomNickname(entry.peer)
+                                      : tr("%1 (private)").arg(QXmppUtils::jidToResource(message.from()));
     entry.body = message.body();
     entry.xmppId = message.id();
     // Our server's id for it; another entity's stanza-id says nothing.
@@ -676,8 +785,11 @@ void Backend::openChat(const QString &jid) {
     m_messages.reset(m_history.recent(bare, HistoryLimit));
     if (m_windowActive)
         m_contacts.clearUnread(bare);
+    if (m_rooms.contains(bare))
+        enterRoom(bare);
     emit currentChatChanged();
     emit typingChanged();
+    emit participantsChanged();
 }
 
 void Backend::closeChat() {
@@ -696,6 +808,31 @@ bool Backend::sendMessage(const QString &text) {
     if (!m_client->isAuthenticated()) {
         setError(tr("You're offline, so the message wasn't sent."));
         return false;
+    }
+    if (m_rooms.contains(m_currentChat)) {
+        auto room = m_muc->findRoom(m_currentChat);
+        if (!room || !room->joined().value()) {
+            setError(tr("You aren't in %1 right now, so the message wasn't sent.").arg(currentChatName()));
+            return false;
+        }
+        // The room echoes our message back; the id tells it apart.
+        QXmppMessage message;
+        message.setBody(body);
+        message.setId(QXmppUtils::generateStanzaUuid());
+        message.setOriginId(message.id());
+        HistoryEntry entry;
+        entry.peer = m_currentChat;
+        entry.outgoing = true;
+        entry.body = body;
+        entry.xmppId = message.id();
+        entry.sender = roomNickname(m_currentChat);
+        const QString name = currentChatName();
+        room->sendMessage(message).then(this, [this, name](QXmpp::Result<> &&result) {
+            if (auto *error = std::get_if<QXmppError>(&result))
+                setError(tr("The message to %1 wasn't sent: %2").arg(name, error->description));
+        });
+        addEntry(entry);
+        return true;
     }
 
     QXmppMessage message({}, m_currentChat, body);
@@ -759,12 +896,21 @@ void Backend::sendChatState(int state) {
 void Backend::chooseFileToSend() {
     if (m_currentChat.isEmpty() || !m_filePicker)
         return;
+    // SI goes to one person's device; a room has no device to send to.
+    if (m_rooms.contains(m_currentChat)) {
+        setError(tr("Files can't be sent to a group chat. Send them to a person instead."));
+        return;
+    }
     m_filePicker->openFile(tr("Send a file to %1").arg(currentChatName()));
 }
 
 void Backend::sendFile(const QString &path) {
     if (m_currentChat.isEmpty())
         return;
+    if (m_rooms.contains(m_currentChat)) {
+        setError(tr("Files can't be sent to a group chat. Send them to a person instead."));
+        return;
+    }
     // A file dropped on the window arrives as a file:// URL.
     const QFileInfo info(path.startsWith("file:") ? QUrl(path).toLocalFile() : path);
     if (!info.isFile() || !info.isReadable()) {
@@ -952,4 +1098,177 @@ void Backend::refuseRequest(const QString &jid) {
     m_roster->refuseSubscription(jid);
     m_requests.removeAll(jid);
     emit subscriptionRequestsChanged();
+}
+
+QString Backend::roomNickname(const QString &jid) const {
+    if (auto room = m_muc->findRoom(jid); room && room->joined().value())
+        return room->nickname().value();
+    const QString chosen = m_rooms.value(jid).nickname;
+    return chosen.isEmpty() ? QXmppUtils::jidToUser(m_jid) : chosen;
+}
+
+QStringList Backend::currentRoomParticipants() const {
+    QStringList names;
+    if (!m_rooms.contains(m_currentChat))
+        return names;
+    if (auto room = m_muc->findRoom(m_currentChat); room && room->joined().value()) {
+        const auto participants = room->participants();
+        for (const QXmppMucParticipant &participant : participants)
+            names << participant.nickname().value();
+    }
+    QCollator collator;
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    std::sort(names.begin(), names.end(), [&](const QString &a, const QString &b) { return collator.compare(a, b) < 0; });
+    return names;
+}
+
+void Backend::addRoom(const QString &jid, const Room &room) {
+    m_rooms.insert(jid, room);
+    m_contacts.upsertRoom(jid, room.name);
+    refreshRoom(jid);
+}
+
+void Backend::enterRoom(const QString &jid) {
+    if (!m_client->isAuthenticated() || m_joiningRooms.contains(jid))
+        return;
+    if (auto room = m_muc->findRoom(jid); room && room->joined().value()) {
+        refreshRoom(jid);
+        return;
+    }
+    m_joiningRooms.insert(jid);
+
+    // Only what we haven't stored yet: since the newest line we have, or a
+    // first page of history for a room we've never been in.
+    QXmpp::Muc::HistoryOptions history;
+    const QDateTime last = m_history.lastStamp(jid);
+    if (last.isValid())
+        history.setSince(last);
+    else
+        history.setMaxStanzas(RoomHistoryStanzas);
+
+    m_muc->joinRoom(jid, roomNickname(jid), history, m_rooms.value(jid).password)
+        .then(this, [this, jid](QXmpp::Result<QXmppMucRoomV2> &&result) {
+            m_joiningRooms.remove(jid);
+            if (auto *error = std::get_if<QXmppError>(&result)) {
+                setError(tr("Couldn't join %1: %2")
+                             .arg(ContactModel::displayName(jid, m_contacts.contact(jid).name), error->description));
+            }
+            refreshRoom(jid);
+        });
+}
+
+void Backend::refreshRoom(const QString &jid) {
+    if (!m_rooms.contains(jid))
+        return;
+    auto room = m_muc->findRoom(jid);
+    if (room && room->joined().value())
+        m_contacts.setPresence(jid, "online", room->subject().value());
+    else
+        m_contacts.setPresence(jid, "offline", {});
+    if (jid == m_currentChat)
+        emit participantsChanged();
+}
+
+void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &message, Delivery delivery) {
+    // A message without a body is a subject change or a state; the header
+    // shows the subject.
+    if (message.body().isEmpty()) {
+        refreshRoom(roomJid);
+        return;
+    }
+    HistoryEntry entry;
+    entry.peer = roomJid;
+    entry.sender = QXmppUtils::jidToResource(message.from());
+    entry.outgoing = !entry.sender.isEmpty() && entry.sender == roomNickname(roomJid);
+    entry.body = message.body();
+    entry.xmppId = message.originId().isEmpty() ? message.id() : message.originId();
+    const auto stanzaIds = message.stanzaIds();
+    for (const QXmppStanzaId &stanzaId : stanzaIds)
+        if (QXmppUtils::jidToBareJid(stanzaId.by).toLower() == roomJid)
+            entry.archiveId = stanzaId.id;
+    entry.stamp = message.stamp().isValid() ? message.stamp().toUTC() : QDateTime::currentDateTimeUtc();
+    if (m_history.contains(roomJid, entry.xmppId, entry.archiveId))
+        return;
+    addEntry(entry, delivery);
+}
+
+void Backend::saveBookmark(const QString &jid) {
+    const Room room = m_rooms.value(jid);
+    m_bookmarks->setBookmark(QXmppMucBookmark(jid, room.name, room.autojoin, room.nickname, room.password))
+        .then(this, [this, jid](QXmpp::Result<> &&result) {
+            if (auto *error = std::get_if<QXmppError>(&result))
+                setError(tr("The server didn't keep %1 as a bookmark, so it won't be back after you sign out: %2")
+                             .arg(jid, error->description));
+        });
+}
+
+bool Backend::joinRoom(const QString &jid, const QString &nickname, const QString &password) {
+    const QString bare = normalizedJid(jid);
+    if (!bare.contains('@') || bare.startsWith('@') || bare.endsWith('@')) {
+        setError(tr("Write the room address as room@server."));
+        return false;
+    }
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so you can't join a group chat."));
+        return false;
+    }
+    Room room = m_rooms.value(bare);
+    room.nickname = nickname.trimmed();
+    room.password = password;
+    room.autojoin = true;
+    addRoom(bare, room);
+    saveBookmark(bare);
+    enterRoom(bare);
+    openChat(bare);
+    return true;
+}
+
+void Backend::leaveRoom(const QString &jid) {
+    if (!m_rooms.contains(jid))
+        return;
+    if (auto room = m_muc->findRoom(jid))
+        room->leave();
+    m_rooms.remove(jid);
+    m_bookmarks->removeBookmark(jid);
+    m_contacts.remove(jid);
+    if (jid == m_currentChat)
+        closeChat();
+}
+
+void Backend::addInvitation(const QString &room, const QString &from, const QString &reason, const QString &password,
+                            bool mediated) {
+    const QString jid = room.toLower();
+    if (m_rooms.contains(jid))
+        return;
+    for (const QVariant &invitation : std::as_const(m_invitations))
+        if (invitation.toMap().value("room") == jid)
+            return;
+    const QString inviter = QXmppUtils::jidToBareJid(from).toLower();
+    m_invitations << QVariantMap{{"room", jid}, {"from", inviter}, {"reason", reason},
+                                 {"password", password}, {"mediated", mediated}};
+    emit invitationsChanged();
+    if (m_notifier && m_status != "dnd")
+        m_notifier->notify("invite:" + jid, tr("Group chat invitation"),
+                           tr("%1 invites you to %2").arg(ContactModel::displayName(inviter, m_contacts.contact(inviter).name), jid));
+}
+
+void Backend::acceptInvitation(int index) {
+    if (index < 0 || index >= m_invitations.size())
+        return;
+    const QVariantMap invitation = m_invitations.takeAt(index).toMap();
+    emit invitationsChanged();
+    joinRoom(invitation.value("room").toString(), {}, invitation.value("password").toString());
+}
+
+void Backend::declineInvitation(int index) {
+    if (index < 0 || index >= m_invitations.size())
+        return;
+    const QVariantMap invitation = m_invitations.takeAt(index).toMap();
+    emit invitationsChanged();
+    // Only an invitation sent through the room can be declined back.
+    if (invitation.value("mediated").toBool() && m_client->isAuthenticated()) {
+        QXmpp::Muc::Decline decline;
+        decline.setTo(invitation.value("from").toString());
+        m_muc->declineInvitation(invitation.value("room").toString(), decline);
+    }
 }

@@ -13,6 +13,8 @@ struct Contact {
     // A round picture on disk, as a file URL for QML, or empty.
     QString avatar;
     int unread = 0;
+    // A group chat (XEP-0045) rather than a person.
+    bool isRoom = false;
 };
 
 // The roster as the contact list shows it: people who are around first,
@@ -24,7 +26,7 @@ class ContactModel : public QAbstractListModel {
     Q_PROPERTY(int totalUnread READ totalUnread NOTIFY totalUnreadChanged)
 
 public:
-    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole };
+    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole, IsRoomRole };
 
     explicit ContactModel(QObject *parent = nullptr);
 
@@ -37,6 +39,7 @@ public:
     int totalUnread() const;
 
     void upsert(const QString &jid, const QString &name);
+    void upsertRoom(const QString &jid, const QString &name);
     void remove(const QString &jid);
     void clear();
     void setPresence(const QString &jid, const QString &presence, const QString &statusText);

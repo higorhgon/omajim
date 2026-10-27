@@ -11,6 +11,7 @@ Rectangle {
     Material.roundedScale: theme.radius
 
     signal addContactRequested()
+    signal joinRoomRequested()
 
     function focusSearch() {
         search.forceActiveFocus()
@@ -76,6 +77,10 @@ Rectangle {
                         onTriggered: pane.addContactRequested()
                     }
                     MenuItem {
+                        text: qsTr("Join a group chat…")
+                        onTriggered: pane.joinRoomRequested()
+                    }
+                    MenuItem {
                         text: qsTr("Sign out")
                         onTriggered: backend.signOut()
                     }
@@ -123,6 +128,54 @@ Rectangle {
             }
         }
 
+        Repeater {
+            model: backend.invitations
+            delegate: Rectangle {
+                required property var modelData
+                required property int index
+                Layout.fillWidth: true
+                Layout.leftMargin: 8
+                Layout.rightMargin: 8
+                Layout.topMargin: 6
+                implicitHeight: invitationColumn.implicitHeight + 16
+                radius: theme.radius
+                color: win.surfaceColor
+
+                ColumnLayout {
+                    id: invitationColumn
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 4
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("%1 invites you to %2").arg(modelData.from).arg(modelData.room)
+                        color: win.textColor
+                        wrapMode: Text.WrapAnywhere
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: modelData.reason !== ""
+                        text: modelData.reason
+                        color: win.mutedColor
+                        wrapMode: Text.Wrap
+                    }
+                    RowLayout {
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            Material.roundedScale: theme.radius
+                            text: qsTr("Decline")
+                            flat: true
+                            onClicked: backend.declineInvitation(index)
+                        }
+                        AccentButton {
+                            text: qsTr("Join")
+                            onClicked: backend.acceptInvitation(index)
+                        }
+                    }
+                }
+            }
+        }
+
         TextField {
             Material.roundedScale: Math.min(4, theme.radius)
             id: search
@@ -163,6 +216,7 @@ Rectangle {
                 required property string statusText
                 required property int unread
                 required property string avatar
+                required property bool isRoom
 
                 width: ListView.view.width
                 height: 54
@@ -177,8 +231,8 @@ Rectangle {
                     id: contactMenu
                     Material.roundedScale: theme.radius
                     MenuItem {
-                        text: qsTr("Remove %1").arg(row.name)
-                        onTriggered: backend.removeContact(row.jid)
+                        text: row.isRoom ? qsTr("Leave %1").arg(row.name) : qsTr("Remove %1").arg(row.name)
+                        onTriggered: row.isRoom ? backend.leaveRoom(row.jid) : backend.removeContact(row.jid)
                     }
                 }
 
@@ -189,6 +243,7 @@ Rectangle {
                         name: row.name
                         source: row.avatar
                         presence: row.presence
+                        isRoom: row.isRoom
                         // Under the highlight, the ring takes its color.
                         ringColor: row.highlighted ? Qt.lighter(win.panelColor, 1.6) : win.panelColor
                     }

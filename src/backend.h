@@ -8,6 +8,7 @@
 #include <QSslCertificate>
 #include <QTimer>
 #include <QStringList>
+#include <QVariantList>
 #include <memory>
 
 #include "avatarstore.h"
@@ -19,6 +20,8 @@ class FilePicker;
 class Notifier;
 class QXmppClient;
 class QXmppMamManager;
+class QXmppMucManagerV2;
+class QXmppPepBookmarkManager;
 class QXmppMessage;
 class QXmppPresence;
 class QXmppRosterManager;
@@ -47,6 +50,9 @@ class Backend : public QObject {
     Q_PROPERTY(QString currentChatStatusText READ currentChatStatusText NOTIFY currentChatChanged)
     Q_PROPERTY(QString currentChatAvatar READ currentChatAvatar NOTIFY currentChatChanged)
     Q_PROPERTY(bool currentChatTyping READ currentChatTyping NOTIFY typingChanged)
+    Q_PROPERTY(bool currentChatIsRoom READ currentChatIsRoom NOTIFY currentChatChanged)
+    Q_PROPERTY(QStringList currentRoomParticipants READ currentRoomParticipants NOTIFY participantsChanged)
+    Q_PROPERTY(QVariantList invitations READ invitations NOTIFY invitationsChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -74,6 +80,9 @@ public:
     QString currentChatStatusText() const;
     QString currentChatAvatar() const;
     bool currentChatTyping() const { return m_typing.contains(m_currentChat); }
+    bool currentChatIsRoom() const { return m_rooms.contains(m_currentChat); }
+    QStringList currentRoomParticipants() const;
+    QVariantList invitations() const { return m_invitations; }
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
@@ -105,6 +114,12 @@ public:
     Q_INVOKABLE bool addContact(const QString &jid, const QString &name);
     Q_INVOKABLE void removeContact(const QString &jid);
     Q_INVOKABLE void acceptRequest(const QString &jid);
+    // Joins a group chat and keeps it as a bookmark on the server, so it's
+    // there on the next sign-in too.
+    Q_INVOKABLE bool joinRoom(const QString &jid, const QString &nickname, const QString &password = {});
+    Q_INVOKABLE void leaveRoom(const QString &jid);
+    Q_INVOKABLE void acceptInvitation(int index);
+    Q_INVOKABLE void declineInvitation(int index);
     Q_INVOKABLE void refuseRequest(const QString &jid);
 
     static QString presenceName(const QXmppPresence &presence);
@@ -120,6 +135,8 @@ signals:
     void currentChatChanged();
     void windowActiveChanged();
     void typingChanged();
+    void participantsChanged();
+    void invitationsChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
 
@@ -146,6 +163,21 @@ private:
     void finishArchiveSync();
     void handleChatState(const QString &peer, int state);
     void sendChatState(int state);
+
+    struct Room {
+        QString name;
+        QString nickname;
+        QString password;
+        bool autojoin = true;
+    };
+    void addRoom(const QString &jid, const Room &room);
+    void enterRoom(const QString &jid);
+    void refreshRoom(const QString &jid);
+    void ingestRoomMessage(const QString &roomJid, const QXmppMessage &message, Delivery delivery);
+    QString roomNickname(const QString &jid) const;
+    void saveBookmark(const QString &jid);
+    void addInvitation(const QString &room, const QString &from, const QString &reason, const QString &password,
+                       bool mediated);
     void refreshPresence(const QString &bareJid);
     void syncRoster();
     void showContact(const QString &jid);
@@ -172,6 +204,11 @@ private:
     QXmppVCardManager *m_vcards = nullptr;
     std::unique_ptr<AvatarStore> m_avatars;
     QSet<QString> m_fetchingAvatars;
+    QXmppMucManagerV2 *m_muc = nullptr;
+    QXmppPepBookmarkManager *m_bookmarks = nullptr;
+    QHash<QString, Room> m_rooms;
+    QSet<QString> m_joiningRooms;
+    QVariantList m_invitations;
     bool m_syncing = false;
     int m_archivedUnread = 0;
     bool m_reloadCurrentChat = false;

@@ -21,13 +21,14 @@ QVariant ContactModel::data(const QModelIndex &index, int role) const {
     case StatusTextRole: return contact.statusText;
     case UnreadRole: return contact.unread;
     case AvatarRole: return contact.avatar;
+    case IsRoomRole: return contact.isRoom;
     }
     return {};
 }
 
 QHash<int, QByteArray> ContactModel::roleNames() const {
     return {{JidRole, "jid"}, {NameRole, "name"}, {PresenceRole, "presence"},
-            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}};
+            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}, {IsRoomRole, "isRoom"}};
 }
 
 QString ContactModel::displayName(const QString &jid, const QString &name) {
@@ -56,6 +57,15 @@ void ContactModel::upsert(const QString &jid, const QString &name) {
     Contact &contact = m_contacts[jid];
     contact.jid = jid;
     contact.name = name;
+    rebuild();
+    emit contactChanged(jid);
+}
+
+void ContactModel::upsertRoom(const QString &jid, const QString &name) {
+    Contact &room = m_contacts[jid];
+    room.jid = jid;
+    room.name = name;
+    room.isRoom = true;
     rebuild();
     emit contactChanged(jid);
 }
@@ -147,6 +157,9 @@ void ContactModel::rebuild() {
     collator.setNumericMode(true);
     std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
         const Contact &ca = m_contacts[a], &cb = m_contacts[b];
+        // Group chats on top, then people.
+        if (ca.isRoom != cb.isRoom)
+            return ca.isRoom;
         const bool onlineA = ca.presence != "offline", onlineB = cb.presence != "offline";
         if (onlineA != onlineB)
             return onlineA;

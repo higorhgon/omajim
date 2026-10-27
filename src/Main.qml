@@ -91,6 +91,12 @@ ApplicationWindow {
         onActivated: addContactDialog.open()
     }
     Shortcut {
+        sequence: "Ctrl+J"
+        context: Qt.ApplicationShortcut
+        enabled: backend.signedIn
+        onActivated: joinRoomDialog.open()
+    }
+    Shortcut {
         sequence: "Ctrl+O"
         context: Qt.ApplicationShortcut
         enabled: backend.signedIn && backend.currentChat !== ""
@@ -197,6 +203,7 @@ ApplicationWindow {
                     Layout.preferredWidth: 300
                     Layout.fillHeight: true
                     onAddContactRequested: addContactDialog.open()
+                    onJoinRoomRequested: joinRoomDialog.open()
                 }
                 Rectangle {
                     Layout.preferredWidth: 1
@@ -247,6 +254,58 @@ ApplicationWindow {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("They'll be asked to share their status with you.")
+                    color: win.mutedColor
+                    wrapMode: Text.Wrap
+                }
+            }
+        }
+
+        Dialog {
+            id: joinRoomDialog
+            title: qsTr("Join a group chat")
+            anchors.centerIn: parent
+            modal: true
+            width: Math.min(420, parent.width - 32)
+            standardButtons: Dialog.Ok | Dialog.Cancel
+            Material.roundedScale: theme.radius
+
+            onOpened: {
+                roomJid.text = ""
+                roomNick.text = ""
+                roomPassword.text = ""
+                roomJid.forceActiveFocus()
+            }
+            onAccepted: backend.joinRoom(roomJid.text, roomNick.text, roomPassword.text)
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 12
+                TextField {
+                    id: roomJid
+                    Material.roundedScale: Math.min(4, theme.radius)
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Room address (room@server)")
+                    inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
+                    onAccepted: joinRoomDialog.accept()
+                }
+                TextField {
+                    id: roomNick
+                    Material.roundedScale: Math.min(4, theme.radius)
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Nickname (optional)")
+                    onAccepted: joinRoomDialog.accept()
+                }
+                TextField {
+                    id: roomPassword
+                    Material.roundedScale: Math.min(4, theme.radius)
+                    Layout.fillWidth: true
+                    placeholderText: qsTr("Room password (optional)")
+                    echoMode: TextInput.Password
+                    onAccepted: joinRoomDialog.accept()
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("The room is saved on your server, so it comes back on your other devices and next time.")
                     color: win.mutedColor
                     wrapMode: Text.Wrap
                 }

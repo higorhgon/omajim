@@ -55,6 +55,7 @@ Item {
                 name: backend.currentChatName
                 source: backend.currentChatAvatar
                 presence: backend.currentChatPresence
+                isRoom: backend.currentChatIsRoom
                 ringColor: win.color
             }
             Label {
@@ -67,12 +68,54 @@ Item {
             }
             Label {
                 Layout.fillWidth: true
-                text: backend.currentChatTyping ? qsTr("typing…")
+                // A room shows its subject, or whether we're in it; a person
+                // their status.
+                text: backend.currentChatIsRoom
+                      ? (backend.currentChatStatusText !== "" ? backend.currentChatStatusText
+                         : backend.currentChatPresence === "online" ? qsTr("Group chat") : qsTr("Not in the room"))
+                      : backend.currentChatTyping ? qsTr("typing…")
                       : backend.currentChatStatusText !== ""
                       ? "%1 — %2".arg(win.presenceLabel(backend.currentChatPresence)).arg(backend.currentChatStatusText)
                       : win.presenceLabel(backend.currentChatPresence)
-                color: backend.currentChatTyping ? theme.accent : win.mutedColor
+                color: backend.currentChatTyping && !backend.currentChatIsRoom ? theme.accent : win.mutedColor
                 elide: Text.ElideRight
+            }
+            Button {
+                Material.roundedScale: theme.radius
+                visible: backend.currentChatIsRoom && backend.currentRoomParticipants.length > 0
+                flat: true
+                text: qsTr("%n people", "", backend.currentRoomParticipants.length)
+                onClicked: participantsPopup.open()
+
+                Popup {
+                    id: participantsPopup
+                    y: parent.height
+                    x: parent.width - width
+                    width: 240
+                    height: Math.min(360, participantList.contentHeight + 16)
+                    padding: 8
+                    Material.roundedScale: theme.radius
+                    background: Rectangle {
+                        radius: theme.radius
+                        color: win.panelColor
+                        border.color: win.lineColor
+                    }
+                    ListView {
+                        id: participantList
+                        anchors.fill: parent
+                        clip: true
+                        model: backend.currentRoomParticipants
+                        ScrollBar.vertical: ScrollBar {}
+                        delegate: Label {
+                            required property string modelData
+                            width: ListView.view.width
+                            padding: 6
+                            text: modelData
+                            color: win.textColor
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
             }
         }
         Rectangle {
@@ -125,6 +168,8 @@ Item {
                 ToolButton {
                     Material.roundedScale: theme.radius
                     Layout.alignment: Qt.AlignBottom
+                    // Files go to one person's device, never to a room.
+                    visible: !backend.currentChatIsRoom
                     text: "+"
                     font.pixelSize: 20
                     onClicked: backend.chooseFileToSend()

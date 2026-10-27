@@ -19,6 +19,7 @@ Rectangle {
         ["Shift+Enter", qsTr("New line in the message")],
         ["Ctrl+O", qsTr("Send a file")],
         ["Ctrl+N", qsTr("Add a contact")],
+        ["Ctrl+J", qsTr("Join a group chat")],
         ["Ctrl+W", qsTr("Close the conversation")],
         ["F1", qsTr("Show or hide these shortcuts")],
         ["Ctrl+Q", qsTr("Quit")],

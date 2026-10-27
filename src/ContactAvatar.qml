@@ -11,6 +11,8 @@ Item {
     property string name
     property string source
     property string presence: "offline"
+    // A group chat shows # instead of an initial.
+    property bool isRoom: false
     property color ringColor: win.panelColor
 
     implicitWidth: 36
@@ -32,7 +34,7 @@ Item {
 
         Label {
             anchors.centerIn: parent
-            text: avatar.name.trim().charAt(0).toLocaleUpperCase()
+            text: avatar.isRoom ? "#" : avatar.name.trim().charAt(0).toLocaleUpperCase()
             color: "white"
             font.pixelSize: Math.round(avatar.height * 0.42)
             font.weight: Font.DemiBold

@@ -23,6 +23,8 @@ struct HistoryEntry {
     QString archiveId;
     // An outgoing message the other side confirmed (XEP-0184).
     bool delivered = false;
+    // In a group chat, the nickname of whoever wrote it.
+    QString sender;
 };
 
 // Conversations kept in SQLite, one database per account.
@@ -42,6 +44,8 @@ public:
     bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {}) const;
     void updateFile(qint64 id, const QString &state, const QString &filePath);
     bool markDelivered(const QString &peer, const QString &xmppId);
+    // When the newest line of a conversation was written, or invalid.
+    QDateTime lastStamp(const QString &peer) const;
 
     // A transfer can't continue after the app quits, so anything still
     // offered or running from the last session is marked as failed.

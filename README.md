@@ -18,6 +18,11 @@ janela: seus contatos à esquerda e a conversa à direita.
   lado confirma que recebeu. E "digitando…" (XEP-0085) no cabeçalho da
   conversa; o Omajim só avisa que você está digitando para quem também
   manda esse aviso.
+- Salas de grupo (MUC, XEP-0045): Ctrl+J entra numa sala, que fica salva
+  nos favoritos do servidor (XEP-0402) e volta nos outros dispositivos. As
+  salas ficam no topo da lista, cada mensagem mostra o apelido de quem
+  escreveu, e só notificam quando alguém escreve o seu apelido ou manda uma
+  mensagem privada. Convites aparecem na lista de contatos.
 - Envio e recebimento de arquivos por SI (XEP-0096), compatível com o Pidgin,
   por conexão direta (SOCKS5) ou pelo servidor (IBB). Arraste um arquivo para
   a conversa para enviá-lo. Os arquivos recebidos vão para a pasta de
@@ -51,6 +56,7 @@ no Gajim, continua na branch `main`.
 | Shift+Enter | Nova linha na mensagem |
 | Ctrl+O | Enviar um arquivo |
 | Ctrl+N | Adicionar um contato |
+| Ctrl+J | Entrar numa sala |
 | Ctrl+W | Fechar a conversa |
 | F1 ou Ctrl+/ | Mostrar os atalhos |
 | Ctrl+Q | Sair |

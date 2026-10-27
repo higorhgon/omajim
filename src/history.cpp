@@ -41,7 +41,8 @@ bool History::open(const QString &path) {
                                " state TEXT,"
                                " xmpp_id TEXT,"
                                " archive_id TEXT,"
-                               " delivered INTEGER NOT NULL DEFAULT 0)") &&
+                               " delivered INTEGER NOT NULL DEFAULT 0,"
+                               " sender TEXT)") &&
                     query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)");
     if (!ok) {
         m_error = query.lastError().text();
@@ -55,7 +56,8 @@ bool History::open(const QString &path) {
     while (query.next())
         columns << query.value(1).toString();
     const QList<std::pair<QString, QString>> added{{"archive_id", "TEXT"},
-                                                   {"delivered", "INTEGER NOT NULL DEFAULT 0"}};
+                                                   {"delivered", "INTEGER NOT NULL DEFAULT 0"},
+                                                   {"sender", "TEXT"}};
     for (const auto &[name, type] : added) {
         if (!columns.contains(name) && !query.exec(QStringLiteral("ALTER TABLE messages ADD COLUMN %1 %2").arg(name, type))) {
             m_error = query.lastError().text();
@@ -79,7 +81,7 @@ qint64 History::add(HistoryEntry &entry) {
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
     query.prepare("INSERT INTO messages (peer, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id,"
-                  " archive_id, delivered) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                  " archive_id, delivered, sender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     query.addBindValue(entry.peer);
     query.addBindValue(entry.outgoing ? 1 : 0);
     query.addBindValue(entry.kind);
@@ -91,6 +93,7 @@ qint64 History::add(HistoryEntry &entry) {
     query.addBindValue(entry.xmppId);
     query.addBindValue(entry.archiveId);
     query.addBindValue(entry.delivered ? 1 : 0);
+    query.addBindValue(entry.sender);
     if (!query.exec()) {
         m_error = query.lastError().text();
         return 0;
@@ -106,7 +109,7 @@ QList<HistoryEntry> History::recent(const QString &peer, int limit) const {
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
     query.prepare("SELECT id, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id, archive_id,"
-                  " delivered FROM messages WHERE peer = ? ORDER BY stamp DESC, id DESC LIMIT ?");
+                  " delivered, sender FROM messages WHERE peer = ? ORDER BY stamp DESC, id DESC LIMIT ?");
     query.addBindValue(peer);
     query.addBindValue(limit);
     if (!query.exec())
@@ -125,6 +128,7 @@ QList<HistoryEntry> History::recent(const QString &peer, int limit) const {
         entry.xmppId = query.value(8).toString();
         entry.archiveId = query.value(9).toString();
         entry.delivered = query.value(10).toInt() != 0;
+        entry.sender = query.value(11).toString();
         entries.prepend(entry);
     }
     return entries;
@@ -161,6 +165,17 @@ bool History::markDelivered(const QString &peer, const QString &xmppId) {
     query.addBindValue(peer);
     query.addBindValue(xmppId);
     return query.exec() && query.numRowsAffected() > 0;
+}
+
+QDateTime History::lastStamp(const QString &peer) const {
+    if (!isOpen())
+        return {};
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("SELECT MAX(stamp) FROM messages WHERE peer = ?");
+    query.addBindValue(peer);
+    if (!query.exec() || !query.next() || query.value(0).isNull())
+        return {};
+    return QDateTime::fromMSecsSinceEpoch(query.value(0).toLongLong(), QTimeZone::UTC);
 }
 
 void History::failInterruptedTransfers() {

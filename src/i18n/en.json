@@ -2,5 +2,9 @@
   "%n new messages while you were away": {
     "one": "%n new message while you were away",
     "other": "%n new messages while you were away"
+  },
+  "%n people": {
+    "one": "%n person",
+    "other": "%n people"
   }
 }

@@ -9,6 +9,9 @@
 #include <QXmlStreamWriter>
 #include <QXmppClient.h>
 #include <QXmppMessage.h>
+#include <QXmppMucData.h>
+#include <QXmppMucManagerV2.h>
+#include <QXmppPepBookmarkManager.h>
 #include <QXmppResultSet.h>
 
 #include <QBuffer>
@@ -306,6 +309,92 @@ private slots:
         QVERIFY(!backend.currentChatTyping());
         backend.openChat("bob@example.org");
         QVERIFY(backend.currentChatTyping());
+    }
+
+    void roomsListFirstAndKeepWhoWrote() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.contacts()->upsert("adam@example.org", "Adam");
+
+        // A bookmark from the server brings the room into the list, on top.
+        auto *bookmarks = backend.client()->findExtension<QXmppPepBookmarkManager>();
+        emit bookmarks->bookmarksAdded({QXmppMucBookmark("team@rooms.example.org", "Team", false, {}, {})});
+        QCOMPARE(backend.contacts()->jidAt(0), QString("team@rooms.example.org"));
+        QVERIFY(backend.contacts()->data(backend.contacts()->index(0), ContactModel::IsRoomRole).toBool());
+
+        backend.openChat("team@rooms.example.org");
+        QVERIFY(backend.currentChatIsRoom());
+        auto *muc = backend.client()->findExtension<QXmppMucManagerV2>();
+        auto roomMessage = [](const QString &nick, const QString &id, const QString &body) {
+            QXmppMessage message("team@rooms.example.org/" + nick, "alice@example.org", body);
+            message.setType(QXmppMessage::GroupChat);
+            message.setId(id);
+            return message;
+        };
+        emit muc->messageReceived("team@rooms.example.org", roomMessage("bob", "r1", "hello all"));
+        // Our own message, echoed back by the room.
+        emit muc->messageReceived("team@rooms.example.org", roomMessage("alice", "r2", "hi"));
+        // The same line again (a rejoin's history) isn't stored twice.
+        emit muc->roomHistoryReceived("team@rooms.example.org", {roomMessage("bob", "r1", "hello all")});
+
+        auto *messages = backend.messages();
+        QCOMPARE(messages->rowCount(), 2);
+        QCOMPARE(messages->data(messages->index(0), MessageModel::SenderRole).toString(), QString("bob"));
+        QVERIFY(!messages->data(messages->index(0), MessageModel::OutgoingRole).toBool());
+        QVERIFY(messages->data(messages->index(1), MessageModel::OutgoingRole).toBool());
+
+        // A private message from someone in the room goes with the room.
+        QXmppMessage whisper("team@rooms.example.org/bob", "alice@example.org", "psst");
+        whisper.setType(QXmppMessage::Chat);
+        whisper.setId("p1");
+        emit backend.client()->messageReceived(whisper);
+        QCOMPARE(messages->rowCount(), 3);
+        QVERIFY(messages->data(messages->index(2), MessageModel::SenderRole).toString().startsWith("bob"));
+        QVERIFY(!backend.currentChatTyping());
+
+        // No files to rooms, and no sending while not in the room.
+        QVERIFY(!backend.sendMessage("anyone?"));
+    }
+
+    void invitationsCanBeDeclined() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        auto *muc = backend.client()->findExtension<QXmppMucManagerV2>();
+
+        QXmpp::Muc::DirectInvitation invitation;
+        invitation.setJid("Team@rooms.example.org");
+        invitation.setReason("standup");
+        emit muc->directInvitationReceived(invitation, "bob@example.org/phone", {});
+        // The same room twice is one invitation.
+        emit muc->directInvitationReceived(invitation, "carol@example.org", {});
+        QCOMPARE(backend.invitations().size(), 1);
+        const QVariantMap first = backend.invitations().first().toMap();
+        QCOMPARE(first.value("room").toString(), QString("team@rooms.example.org"));
+        QCOMPARE(first.value("from").toString(), QString("bob@example.org"));
+
+        backend.declineInvitation(0);
+        QVERIFY(backend.invitations().isEmpty());
+    }
+
+    void historyKnowsTheNewestLine() {
+        QTemporaryDir dir;
+        History history;
+        QVERIFY(history.open(dir.filePath("history.sqlite")));
+        QVERIFY(!history.lastStamp("team@rooms.example.org").isValid());
+        HistoryEntry entry;
+        entry.peer = "team@rooms.example.org";
+        entry.body = "hi";
+        entry.sender = "bob";
+        entry.stamp = QDateTime::fromMSecsSinceEpoch(5000, QTimeZone::UTC);
+        history.add(entry);
+        QCOMPARE(history.lastStamp("team@rooms.example.org"), entry.stamp);
+        QCOMPARE(history.recent("team@rooms.example.org", 1).first().sender, QString("bob"));
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

@@ -23,6 +23,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case StateRole: return entry.state;
     case ProgressRole: return m_progress.value(entry.id, entry.state == "done" ? 1.0 : 0.0);
     case DeliveredRole: return entry.delivered;
+    case SenderRole: return entry.sender;
     }
     return {};
 }
@@ -31,7 +32,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
     return {{IdRole, "messageId"}, {BodyRole, "body"}, {OutgoingRole, "outgoing"},
             {StampRole, "stamp"}, {KindRole, "kind"}, {FilePathRole, "filePath"},
             {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
-            {DeliveredRole, "delivered"}};
+            {DeliveredRole, "delivered"}, {SenderRole, "sender"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {

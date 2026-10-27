@@ -21,6 +21,7 @@ Item {
     required property string transferState
     required property double progress
     required property bool delivered
+    required property string sender
 
     width: ListView.view.width
     height: bubble.height
@@ -37,6 +38,14 @@ Item {
     }
 
     Text {
+        id: senderMeasure
+        visible: false
+        text: line.outgoing ? "" : line.sender
+        font.pixelSize: 12
+        font.weight: Font.DemiBold
+    }
+
+    Text {
         id: measure
         visible: false
         text: line.body
@@ -49,7 +58,8 @@ Item {
         x: line.outgoing ? line.width - width - 16 : 16
         // Sized from the text laid out on one line, so short messages get a
         // snug bubble and long ones wrap at the maximum width.
-        width: Math.min(line.width * 0.72, line.kind === "file" ? 320 : Math.max(Math.ceil(measure.implicitWidth) + 2, 64) + 24)
+        width: Math.min(line.width * 0.72, line.kind === "file" ? 320
+                        : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2, 64) + 24)
         height: content.implicitHeight + 16
         radius: theme.radius
         color: line.outgoing ? Qt.alpha(theme.accent, 0.16) : win.surfaceColor
@@ -62,6 +72,20 @@ Item {
             anchors.leftMargin: 12
             anchors.rightMargin: 12
             spacing: 4
+
+            // In a group chat, who wrote it, in a color that stays theirs.
+            Label {
+                visible: !line.outgoing && line.sender !== ""
+                text: line.sender
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+                color: {
+                    let hash = 0
+                    for (let i = 0; i < line.sender.length; ++i)
+                        hash = (hash * 31 + line.sender.charCodeAt(i)) >>> 0
+                    return Qt.hsla((hash % 360) / 360, 0.6, 0.68, 1)
+                }
+            }
 
             TextEdit {
                 Layout.fillWidth: true
