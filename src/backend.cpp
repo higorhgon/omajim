@@ -42,6 +42,7 @@
 #include "filepicker.h"
 #include "files.h"
 #include "notifier.h"
+#include "rosterstore.h"
 #include "secretstore.h"
 
 static const int HistoryLimit = 300;
@@ -99,6 +100,8 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     m_status = m_settings.value("account/status", "online").toString();
 
     m_roster = m_client->findExtension<QXmppRosterManager>();
+    // The roster lives in the account's database between runs.
+    m_roster->setStorage(std::make_unique<RosterStore>(&m_history));
     m_client->addNewExtension<QXmppCarbonManagerV2>();
     m_mam = m_client->addNewExtension<QXmppMamManager>();
     m_vcards = m_client->findExtension<QXmppVCardManager>();
@@ -626,6 +629,15 @@ void Backend::openHistory() {
     }
     m_history.failInterruptedTransfers();
     m_avatars = std::make_unique<AvatarStore>(QDir(m_dataDirectory).filePath("accounts/" + m_jid + "/avatars"));
+
+    // Last session's contacts show right away, offline until the server
+    // says otherwise, instead of an empty list while connecting.
+    const auto cached = m_history.roster();
+    for (const RosterRow &row : cached) {
+        m_contacts.upsert(row.jid, row.name);
+        m_contacts.setAvatar(row.jid, m_avatars->pathFor(row.jid));
+    }
+    trace(QStringLiteral("roster: %1 contacts from the cache").arg(cached.size()));
 }
 
 void Backend::setError(const QString &text) {

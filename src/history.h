@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 // One line of a conversation: a text message or a file sent either way.
 struct HistoryEntry {
@@ -33,6 +34,17 @@ struct HistoryEntry {
     QString correctionId;
 };
 
+// A contact as the server's roster lists it, kept so the list shows at once
+// on the next start and the server only sends what changed since (RFC 6121
+// roster versioning).
+struct RosterRow {
+    QString jid;
+    QString name;
+    QStringList groups;
+    QString subscription;
+    bool approved = false;
+};
+
 // Conversations kept in SQLite, one database per account.
 class History {
 public:
@@ -61,6 +73,13 @@ public:
     void setLink(qint64 id, const QString &url, const QString &xmppId);
     // When the newest line of a conversation was written, or invalid.
     QDateTime lastStamp(const QString &peer) const;
+
+    QString rosterVersion() const;
+    QList<RosterRow> roster() const;
+    void replaceRoster(const QString &version, const QList<RosterRow> &rows);
+    void upsertRosterRow(const QString &version, const RosterRow &row);
+    void removeRosterRow(const QString &version, const QString &jid);
+    void clearRoster();
 
     // A transfer can't continue after the app quits, so anything still
     // offered or running from the last session is marked as failed, and a

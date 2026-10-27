@@ -13,6 +13,8 @@
 #include <QXmppMucManagerV2.h>
 #include <QXmppPepBookmarkManager.h>
 #include <QXmppResultSet.h>
+#include <QXmppRosterIq.h>
+#include <QXmppTask.h>
 
 #include <QBuffer>
 #include <QTcpServer>
@@ -27,6 +29,7 @@
 #include "files.h"
 #include "history.h"
 #include "messagemodel.h"
+#include "rosterstore.h"
 #include "secretstore.h"
 #include "theme.h"
 #include "translator.h"
@@ -573,6 +576,59 @@ private slots:
         QVERIFY(backend.startEditingLast().isEmpty());
     }
 
+    void rosterIsKeptBetweenRuns() {
+        QTemporaryDir dir;
+        History history;
+        QVERIFY(history.open(dir.filePath("history.sqlite")));
+        RosterStore store(&history);
+
+        QXmppRosterIq::Item bob;
+        bob.setBareJid("Bob@example.org");
+        bob.setName("Bob");
+        bob.setGroups({"Team", "Friends"});
+        bob.setSubscriptionType(QXmppRosterIq::Item::Both);
+        QXmppRosterIq::Item carol;
+        carol.setBareJid("carol@example.org");
+        carol.setSubscriptionType(QXmppRosterIq::Item::To);
+        store.replaceAll("v1", {bob, carol});
+        store.removeItem("v2", "carol@example.org");
+        bob.setName("Bobby");
+        store.upsertItem("v3", bob);
+
+        QXmppRosterStorage::RosterCache cache;
+        store.load().then(&m_taskContext, [&](QXmppRosterStorage::RosterCache &&loaded) { cache = loaded; });
+        QCOMPARE(cache.version, QString("v3"));
+        QCOMPARE(cache.items.size(), size_t(1));
+        QCOMPARE(cache.items.front().bareJid(), QString("bob@example.org"));
+        QCOMPARE(cache.items.front().name(), QString("Bobby"));
+        QCOMPARE(cache.items.front().subscriptionType(), QXmppRosterIq::Item::Both);
+        QCOMPARE(cache.items.front().groups(), QSet<QString>({"Team", "Friends"}));
+
+        store.clear();
+        QVERIFY(history.rosterVersion().isEmpty());
+        QVERIFY(history.roster().isEmpty());
+    }
+
+    void cachedContactsShowBeforeConnecting() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        secrets.passwords.insert("alice@example.org", "secret");
+        {
+            History history;
+            QVERIFY(history.open(dir.filePath("data/accounts/alice@example.org/history.sqlite")));
+            history.replaceRoster("v1", {RosterRow{"bob@example.org", "Bob", {}, "both", false}});
+        }
+        QDir().mkpath(dir.filePath("config"));
+        write(dir.filePath("config/omajim.conf"), "[account]\njid=alice@example.org\nhost=127.0.0.1:1\nstatus=offline\n");
+
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.start();
+        QVERIFY(backend.signedIn());
+        QCOMPARE(backend.connectionState(), QString("offline"));
+        QCOMPARE(backend.contacts()->rowCount(), 1);
+        QCOMPARE(backend.contacts()->data(backend.contacts()->index(0), ContactModel::NameRole).toString(), QString("Bob"));
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;
@@ -777,6 +833,8 @@ private slots:
     }
 
 private:
+    QObject m_taskContext;
+
     static void write(const QString &path, const QByteArray &contents) {
         QFile file(path);
         QVERIFY(file.open(QIODevice::WriteOnly));

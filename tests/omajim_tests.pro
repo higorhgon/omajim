@@ -15,6 +15,7 @@ HEADERS += \
     ../src/history.h \
     ../src/messagemodel.h \
     ../src/notifier.h \
+    ../src/rosterstore.h \
     ../src/secretstore.h \
     ../src/theme.h \
     ../src/translator.h \
@@ -29,6 +30,7 @@ SOURCES += \
     ../src/history.cpp \
     ../src/messagemodel.cpp \
     ../src/notifier.cpp \
+    ../src/rosterstore.cpp \
     ../src/secretstore.cpp \
     ../src/theme.cpp \
     ../src/translator.cpp \

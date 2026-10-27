@@ -72,7 +72,14 @@ bool History::open(const QString &path) {
                                " url TEXT,"
                                " edited INTEGER NOT NULL DEFAULT 0,"
                                " correction_id TEXT)") &&
-                    query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)");
+                    query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)") &&
+                    query.exec("CREATE TABLE IF NOT EXISTS roster ("
+                               " jid TEXT PRIMARY KEY,"
+                               " name TEXT,"
+                               " groups TEXT,"
+                               " subscription TEXT,"
+                               " approved INTEGER NOT NULL DEFAULT 0)") &&
+                    query.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
     if (!ok) {
         m_error = query.lastError().text();
         db.close();
@@ -253,4 +260,87 @@ void History::failInterruptedTransfers() {
     query.exec("UPDATE messages SET state = 'failed' WHERE kind = 'file' AND state IN ('offered', 'active', 'uploading')");
     // A download from the server can simply start over.
     query.exec("UPDATE messages SET state = 'remote', file_path = '' WHERE kind = 'file' AND state = 'downloading'");
+}
+
+QString History::rosterVersion() const {
+    if (!isOpen())
+        return {};
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("SELECT value FROM meta WHERE key = 'roster_version'");
+    return query.exec() && query.next() ? query.value(0).toString() : QString();
+}
+
+QList<RosterRow> History::roster() const {
+    QList<RosterRow> rows;
+    if (!isOpen())
+        return rows;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    if (!query.exec("SELECT jid, name, groups, subscription, approved FROM roster"))
+        return rows;
+    while (query.next()) {
+        const QString groups = query.value(2).toString();
+        rows << RosterRow{query.value(0).toString(), query.value(1).toString(),
+                          groups.isEmpty() ? QStringList() : groups.split('\n'),
+                          query.value(3).toString(), query.value(4).toInt() != 0};
+    }
+    return rows;
+}
+
+// Each change and the version it brings are written together, so a crash
+// can't leave a version that claims changes the table doesn't have.
+static bool setRosterVersion(QSqlQuery &query, const QString &version) {
+    query.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('roster_version', ?)");
+    query.addBindValue(version);
+    return query.exec();
+}
+
+static bool writeRosterRow(QSqlQuery &query, const RosterRow &row) {
+    query.prepare("INSERT OR REPLACE INTO roster (jid, name, groups, subscription, approved) VALUES (?, ?, ?, ?, ?)");
+    query.addBindValue(row.jid);
+    query.addBindValue(row.name);
+    query.addBindValue(row.groups.join('\n'));
+    query.addBindValue(row.subscription);
+    query.addBindValue(row.approved ? 1 : 0);
+    return query.exec();
+}
+
+void History::replaceRoster(const QString &version, const QList<RosterRow> &rows) {
+    if (!isOpen())
+        return;
+    QSqlDatabase db = QSqlDatabase::database(m_connection);
+    db.transaction();
+    QSqlQuery query(db);
+    bool ok = query.exec("DELETE FROM roster");
+    for (const RosterRow &row : rows)
+        ok = ok && writeRosterRow(query, row);
+    ok = ok && setRosterVersion(query, version);
+    ok ? db.commit() : db.rollback();
+}
+
+void History::upsertRosterRow(const QString &version, const RosterRow &row) {
+    if (!isOpen())
+        return;
+    QSqlDatabase db = QSqlDatabase::database(m_connection);
+    db.transaction();
+    QSqlQuery query(db);
+    (writeRosterRow(query, row) && setRosterVersion(query, version)) ? db.commit() : db.rollback();
+}
+
+void History::removeRosterRow(const QString &version, const QString &jid) {
+    if (!isOpen())
+        return;
+    QSqlDatabase db = QSqlDatabase::database(m_connection);
+    db.transaction();
+    QSqlQuery query(db);
+    query.prepare("DELETE FROM roster WHERE jid = ?");
+    query.addBindValue(jid);
+    (query.exec() && setRosterVersion(query, version)) ? db.commit() : db.rollback();
+}
+
+void History::clearRoster() {
+    if (!isOpen())
+        return;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.exec("DELETE FROM roster");
+    query.exec("DELETE FROM meta WHERE key = 'roster_version'");
 }
