@@ -162,6 +162,7 @@ Rectangle {
                 required property string presence
                 required property string statusText
                 required property int unread
+                required property string avatar
 
                 width: ListView.view.width
                 height: 54
@@ -183,7 +184,14 @@ Rectangle {
 
                 contentItem: RowLayout {
                     spacing: 10
-                    PresenceDot { presence: row.presence }
+                    ContactAvatar {
+                        jid: row.jid
+                        name: row.name
+                        source: row.avatar
+                        presence: row.presence
+                        // Under the highlight, the ring takes its color.
+                        ringColor: row.highlighted ? Qt.lighter(win.panelColor, 1.6) : win.panelColor
+                    }
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 0

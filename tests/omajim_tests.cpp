@@ -4,6 +4,16 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QXmlStreamWriter>
+#include <QXmppResultSet.h>
+
+#include <QBuffer>
+#include <QCryptographicHash>
+#include <QImage>
+
+#include "avatarstore.h"
 #include "backend.h"
 #include "contactmodel.h"
 #include "filepicker.h"
@@ -141,6 +151,101 @@ private slots:
         QVERIFY(history.contains("bob@example.org", "id1"));
         QVERIFY(!history.contains("carol@example.org", "id1"));
         QVERIFY(!history.contains("bob@example.org", ""));
+    }
+
+    void historyRecognizesArchivedCopies() {
+        QTemporaryDir dir;
+        History history;
+        QVERIFY(history.open(dir.filePath("history.sqlite")));
+        HistoryEntry entry;
+        entry.peer = "bob@example.org";
+        entry.body = "hi";
+        entry.archiveId = "arch-1";
+        history.add(entry);
+        // The same message back from the archive, under a different id.
+        QVERIFY(history.contains("bob@example.org", "other-id", "arch-1"));
+        QVERIFY(!history.contains("bob@example.org", "other-id", "arch-2"));
+        QVERIFY(!history.contains("bob@example.org", "", ""));
+        QCOMPARE(history.recent("bob@example.org", 1).first().archiveId, QString("arch-1"));
+    }
+
+    void historyUpgradesOlderDatabases() {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("history.sqlite");
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "old");
+            db.setDatabaseName(path);
+            QVERIFY(db.open());
+            QSqlQuery query(db);
+            QVERIFY(query.exec("CREATE TABLE messages (id INTEGER PRIMARY KEY, peer TEXT NOT NULL,"
+                               " outgoing INTEGER NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL,"
+                               " stamp INTEGER NOT NULL, file_path TEXT, file_size INTEGER, state TEXT,"
+                               " xmpp_id TEXT)"));
+            QVERIFY(query.exec("INSERT INTO messages (peer, outgoing, kind, body, stamp, xmpp_id)"
+                               " VALUES ('bob@example.org', 0, 'text', 'old', 1, 'x1')"));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase("old");
+
+        History history;
+        QVERIFY2(history.open(path), qPrintable(history.errorString()));
+        QCOMPARE(history.recent("bob@example.org", 5).first().body, QString("old"));
+        HistoryEntry entry;
+        entry.peer = "bob@example.org";
+        entry.body = "new";
+        entry.archiveId = "a";
+        QVERIFY(history.add(entry) > 0);
+    }
+
+    void emptyBeforeAsksTheArchiveForItsNewestPage() {
+        // syncArchive relies on QXmpp writing an empty <before/>, which RSM
+        // reads as "the last page".
+        QXmppResultSetQuery page;
+        page.setMax(100);
+        page.setBefore(QStringLiteral(""));
+        QString xml;
+        QXmlStreamWriter writer(&xml);
+        page.toXml(&writer);
+        QVERIFY2(xml.contains("<before/>") || xml.contains("<before></before>"), qPrintable(xml));
+    }
+
+    void avatarsAreStoredOnceAndRound() {
+        QTemporaryDir dir;
+        AvatarStore store(dir.filePath("avatars"));
+        QImage image(300, 200, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        image.save(&buffer, "PNG");
+
+        const QString hash = store.save(png);
+        QCOMPARE(hash, QString::fromLatin1(QCryptographicHash::hash(png, QCryptographicHash::Sha1).toHex()));
+        QVERIFY(store.has(hash));
+        QVERIFY(store.pathFor("bob@example.org").isEmpty());
+
+        store.assign("bob@example.org", hash);
+        const QImage saved(store.pathFor("bob@example.org"));
+        QCOMPARE(saved.size(), QSize(128, 128));
+        // Round: the corner is see-through, the middle is the picture.
+        QCOMPARE(qAlpha(saved.pixel(0, 0)), 0);
+        QCOMPARE(QColor(saved.pixel(64, 64)), QColor(Qt::red));
+
+        // The index outlives the store, like the files do.
+        AvatarStore again(dir.filePath("avatars"));
+        QCOMPARE(again.hashFor("bob@example.org"), hash);
+        again.clear("bob@example.org");
+        QVERIFY(again.pathFor("bob@example.org").isEmpty());
+
+        QVERIFY(store.save("not an image").isEmpty());
+    }
+
+    void avatarHashesAreReadEitherWay() {
+        const QByteArray raw = QCryptographicHash::hash("x", QCryptographicHash::Sha1);
+        const QString hex = QString::fromLatin1(raw.toHex());
+        QCOMPARE(AvatarStore::normalizedHash(raw), hex);
+        QCOMPARE(AvatarStore::normalizedHash(raw.toHex().toUpper()), hex);
+        QVERIFY(AvatarStore::normalizedHash("short").isEmpty());
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

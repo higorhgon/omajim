@@ -8,6 +8,12 @@ janela: seus contatos à esquerda e a conversa à direita.
 
 - Conversas 1:1 com histórico local (SQLite), notificações na área de
   trabalho e cópia das mensagens enviadas de outros dispositivos (carbons).
+- Histórico do servidor (MAM, XEP-0313): ao conectar, busca o que chegou
+  enquanto o Omajim estava fechado ou passou por outro dispositivo, e avisa
+  numa só notificação. Na primeira conexão de uma conta, traz só as 100
+  mensagens mais recentes.
+- Avatares dos contatos (vCard, XEP-0054/0153), guardados em cache e
+  baixados de novo só quando o contato troca de foto.
 - Envio e recebimento de arquivos por SI (XEP-0096), compatível com o Pidgin,
   por conexão direta (SOCKS5) ou pelo servidor (IBB). Arraste um arquivo para
   a conversa para enviá-lo. Os arquivos recebidos vão para a pasta de

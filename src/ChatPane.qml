@@ -48,7 +48,15 @@ Item {
             Layout.fillWidth: true
             Layout.margins: 14
             spacing: 10
-            PresenceDot { presence: backend.currentChatPresence }
+            ContactAvatar {
+                implicitWidth: 32
+                implicitHeight: 32
+                jid: backend.currentChat
+                name: backend.currentChatName
+                source: backend.currentChatAvatar
+                presence: backend.currentChatPresence
+                ringColor: win.color
+            }
             Label {
                 text: backend.currentChatName
                 color: win.textColor

@@ -3,11 +3,13 @@
 #include <QHash>
 #include <QObject>
 #include <QPointer>
+#include <QSet>
 #include <QSettings>
 #include <QSslCertificate>
 #include <QStringList>
 #include <memory>
 
+#include "avatarstore.h"
 #include "contactmodel.h"
 #include "history.h"
 #include "messagemodel.h"
@@ -15,12 +17,14 @@
 class FilePicker;
 class Notifier;
 class QXmppClient;
+class QXmppMamManager;
 class QXmppMessage;
 class QXmppPresence;
 class QXmppRosterManager;
 class QXmppSocksServer;
 class QXmppTransferJob;
 class QXmppTransferManager;
+class QXmppVCardManager;
 class SecretStore;
 
 // One XMPP account: its connection, roster, conversations, and file
@@ -40,6 +44,7 @@ class Backend : public QObject {
     Q_PROPERTY(QString currentChatName READ currentChatName NOTIFY currentChatChanged)
     Q_PROPERTY(QString currentChatPresence READ currentChatPresence NOTIFY currentChatChanged)
     Q_PROPERTY(QString currentChatStatusText READ currentChatStatusText NOTIFY currentChatChanged)
+    Q_PROPERTY(QString currentChatAvatar READ currentChatAvatar NOTIFY currentChatChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -65,6 +70,7 @@ public:
     QString currentChatName() const;
     QString currentChatPresence() const;
     QString currentChatStatusText() const;
+    QString currentChatAvatar() const;
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
@@ -122,11 +128,21 @@ private:
     void openHistory();
     void setError(const QString &text);
     void setSignedIn(bool signedIn);
-    void handleMessage(const QXmppMessage &message);
+    // How a message reached us: as it was sent, or later from the server's
+    // archive. Archived ones count as unread but don't notify one by one,
+    // and the first sync of an account fills the history without either.
+    enum class Delivery { Live, Archived, ArchivedSilently };
+
+    bool ingest(const QXmppMessage &message, Delivery delivery);
+    void syncArchive(bool firstPage);
+    void finishArchiveSync();
     void refreshPresence(const QString &bareJid);
     void syncRoster();
+    void showContact(const QString &jid);
+    void handleAvatarHash(const QXmppPresence &presence);
+    void fetchAvatar(const QString &jid);
     QString bestResource(const QString &bareJid) const;
-    qint64 addEntry(HistoryEntry &entry);
+    qint64 addEntry(HistoryEntry &entry, Delivery delivery = Delivery::Live);
     void updateTransfer(qint64 id, const QString &state, const QString &path);
     void watchTransfer(qint64 id, QXmppTransferJob *job);
     void finishTransfer(qint64 id);
@@ -142,6 +158,13 @@ private:
     QXmppRosterManager *m_roster = nullptr;
     QXmppTransferManager *m_transfers = nullptr;
     QXmppSocksServer *m_socks = nullptr;
+    QXmppMamManager *m_mam = nullptr;
+    QXmppVCardManager *m_vcards = nullptr;
+    std::unique_ptr<AvatarStore> m_avatars;
+    QSet<QString> m_fetchingAvatars;
+    bool m_syncing = false;
+    int m_archivedUnread = 0;
+    bool m_reloadCurrentChat = false;
 
     History m_history;
     ContactModel m_contacts;

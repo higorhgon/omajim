@@ -1,6 +1,7 @@
 #include "contactmodel.h"
 
 #include <QCollator>
+#include <QUrl>
 #include <algorithm>
 
 ContactModel::ContactModel(QObject *parent) : QAbstractListModel(parent) {}
@@ -19,13 +20,14 @@ QVariant ContactModel::data(const QModelIndex &index, int role) const {
     case PresenceRole: return contact.presence;
     case StatusTextRole: return contact.statusText;
     case UnreadRole: return contact.unread;
+    case AvatarRole: return contact.avatar;
     }
     return {};
 }
 
 QHash<int, QByteArray> ContactModel::roleNames() const {
     return {{JidRole, "jid"}, {NameRole, "name"}, {PresenceRole, "presence"},
-            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}};
+            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}};
 }
 
 QString ContactModel::displayName(const QString &jid, const QString &name) {
@@ -93,6 +95,16 @@ void ContactModel::setAllOffline() {
         contact.statusText.clear();
     }
     rebuild();
+}
+
+void ContactModel::setAvatar(const QString &jid, const QString &path) {
+    auto it = m_contacts.find(jid);
+    const QString url = path.isEmpty() ? QString() : QUrl::fromLocalFile(path).toString();
+    if (it == m_contacts.end() || it->avatar == url)
+        return;
+    it->avatar = url;
+    refreshRow(jid);
+    emit contactChanged(jid);
 }
 
 void ContactModel::addUnread(const QString &jid) {

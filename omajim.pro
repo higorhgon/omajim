@@ -9,6 +9,7 @@ TEMPLATE = app
 include(qxmpp.pri)
 
 HEADERS += \
+    src/avatarstore.h \
     src/backend.h \
     src/contactmodel.h \
     src/filepicker.h \
@@ -25,6 +26,7 @@ HEADERS += \
 
 SOURCES += \
     src/main.cpp \
+    src/avatarstore.cpp \
     src/backend.cpp \
     src/contactmodel.cpp \
     src/files.cpp \

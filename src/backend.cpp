@@ -13,13 +13,17 @@
 #include <QXmppCarbonManagerV2.h>
 #include <QXmppClient.h>
 #include <QXmppConfiguration.h>
+#include <QXmppMamManager.h>
 #include <QXmppMessage.h>
 #include <QXmppPresence.h>
 #include <QXmppRosterManager.h>
 #include <QXmppSocks.h>
 #include <QXmppTask.h>
 #include <QXmppTransferManager.h>
+#include <QXmppStanzaId.h>
 #include <QXmppUtils.h>
+#include <QXmppVCardIq.h>
+#include <QXmppVCardManager.h>
 
 #include "filepicker.h"
 #include "files.h"
@@ -32,6 +36,10 @@ static const int HistoryLimit = 300;
 // random one, which no firewall rule can allow, so use a fixed port, the one
 // the Python Omajim used, and an existing ufw rule keeps working.
 static const quint16 DirectTransferPort = 28011;
+
+// Messages per archive request. The first sync of an account fetches one page
+// only, so history from years back doesn't download on the first sign-in.
+static const int ArchivePageSize = 100;
 
 Backend::Backend(const QString &configDirectory, const QString &dataDirectory, FilePicker *filePicker,
                  SecretStore *secrets, Notifier *notifier, QObject *parent)
@@ -47,6 +55,11 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
 
     m_roster = m_client->findExtension<QXmppRosterManager>();
     m_client->addNewExtension<QXmppCarbonManagerV2>();
+    m_mam = m_client->addNewExtension<QXmppMamManager>();
+    m_vcards = m_client->findExtension<QXmppVCardManager>();
+    if (!m_vcards)
+        m_vcards = m_client->addNewExtension<QXmppVCardManager>();
+    connect(m_client.get(), &QXmppClient::presenceReceived, this, &Backend::handleAvatarHash);
     m_transfers = m_client->addNewExtension<QXmppTransferManager>();
     if (auto *socks = m_transfers->findChild<QXmppSocksServer *>()) {
         socks->close();
@@ -62,8 +75,12 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             m_contacts.setAllOffline();
             emit currentChatChanged();
         }
-        if (state == QXmppClient::ConnectedState)
+        if (state == QXmppClient::ConnectedState) {
             dismissError();
+            // Whatever arrived while we were away, or went through another
+            // of the account's devices.
+            syncArchive(m_settings.value("archive/" + m_jid + "/last").toString().isEmpty());
+        }
         emit connectionStateChanged();
     });
     connect(m_client.get(), &QXmppClient::errorOccurred, this, [this](const QXmppError &error) {
@@ -92,15 +109,12 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             return;
         }
     });
-    connect(m_client.get(), &QXmppClient::messageReceived, this, &Backend::handleMessage);
+    connect(m_client.get(), &QXmppClient::messageReceived, this,
+            [this](const QXmppMessage &message) { ingest(message, Delivery::Live); });
 
     connect(m_roster, &QXmppRosterManager::rosterReceived, this, &Backend::syncRoster);
-    connect(m_roster, &QXmppRosterManager::itemAdded, this, [this](const QString &jid) {
-        m_contacts.upsert(jid, m_roster->getRosterEntry(jid).name());
-    });
-    connect(m_roster, &QXmppRosterManager::itemChanged, this, [this](const QString &jid) {
-        m_contacts.upsert(jid, m_roster->getRosterEntry(jid).name());
-    });
+    connect(m_roster, &QXmppRosterManager::itemAdded, this, &Backend::showContact);
+    connect(m_roster, &QXmppRosterManager::itemChanged, this, &Backend::showContact);
     connect(m_roster, &QXmppRosterManager::itemRemoved, this, [this](const QString &jid) {
         m_contacts.remove(jid);
         if (jid == m_currentChat)
@@ -207,6 +221,10 @@ QString Backend::currentChatName() const {
 
 QString Backend::currentChatPresence() const {
     return m_contacts.contains(m_currentChat) ? m_contacts.contact(m_currentChat).presence : QString("offline");
+}
+
+QString Backend::currentChatAvatar() const {
+    return m_contacts.contact(m_currentChat).avatar;
 }
 
 QString Backend::currentChatStatusText() const {
@@ -384,6 +402,7 @@ void Backend::openHistory() {
         return;
     }
     m_history.failInterruptedTransfers();
+    m_avatars = std::make_unique<AvatarStore>(QDir(m_dataDirectory).filePath("accounts/" + m_jid + "/avatars"));
 }
 
 void Backend::setError(const QString &text) {
@@ -403,9 +422,61 @@ void Backend::setSignedIn(bool signedIn) {
 void Backend::syncRoster() {
     const QStringList jids = m_roster->getRosterBareJids();
     for (const QString &jid : jids)
-        m_contacts.upsert(jid, m_roster->getRosterEntry(jid).name());
+        showContact(jid);
     for (const QString &jid : jids)
         refreshPresence(jid);
+}
+
+void Backend::showContact(const QString &jid) {
+    m_contacts.upsert(jid, m_roster->getRosterEntry(jid).name());
+    if (m_avatars)
+        m_contacts.setAvatar(jid, m_avatars->pathFor(jid));
+}
+
+void Backend::handleAvatarHash(const QXmppPresence &presence) {
+    const QString jid = QXmppUtils::jidToBareJid(presence.from()).toLower();
+    if (!m_avatars || jid.isEmpty() || jid == m_jid || !m_contacts.contains(jid))
+        return;
+    switch (presence.vCardUpdateType()) {
+    case QXmppPresence::VCardUpdateNoPhoto:
+        m_avatars->clear(jid);
+        m_contacts.setAvatar(jid, {});
+        break;
+    case QXmppPresence::VCardUpdateValidPhoto: {
+        const QString hash = AvatarStore::normalizedHash(presence.photoHash());
+        if (hash.isEmpty() || hash == m_avatars->hashFor(jid))
+            break;
+        // Someone else may already have sent us this very picture.
+        if (m_avatars->has(hash)) {
+            m_avatars->assign(jid, hash);
+            m_contacts.setAvatar(jid, m_avatars->pathFor(jid));
+        } else {
+            fetchAvatar(jid);
+        }
+        break;
+    }
+    default:
+        // No word on the picture (or not yet): keep what we have.
+        break;
+    }
+}
+
+void Backend::fetchAvatar(const QString &jid) {
+    if (m_fetchingAvatars.contains(jid))
+        return;
+    m_fetchingAvatars.insert(jid);
+    const QString account = m_jid;
+    m_vcards->fetchVCard(jid).then(this, [this, jid, account](QXmppVCardManager::VCardIqResult &&result) {
+        m_fetchingAvatars.remove(jid);
+        // A missing picture isn't worth an error in the window.
+        if (account != m_jid || !m_avatars || !std::holds_alternative<QXmppVCardIq>(result))
+            return;
+        const QString hash = m_avatars->save(std::get<QXmppVCardIq>(result).photo());
+        if (hash.isEmpty())
+            return;
+        m_avatars->assign(jid, hash);
+        m_contacts.setAvatar(jid, m_avatars->pathFor(jid));
+    });
 }
 
 void Backend::refreshPresence(const QString &bareJid) {
@@ -436,19 +507,29 @@ QString Backend::bestResource(const QString &bareJid) const {
     return best;
 }
 
-qint64 Backend::addEntry(HistoryEntry &entry) {
+qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
     if (!m_contacts.contains(entry.peer))
         m_contacts.upsert(entry.peer, {});
     if (!m_history.add(entry)) {
         setError(tr("The message couldn't be saved to the history: %1").arg(m_history.errorString()));
         return 0;
     }
-    if (entry.peer == m_currentChat)
-        m_messages.append(entry);
+    if (entry.peer == m_currentChat) {
+        // Archived lines can be older than what's on screen, so the chat
+        // reloads in order once the sync is over.
+        if (delivery == Delivery::Live)
+            m_messages.append(entry);
+        else
+            m_reloadCurrentChat = true;
+    }
 
-    if (!entry.outgoing && (entry.peer != m_currentChat || !m_windowActive)) {
+    if (entry.outgoing || delivery == Delivery::ArchivedSilently)
+        return entry.id;
+    if (entry.peer != m_currentChat || !m_windowActive) {
         m_contacts.addUnread(entry.peer);
-        if (m_notifier && m_status != "dnd") {
+        if (delivery == Delivery::Archived) {
+            ++m_archivedUnread;
+        } else if (m_notifier && m_status != "dnd") {
             const QString name = ContactModel::displayName(entry.peer, m_contacts.contact(entry.peer).name);
             const QString body = entry.kind == "file" ? tr("Wants to send you %1").arg(entry.body)
                                                       : entry.body.left(200);
@@ -458,13 +539,14 @@ qint64 Backend::addEntry(HistoryEntry &entry) {
     return entry.id;
 }
 
-void Backend::handleMessage(const QXmppMessage &message) {
+bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
     if (message.type() == QXmppMessage::Error) {
-        setError(tr("A message to %1 didn't arrive.").arg(QXmppUtils::jidToBareJid(message.from())));
-        return;
+        if (delivery == Delivery::Live)
+            setError(tr("A message to %1 didn't arrive.").arg(QXmppUtils::jidToBareJid(message.from())));
+        return false;
     }
     if (message.type() == QXmppMessage::GroupChat || message.body().isEmpty())
-        return;
+        return false;
 
     HistoryEntry entry;
     // A carbon of a message sent from another of our devices comes "from"
@@ -473,13 +555,76 @@ void Backend::handleMessage(const QXmppMessage &message) {
     entry.outgoing = from == m_jid;
     entry.peer = entry.outgoing ? QXmppUtils::jidToBareJid(message.to()).toLower() : from;
     if (entry.peer.isEmpty() || entry.peer == m_jid)
-        return;
+        return false;
     entry.body = message.body();
     entry.xmppId = message.id();
+    // Our server's id for it; another entity's stanza-id says nothing.
+    const auto stanzaIds = message.stanzaIds();
+    for (const QXmppStanzaId &stanzaId : stanzaIds)
+        if (stanzaId.by.isEmpty() || QXmppUtils::jidToBareJid(stanzaId.by).toLower() == m_jid)
+            entry.archiveId = stanzaId.id;
     entry.stamp = message.stamp().isValid() ? message.stamp().toUTC() : QDateTime::currentDateTimeUtc();
-    if (m_history.contains(entry.peer, entry.xmppId))
+    if (m_history.contains(entry.peer, entry.xmppId, entry.archiveId))
+        return false;
+    return addEntry(entry, delivery) > 0;
+}
+
+void Backend::syncArchive(bool firstPage) {
+    if (m_syncing || !m_history.isOpen())
         return;
-    addEntry(entry);
+    m_syncing = true;
+
+    const QString key = "archive/" + m_jid + "/last";
+    const QString last = m_settings.value(key).toString();
+    QXmppResultSetQuery page;
+    page.setMax(ArchivePageSize);
+    if (firstPage)
+        page.setBefore(QStringLiteral(""));  // An empty <before/> asks for the newest page.
+    else
+        page.setAfter(last);
+
+    const QString account = m_jid;
+    m_mam->retrieveMessages({}, {}, {}, {}, {}, page)
+        .then(this, [this, key, account, firstPage, last](QXmppMamManager::RetrieveResult &&result) {
+            m_syncing = false;
+            // Signed out or switched accounts meanwhile.
+            if (account != m_jid)
+                return;
+            if (std::holds_alternative<QXmppError>(result)) {
+                // The server forgot the message we continue from (archives
+                // expire), so start over from the newest page. A server
+                // without an archive just has nothing to add.
+                if (!firstPage && !last.isEmpty()) {
+                    m_settings.remove(key);
+                    syncArchive(true);
+                }
+                return;
+            }
+
+            const auto &retrieved = std::get<QXmppMamManager::RetrievedMessages>(result);
+            const Delivery delivery = firstPage ? Delivery::ArchivedSilently : Delivery::Archived;
+            for (const QXmppMessage &message : retrieved.messages)
+                ingest(message, delivery);
+
+            const QString newLast = retrieved.result.resultSetReply().last();
+            if (!newLast.isEmpty())
+                m_settings.setValue(key, newLast);
+            if (!firstPage && !retrieved.result.complete() && !newLast.isEmpty() && newLast != last) {
+                syncArchive(false);
+                return;
+            }
+            finishArchiveSync();
+        });
+}
+
+void Backend::finishArchiveSync() {
+    if (m_reloadCurrentChat && !m_currentChat.isEmpty())
+        m_messages.reset(m_history.recent(m_currentChat, HistoryLimit));
+    m_reloadCurrentChat = false;
+    if (m_archivedUnread > 0 && m_notifier && m_status != "dnd")
+        m_notifier->notify(QStringLiteral("archive"), QStringLiteral("Omajim"),
+                           tr("%n new messages while you were away", "", m_archivedUnread));
+    m_archivedUnread = 0;
 }
 
 void Backend::openChat(const QString &jid) {

@@ -10,6 +10,8 @@ struct Contact {
     // online, chat, away, xa, dnd, or offline.
     QString presence = QStringLiteral("offline");
     QString statusText;
+    // A round picture on disk, as a file URL for QML, or empty.
+    QString avatar;
     int unread = 0;
 };
 
@@ -22,7 +24,7 @@ class ContactModel : public QAbstractListModel {
     Q_PROPERTY(int totalUnread READ totalUnread NOTIFY totalUnreadChanged)
 
 public:
-    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole };
+    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole };
 
     explicit ContactModel(QObject *parent = nullptr);
 
@@ -39,6 +41,7 @@ public:
     void clear();
     void setPresence(const QString &jid, const QString &presence, const QString &statusText);
     void setAllOffline();
+    void setAvatar(const QString &jid, const QString &path);
     void addUnread(const QString &jid);
     void clearUnread(const QString &jid);
 

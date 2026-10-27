@@ -7,6 +7,11 @@
   "%1 isn't there anymore.": "%1 não existe mais.",
   "%1 wants to add you as a contact.": "%1 quer adicionar você como contato.",
   "%1% transferred": "%1% transferido",
+  "%n new messages while you were away": {
+    "many": "%n de mensagens novas enquanto você estava fora",
+    "one": "%n mensagem nova enquanto você estava fora",
+    "other": "%n mensagens novas enquanto você estava fora"
+  },
   "A message to %1 didn't arrive.": "Uma mensagem para %1 não chegou.",
   "Accept": "Aceitar",
   "Add a contact": "Adicionar um contato",

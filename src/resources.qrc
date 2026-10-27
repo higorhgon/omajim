@@ -7,6 +7,7 @@
         <file alias="ChatPane.qml">ChatPane.qml</file>
         <file alias="ChatLine.qml">ChatLine.qml</file>
         <file alias="PresenceDot.qml">PresenceDot.qml</file>
+        <file alias="ContactAvatar.qml">ContactAvatar.qml</file>
         <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/pt-BR.json">i18n/pt-BR.json</file>

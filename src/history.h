@@ -18,6 +18,9 @@ struct HistoryEntry {
     qint64 fileSize = 0;
     QString state;
     QString xmppId;
+    // The id the server's archive gave it (XEP-0359), to recognize the same
+    // message when it comes back from the archive.
+    QString archiveId;
 };
 
 // Conversations kept in SQLite, one database per account.
@@ -34,7 +37,7 @@ public:
 
     qint64 add(HistoryEntry &entry);
     QList<HistoryEntry> recent(const QString &peer, int limit) const;
-    bool contains(const QString &peer, const QString &xmppId) const;
+    bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {}) const;
     void updateFile(qint64 id, const QString &state, const QString &filePath);
 
     // A transfer can't continue after the app quits, so anything still
