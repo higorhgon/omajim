@@ -14,7 +14,9 @@
 #include <QXmppMucManagerV2.h>
 #include <QXmppPepBookmarkManager.h>
 #include <QXmppResultSet.h>
+#include <QXmppDiscoveryManager.h>
 #include <QXmppRosterIq.h>
+#include <QXmppVersionManager.h>
 #include <QXmppRosterManager.h>
 #include <QXmppTask.h>
 
@@ -901,6 +903,15 @@ private slots:
         // Another conversation starts with nothing selected.
         backend.openChat("carol@example.org");
         QCOMPARE(messages->selectedCount(), 0);
+    }
+
+    void contactsSeeOmajim() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        QCOMPARE(backend.client()->findExtension<QXmppVersionManager>()->clientName(), QString("Omajim"));
+        auto *disco = backend.client()->findExtension<QXmppDiscoveryManager>();
+        QCOMPARE(disco->clientCapabilitiesNode(), QString("https://github.com/higorhgon/omajim"));
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

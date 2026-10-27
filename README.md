@@ -55,6 +55,8 @@ janela: seus contatos à esquerda e a conversa à direita.
   Os arquivos recebidos vão para a pasta de Downloads e só ganham o nome
   final quando estão completos. Um arquivo que já existe nunca é
   substituído.
+- Para os contatos, o cliente se apresenta como Omajim (versão e
+  capabilities, XEP-0092/0115).
 - A senha fica no chaveiro da sessão (Secret Service, via `secret-tool`),
   nunca num arquivo de configuração.
 - Visual dos apps do Omarchy, no estilo do [Hype](https://github.com/omacom/hype):

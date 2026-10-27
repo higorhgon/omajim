@@ -41,6 +41,7 @@
 #include <QXmppStanzaId.h>
 #include <QXmppUtils.h>
 #include <QXmppVCardIq.h>
+#include <QXmppVersionManager.h>
 #include <QXmppVCardManager.h>
 
 #include "filepicker.h"
@@ -109,6 +110,17 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     m_jid = m_settings.value("account/jid").toString();
     m_status = m_settings.value("account/status", "online").toString();
 
+    // Contacts' clients show who they talk to: Omajim, not QXmpp's defaults.
+    if (auto *version = m_client->findExtension<QXmppVersionManager>()) {
+        version->setClientName("Omajim");
+        version->setClientVersion(QCoreApplication::applicationVersion());
+    }
+    if (auto *disco = m_client->findExtension<QXmppDiscoveryManager>()) {
+        disco->setClientName("Omajim");
+        disco->setClientCategory("client");
+        disco->setClientType("pc");
+        disco->setClientCapabilitiesNode("https://github.com/higorhgon/omajim");
+    }
     m_roster = m_client->findExtension<QXmppRosterManager>();
     // The roster lives in the account's database between runs.
     m_roster->setStorage(std::make_unique<RosterStore>(&m_history));
