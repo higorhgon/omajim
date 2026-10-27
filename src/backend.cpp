@@ -2137,3 +2137,34 @@ void Backend::setIdleLevel(int level) {
     trace(QStringLiteral("idle: level %1").arg(level));
     applyStatus(level >= 2 ? "xa" : "away", false);
 }
+
+QVariantList Backend::searchConversation(const QString &text) const {
+    QVariantList ids;
+    if (m_currentChat.isEmpty())
+        return ids;
+    const auto found = m_history.search(m_currentChat, text);
+    for (qint64 id : found)
+        ids << id;
+    return ids;
+}
+
+int Backend::revealMessage(qint64 id) {
+    const auto &entries = m_messages.entries();
+    for (int row = 0; row < entries.size(); ++row)
+        if (entries.at(row).id == id)
+            return row;
+    const HistoryEntry entry = m_history.byId(id);
+    if (entry.id == 0 || entry.peer != m_currentChat)
+        return -1;
+    // Further back than what's shown: show everything from it on.
+    m_messages.reset(m_history.since(m_currentChat, entry.stamp));
+    for (const HistoryEntry &line : m_messages.entries()) {
+        ensurePreview(line);
+        decorate(line);
+    }
+    const auto &shown = m_messages.entries();
+    for (int row = 0; row < shown.size(); ++row)
+        if (shown.at(row).id == id)
+            return row;
+    return -1;
+}

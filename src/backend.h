@@ -149,6 +149,11 @@ public:
     // The selected messages as "[date time] Name: text" lines, to the clipboard.
     Q_INVOKABLE void copySelectedMessages();
     Q_INVOKABLE void copyText(const QString &text);
+    // Searching the open conversation (Ctrl+F): the matching lines' ids,
+    // oldest first, and the row of one on screen, loading older lines when
+    // it's further back than what's shown; -1 when it's gone.
+    Q_INVOKABLE QVariantList searchConversation(const QString &text) const;
+    Q_INVOKABLE int revealMessage(qint64 id);
     // Copies text selected across messages: [{row, text}] in order, text
     // null for a line scrolled away (taken whole). Within one message just
     // its text; across several, a "[time, date] Name: text" line each, as

@@ -100,6 +100,12 @@ public:
     void setChatOpen(const QString &peer, bool open);
     // The newest line of a conversation; id 0 when there's none.
     HistoryEntry lastLine(const QString &peer) const;
+    // The text lines of a conversation that contain a search, oldest first,
+    // ignoring case and accents.
+    QList<qint64> search(const QString &peer, const QString &needle) const;
+    // Every line from a moment on, oldest first, to show an older match.
+    QList<HistoryEntry> since(const QString &peer, const QDateTime &stamp) const;
+    HistoryEntry byId(qint64 id) const;
     // A line by its own id or the server's (rooms answer and react to the
     // latter); id 0 when it isn't here.
     HistoryEntry findByAnyId(const QString &peer, const QString &id) const;

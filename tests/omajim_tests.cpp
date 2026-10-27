@@ -1046,6 +1046,43 @@ private slots:
         QVERIFY(lines.at(2).endsWith("] Bob: third"));
     }
 
+    void conversationSearchReachesOldLines() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        {
+            History history;
+            QVERIFY(history.open(dir.filePath("data/accounts/alice@example.org/history.sqlite")));
+            history.beginBatch();
+            for (int i = 0; i < 400; ++i) {
+                HistoryEntry entry;
+                entry.peer = "bob@example.org";
+                entry.body = i == 10 ? "A REUNIÃO foi adiada" : i == 390 ? "reuniao amanhã" : QString("line %1").arg(i);
+                entry.stamp = QDateTime::fromMSecsSinceEpoch(1000LL * (i + 1), QTimeZone::UTC);
+                history.add(entry);
+            }
+            history.commitBatch();
+        }
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+        QCOMPARE(backend.messages()->rowCount(), 300);
+
+        // Case and accents don't matter; oldest first.
+        const QVariantList hits = backend.searchConversation("reunião");
+        QCOMPARE(hits.size(), 2);
+
+        // The newest is on screen already; the oldest comes in with the
+        // lines after it.
+        QVERIFY(backend.revealMessage(hits.last().toLongLong()) >= 0);
+        const int row = backend.revealMessage(hits.first().toLongLong());
+        QCOMPARE(row, 0);
+        QCOMPARE(backend.messages()->data(backend.messages()->index(row), MessageModel::BodyRole).toString(),
+                 QString("A REUNIÃO foi adiada"));
+        QCOMPARE(backend.messages()->rowCount(), 390);
+        QVERIFY(backend.searchConversation("  ").isEmpty());
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;

@@ -23,6 +23,7 @@ Item {
         "check": "M5 12.5L10 17.5L19 7",
         "chevron-down": "M6 9L12 15L18 9",
         "chevron-right": "M9 6L15 12L9 18",
+        "chevron-up": "M6 15L12 9L18 15",
         "file": "M6 3H14L19 8V21H6Z M14 3V8H19",
         "download": "M12 3V15 M7 10L12 15L17 10 M4 15V21H20V15",
         "close": "M6 6L18 18 M18 6L6 18",

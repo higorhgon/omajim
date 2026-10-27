@@ -495,3 +495,54 @@ void History::setReaction(const QString &peer, const QString &messageId, const Q
     }
     query.exec();
 }
+
+// Lowercase, without accents, so "joao" finds "João".
+static QString folded(const QString &text) {
+    QString plain;
+    const QString decomposed = text.normalized(QString::NormalizationForm_D);
+    for (const QChar c : decomposed)
+        if (c.category() != QChar::Mark_NonSpacing)
+            plain += c.toLower();
+    return plain;
+}
+
+QList<qint64> History::search(const QString &peer, const QString &needle) const {
+    QList<qint64> ids;
+    const QString wanted = folded(needle.trimmed());
+    if (!isOpen() || wanted.isEmpty())
+        return ids;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("SELECT id, body FROM messages WHERE peer = ? AND kind = 'text' ORDER BY stamp, id");
+    query.addBindValue(peer);
+    if (query.exec())
+        while (query.next())
+            if (folded(query.value(1).toString()).contains(wanted))
+                ids << query.value(0).toLongLong();
+    return ids;
+}
+
+QList<HistoryEntry> History::since(const QString &peer, const QDateTime &stamp) const {
+    QList<HistoryEntry> entries;
+    if (!isOpen())
+        return entries;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare(QStringLiteral("SELECT %1 FROM messages WHERE peer = ? AND stamp >= ? ORDER BY stamp, id").arg(Columns));
+    query.addBindValue(peer);
+    query.addBindValue(stamp.toMSecsSinceEpoch());
+    if (query.exec())
+        while (query.next())
+            entries << read(query, peer);
+    return entries;
+}
+
+HistoryEntry History::byId(qint64 id) const {
+    if (!isOpen())
+        return {};
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare(QStringLiteral("SELECT %1, peer FROM messages WHERE id = ?").arg(Columns));
+    query.addBindValue(id);
+    if (!query.exec() || !query.next())
+        return {};
+    // The peer comes after the usual columns.
+    return read(query, query.value(16).toString());
+}

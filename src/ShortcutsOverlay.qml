@@ -27,6 +27,7 @@ Popup {
             ["Ctrl+K / Ctrl+T", qsTr("Search contacts")],
             ["Alt+↑ / Alt+↓", qsTr("Previous or next conversation")],
             ["Ctrl+W", qsTr("Close the conversation")],
+            ["Ctrl+F", qsTr("Search this conversation")],
             ["Ctrl+N", qsTr("Add a contact")],
             ["Ctrl+J", qsTr("Join a group chat")] ] },
         { title: qsTr("Writing"), keys: [

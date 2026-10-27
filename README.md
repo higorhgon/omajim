@@ -26,6 +26,9 @@ janela: seus contatos à esquerda e a conversa à direita.
   ZapFast, e a conversa rola junto perto das bordas. Ctrl+C copia o trecho;
   se ele atravessa várias mensagens, cada uma vem com horário e nome:
   `[27/10/2026 14:33] Ana: texto`.
+- Ctrl+F busca no histórico inteiro da conversa, sem ligar para acentos;
+  Enter e Shift+Enter passam pelos resultados, trazendo as mensagens
+  antigas quando preciso.
 - Shift+clique seleciona mensagens inteiras, da última clicada até a atual
   (Shift+clique numa selecionada a tira), e Ctrl+C copia todas como
   "[data hora] Nome: texto". Esc limpa a seleção.
@@ -105,6 +108,7 @@ no Gajim, continua na branch `main`.
 | Ctrl+N | Adicionar um contato |
 | Ctrl+J | Entrar numa sala |
 | Ctrl+W | Fechar a conversa (tira da barra lateral) |
+| Ctrl+F | Buscar na conversa |
 | ? (fora do campo de texto), F1 ou Ctrl+/ | Mostrar os atalhos |
 | ↑ (campo vazio) | Corrigir a última mensagem |
 | Shift+clique | Selecionar mensagens inteiras |

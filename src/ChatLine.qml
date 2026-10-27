@@ -394,6 +394,17 @@ Item {
         return bodyText.positionAt(point.x, point.y)
     }
 
+    // Where a search term is in the text, ignoring case and accents, as
+    // {start, end}; null when it isn't (or the line isn't text).
+    function findText(term) {
+        if (line.kind !== "text" || term.trim() === "")
+            return null
+        // One character in, one out, so positions stay those of the text.
+        const fold = text => Array.from(text, c => c.normalize("NFD").charAt(0).toLowerCase()).join("")
+        const at = fold(bodyText.getText(0, bodyText.length)).indexOf(fold(term.trim()))
+        return at < 0 ? null : {start: at, end: at + term.trim().length}
+    }
+
     // The plain text between two positions; end -1 runs to the end.
     function textBetween(start, end) {
         return line.kind === "text" ? bodyText.getText(start, end < 0 ? bodyText.length : end) : ""

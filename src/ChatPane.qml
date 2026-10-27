@@ -25,6 +25,52 @@ Rectangle {
         return false
     }
 
+    // Searching this conversation (Ctrl+F): the matching lines, oldest
+    // first, and the one shown.
+    property var searchHits: []
+    property int searchIndex: -1
+
+    function openSearch() {
+        searchBar.visible = true
+        searchField.forceActiveFocus()
+        searchField.selectAll()
+    }
+    function closeSearch() {
+        searchBar.visible = false
+        searchHits = []
+        searchIndex = -1
+        messages.clearTextSelection()
+        composer.forceActiveFocus()
+    }
+    function runSearch() {
+        searchHits = backend.searchConversation(searchField.text)
+        // The newest match first, as it's the nearest.
+        searchIndex = searchHits.length - 1
+        showHit()
+    }
+    function stepSearch(delta) {
+        if (searchHits.length === 0)
+            return
+        searchIndex = (searchIndex + delta + searchHits.length) % searchHits.length
+        showHit()
+    }
+    function showHit() {
+        if (searchIndex < 0) {
+            messages.clearTextSelection()
+            return
+        }
+        const row = backend.revealMessage(searchHits[searchIndex])
+        if (row < 0)
+            return
+        messages.positionViewAtIndex(row, ListView.Center)
+        Qt.callLater(() => {
+            const item = messages.itemAtIndex(row)
+            const found = item ? item.findText(searchField.text) : null
+            if (found)
+                messages.setTextSelection(row, found.start, row, found.end)
+        })
+    }
+
     function send() {
         if (backend.sendMessage(composer.text))
             composer.clear()
@@ -47,9 +93,19 @@ Rectangle {
         }
     }
 
+    Shortcut {
+        sequences: [StandardKey.Find]
+        context: Qt.ApplicationShortcut
+        enabled: backend.currentChat !== ""
+        onActivated: pane.openSearch()
+    }
+
     Connections {
         target: backend
         function onCurrentChatChanged() {
+            searchBar.visible = false
+            pane.searchHits = []
+            pane.searchIndex = -1
             if (backend.currentChat !== "")
                 composer.forceActiveFocus()
         }
@@ -180,6 +236,58 @@ Rectangle {
             Layout.rightMargin: 20
             Layout.preferredHeight: 1
             color: pane.ui.border
+        }
+
+        // Ctrl+F: find words in this conversation's whole history.
+        RowLayout {
+            id: searchBar
+            objectName: "conversationSearch"
+            Layout.fillWidth: true
+            Layout.leftMargin: 20
+            Layout.rightMargin: 14
+            Layout.topMargin: 10
+            visible: false
+            spacing: 6
+
+            AppTextField {
+                id: searchField
+                Layout.fillWidth: true
+                implicitHeight: 34
+                placeholderText: qsTr("Search this conversation")
+                onTextChanged: searchDelay.restart()
+                Keys.onReturnPressed: event => pane.stepSearch(event.modifiers & Qt.ShiftModifier ? 1 : -1)
+                Keys.onEnterPressed: event => pane.stepSearch(event.modifiers & Qt.ShiftModifier ? 1 : -1)
+                Keys.onEscapePressed: pane.closeSearch()
+                Timer {
+                    id: searchDelay
+                    interval: 200
+                    onTriggered: pane.runSearch()
+                }
+            }
+            Label {
+                text: searchField.text.trim() === "" ? ""
+                      : pane.searchHits.length === 0 ? qsTr("Nothing found")
+                      : qsTr("%1 of %2").arg(pane.searchIndex + 1).arg(pane.searchHits.length)
+                color: pane.ui.muted
+                font.pixelSize: 12
+            }
+            IconButton {
+                iconName: "chevron-up"
+                description: qsTr("Older (Enter)")
+                enabled: pane.searchHits.length > 0
+                onClicked: pane.stepSearch(-1)
+            }
+            IconButton {
+                iconName: "chevron-down"
+                description: qsTr("Newer (Shift+Enter)")
+                enabled: pane.searchHits.length > 0
+                onClicked: pane.stepSearch(1)
+            }
+            IconButton {
+                iconName: "close"
+                description: qsTr("Close the search (Esc)")
+                onClicked: pane.closeSearch()
+            }
         }
 
         ListView {
