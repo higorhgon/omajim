@@ -1905,6 +1905,12 @@ void Backend::setAlias(const QString &jid, const QString &alias) {
     m_contacts.setAlias(bare, alias);
 }
 
+// One message as a transcript line, with the text given or its own.
+static QString transcriptLine(const HistoryEntry &entry, const QString &who, const QString &text) {
+    const QString when = QLocale().toString(entry.stamp.toLocalTime(), QLocale::ShortFormat);
+    return who.isEmpty() ? QStringLiteral("[%1] %2").arg(when, text) : QStringLiteral("[%1] %2: %3").arg(when, who, text);
+}
+
 QString Backend::selectedMessagesText() const {
     QStringList lines;
     const auto entries = m_messages.selectedEntries();
@@ -1914,10 +1920,39 @@ QString Backend::selectedMessagesText() const {
                           : m_contacts.nameOf(entry.peer);
         const QString text = entry.kind == "file" ? (entry.url.isEmpty() ? tr("File: %1").arg(entry.body) : entry.url)
                                                   : entry.body;
-        lines << QStringLiteral("[%1] %2: %3")
-                     .arg(QLocale().toString(entry.stamp.toLocalTime(), QLocale::ShortFormat), who, text);
+        lines << transcriptLine(entry, who, text);
     }
     return lines.join('\n');
+}
+
+QString Backend::transcriptText(const QVariantList &parts) const {
+    const auto &entries = m_messages.entries();
+    if (parts.size() == 1)
+        return parts.first().toMap().value("text").toString();
+    QStringList lines;
+    for (const QVariant &value : parts) {
+        const QVariantMap part = value.toMap();
+        const int row = part.value("row").toInt();
+        if (row < 0 || row >= entries.size())
+            continue;
+        const HistoryEntry &entry = entries.at(row);
+        const QString who = entry.outgoing ? (entry.sender.isEmpty() ? QXmppUtils::jidToUser(m_jid) : entry.sender)
+                          : !entry.sender.isEmpty() ? entry.sender
+                          : m_contacts.nameOf(entry.peer);
+        // A partial line starts or ends wherever the drag did, spaces and all.
+        QString text = part.value("text").isNull() ? entry.body : part.value("text").toString().trimmed();
+        if (entry.kind == "file")
+            text = QStringLiteral("[%1]").arg(tr("File: %1").arg(entry.body));
+        if (!text.isEmpty())
+            lines << transcriptLine(entry, who, text);
+    }
+    return lines.join('\n');
+}
+
+void Backend::copyTranscript(const QVariantList &parts) {
+    const QString text = transcriptText(parts);
+    if (!text.isEmpty())
+        QGuiApplication::clipboard()->setText(text);
 }
 
 void Backend::copySelectedMessages() {

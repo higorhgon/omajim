@@ -10,23 +10,41 @@ Rectangle {
     readonly property var ui: theme.colors
     color: ui.background
 
+    // Copies what's selected in the conversation: whole messages picked with
+    // Shift+click, or text dragged across them. False when there's nothing.
+    function copySelection() {
+        if (backend.messages.selectedCount > 0) {
+            backend.copySelectedMessages()
+            backend.messages.clearSelection()
+            return true
+        }
+        if (messages.hasTextSelection()) {
+            messages.copyTextSelection()
+            return true
+        }
+        return false
+    }
+
     function send() {
         if (backend.sendMessage(composer.text))
             composer.clear()
     }
 
+    // Ctrl+C copies what's selected in the conversation. While the message
+    // field has focus it claims Ctrl+C even with nothing selected in it, so
+    // it hands the key on itself (below); this covers the rest.
     Shortcut {
         sequences: [StandardKey.Copy]
-        enabled: backend.messages.selectedCount > 0
-        onActivated: {
-            backend.copySelectedMessages()
-            backend.messages.clearSelection()
-        }
+        enabled: !composer.activeFocus && (backend.messages.selectedCount > 0 || messages.textStart !== null)
+        onActivated: pane.copySelection()
     }
     Shortcut {
         sequence: "Escape"
-        enabled: backend.messages.selectedCount > 0
-        onActivated: backend.messages.clearSelection()
+        enabled: backend.messages.selectedCount > 0 || messages.textStart !== null
+        onActivated: {
+            backend.messages.clearSelection()
+            messages.clearTextSelection()
+        }
     }
 
     Connections {
@@ -176,6 +194,90 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
             // The message a Shift+click range starts from.
             property var selectionAnchor: -1
+
+            // A text selection that can run across messages: where it
+            // started and where the pointer is now, as {row, pos}.
+            property var textStart: null
+            property var textEnd: null
+            property point lastPointer
+            property real scrollSpeed: 0
+            signal textSelectionChanged()
+
+            function orderedTextSelection() {
+                const s = textStart, e = textEnd
+                const backwards = e.row < s.row || (e.row === s.row && e.pos < s.pos)
+                return backwards ? {first: e, last: s} : {first: s, last: e}
+            }
+            function hasTextSelection() {
+                return textStart !== null && (textStart.row !== textEnd.row || textStart.pos !== textEnd.pos)
+            }
+            function startTextSelection(row, pos) {
+                textStart = {row: row, pos: pos}
+                textEnd = {row: row, pos: pos}
+                textSelectionChanged()
+            }
+            function setTextSelection(startRow, startPos, endRow, endPos) {
+                textStart = {row: startRow, pos: startPos}
+                textEnd = {row: endRow, pos: endPos}
+                textSelectionChanged()
+            }
+            function clearTextSelection() {
+                if (textStart === null)
+                    return
+                textStart = null
+                textEnd = null
+                textSelectionChanged()
+            }
+            // The pointer, in this view's coordinates, moved while selecting.
+            function extendTextSelection(point) {
+                lastPointer = point
+                // Near the top or bottom edge the conversation scrolls along.
+                scrollSpeed = point.y < 32 ? -Math.min(24, (32 - point.y) / 2 + 4)
+                            : point.y > height - 32 ? Math.min(24, (point.y - height + 32) / 2 + 4) : 0
+                const y = Math.max(1, Math.min(height - 2, point.y))
+                // Between two bubbles, the one just below counts.
+                const item = itemAt(point.x + contentX, y + contentY) || itemAt(point.x + contentX, y + contentY + spacing)
+                if (!item || item.textPosition === undefined || textStart === null)
+                    return
+                const local = mapToItem(item, point.x, y)
+                textEnd = {row: item.index, pos: item.textPosition(local.x, local.y)}
+                textSelectionChanged()
+            }
+            function stopAutoScroll() {
+                scrollSpeed = 0
+            }
+            function copyTextSelection() {
+                if (!hasTextSelection())
+                    return
+                const range = orderedTextSelection()
+                const parts = []
+                for (let row = range.first.row; row <= range.last.row; ++row) {
+                    const item = itemAtIndex(row)
+                    const start = row === range.first.row ? range.first.pos : 0
+                    const end = row === range.last.row ? range.last.pos : -1
+                    // Lines scrolled out of view come whole from the history.
+                    parts.push({row: row, text: item ? item.textBetween(start, end) : null})
+                }
+                backend.copyTranscript(parts)
+            }
+
+            Timer {
+                interval: 30
+                repeat: true
+                running: messages.scrollSpeed !== 0
+                onTriggered: {
+                    messages.contentY = Math.max(messages.originY - messages.topMargin,
+                                                 Math.min(messages.contentY + messages.scrollSpeed,
+                                                          messages.originY + messages.contentHeight - messages.height + messages.bottomMargin))
+                    messages.extendTextSelection(messages.lastPointer)
+                }
+            }
+            // Another conversation starts with nothing selected.
+            onModelChanged: clearTextSelection()
+            Connections {
+                target: backend
+                function onCurrentChatChanged() { messages.clearTextSelection() }
+            }
             ScrollBar.vertical: ScrollBar {}
             delegate: ChatLine {}
 
@@ -324,6 +426,12 @@ Rectangle {
                         selectedTextColor: pane.ui.selectionText
                         font.pixelSize: 14
                         onTextChanged: backend.setComposing(text.length > 0)
+                        // Ctrl+C with nothing selected here copies what's
+                        // selected in the conversation.
+                        Keys.onPressed: event => {
+                            if (event.matches(StandardKey.Copy) && composer.selectedText === "" && pane.copySelection())
+                                event.accepted = true
+                        }
                         // Up in an empty field brings back our last line to correct.
                         Keys.onUpPressed: event => {
                             const last = text === "" ? backend.startEditingLast() : ""

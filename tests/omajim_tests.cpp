@@ -1017,6 +1017,35 @@ private slots:
         QCOMPARE(backend.status(), QString("dnd"));
     }
 
+    void textAcrossMessagesCopiesAsATranscript() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.contacts()->upsert("bob@example.org", "Bob");
+        backend.openChat("bob@example.org");
+        for (const auto &[id, body] : {std::pair{"t1", "first line"}, {"t2", "second one"}, {"t3", "third here"}}) {
+            QXmppMessage message("bob@example.org/phone", "alice@example.org", body);
+            message.setType(QXmppMessage::Chat);
+            message.setId(id);
+            emit backend.client()->messageReceived(message);
+        }
+
+        // Within one message: just the text.
+        QCOMPARE(backend.transcriptText({QVariantMap{{"row", 1}, {"text", "cond"}}}), QString("cond"));
+
+        // Across three: the tail of the first, the middle whole (scrolled
+        // away, so taken from the history), the head of the last.
+        const QStringList lines = backend.transcriptText({QVariantMap{{"row", 0}, {"text", "line"}},
+                                                          QVariantMap{{"row", 1}, {"text", QVariant()}},
+                                                          QVariantMap{{"row", 2}, {"text", "third"}}}).split('\n');
+        QCOMPARE(lines.size(), 3);
+        QVERIFY(lines.at(0).startsWith("[") && lines.at(0).endsWith("] Bob: line"));
+        QVERIFY(lines.at(1).endsWith("] Bob: second one"));
+        QVERIFY(lines.at(2).endsWith("] Bob: third"));
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;

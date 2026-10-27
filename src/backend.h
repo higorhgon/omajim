@@ -149,6 +149,12 @@ public:
     // The selected messages as "[date time] Name: text" lines, to the clipboard.
     Q_INVOKABLE void copySelectedMessages();
     Q_INVOKABLE void copyText(const QString &text);
+    // Copies text selected across messages: [{row, text}] in order, text
+    // null for a line scrolled away (taken whole). Within one message just
+    // its text; across several, a "[time, date] Name: text" line each, as
+    // ZapFast copies.
+    Q_INVOKABLE void copyTranscript(const QVariantList &parts);
+    QString transcriptText(const QVariantList &parts) const;
     QString selectedMessagesText() const;
     // Gajim's history for this account: where it is and how many messages
     // it holds ({path, found, error}), and bringing them over.

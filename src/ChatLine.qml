@@ -7,6 +7,7 @@ import QtQuick.Layouts
 Item {
     id: line
 
+    required property int index
     required property var messageId
     required property string body
     required property bool outgoing
@@ -169,9 +170,11 @@ Item {
                 visible: line.kind === "text"
                 text: backend.formatMessage(line.body, line.ui.accent, line.ui.muted)
                 textFormat: TextEdit.RichText
-                onLinkActivated: link => backend.openLink(link)
                 readOnly: true
-                selectByMouse: true
+                // Selection is the conversation's, so it can run across
+                // messages; the pointer below drives it.
+                selectByMouse: false
+                persistentSelection: true
                 wrapMode: TextEdit.Wrap
                 color: line.ui.foreground
                 selectionColor: line.ui.selection
@@ -377,9 +380,55 @@ Item {
     // Shift+click picks whole messages: from the last one clicked to this,
     // or, on one already picked, just leaves it out. A plain click goes on
     // to the text and buttons underneath and starts a new range.
+    // Where a point of this line falls in its text: a character position,
+    // the start above the text and the end below it. Lines without text
+    // count as wholly inside a selection that runs across them.
+    function textPosition(x, y) {
+        if (line.kind !== "text")
+            return 0
+        const point = line.mapToItem(bodyText, x, y)
+        if (point.y < 0)
+            return 0
+        if (point.y > bodyText.height)
+            return bodyText.length
+        return bodyText.positionAt(point.x, point.y)
+    }
+
+    // The plain text between two positions; end -1 runs to the end.
+    function textBetween(start, end) {
+        return line.kind === "text" ? bodyText.getText(start, end < 0 ? bodyText.length : end) : ""
+    }
+
+    function syncTextSelection() {
+        const view = line.ListView.view
+        if (!view || !view.textStart || line.kind !== "text") {
+            bodyText.deselect()
+            return
+        }
+        const range = view.orderedTextSelection()
+        if (line.index < range.first.row || line.index > range.last.row) {
+            bodyText.deselect()
+            return
+        }
+        bodyText.select(line.index === range.first.row ? range.first.pos : 0,
+                        line.index === range.last.row ? range.last.pos : bodyText.length)
+    }
+
+    Component.onCompleted: syncTextSelection()
+    Connections {
+        target: line.ListView.view
+        function onTextSelectionChanged() { line.syncTextSelection() }
+    }
+
     MouseArea {
+        id: pointer
         anchors.fill: bubble
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        // Otherwise the list takes the drag over after a few pixels to scroll.
+        preventStealing: true
+        property point pressedAt
+        property bool dragged: false
+
         onPressed: mouse => {
             if (mouse.button === Qt.RightButton) {
                 lineMenu.popup()
@@ -387,6 +436,8 @@ Item {
                 return
             }
             const view = line.ListView.view
+            // Shift+click picks whole messages: from the last one clicked to
+            // this, or, on one already picked, just leaves it out.
             if (mouse.modifiers & Qt.ShiftModifier) {
                 if (line.selected)
                     backend.messages.toggleSelected(line.messageId)
@@ -395,11 +446,50 @@ Item {
                                                  line.messageId)
                 view.selectionAnchor = line.messageId
                 mouse.accepted = true
-            } else {
-                view.selectionAnchor = line.messageId
-                backend.messages.clearSelection()
-                mouse.accepted = false
+                return
             }
+            view.selectionAnchor = line.messageId
+            backend.messages.clearSelection()
+            // On the text: the start of a selection that may run on into
+            // other messages, as in ZapFast.
+            const inText = line.kind === "text" && bodyText.contains(mapToItem(bodyText, mouse.x, mouse.y))
+            if (!inText) {
+                // Buttons, files, quotes: theirs to handle.
+                view.clearTextSelection()
+                mouse.accepted = false
+                return
+            }
+            pressedAt = Qt.point(mouse.x, mouse.y)
+            dragged = false
+            const atLine = mapToItem(line, mouse.x, mouse.y)
+            view.startTextSelection(line.index, line.textPosition(atLine.x, atLine.y))
+        }
+        onPositionChanged: mouse => {
+            if (!pressed || mouse.buttons !== Qt.LeftButton)
+                return
+            dragged = dragged || Math.abs(mouse.x - pressedAt.x) + Math.abs(mouse.y - pressedAt.y) > 4
+            if (dragged)
+                line.ListView.view.extendTextSelection(mapToItem(line.ListView.view, mouse.x, mouse.y))
+        }
+        onReleased: mouse => {
+            const view = line.ListView.view
+            view.stopAutoScroll()
+            if (dragged || mouse.button !== Qt.LeftButton)
+                return
+            // A click, not a drag: open the link under it, or drop the selection.
+            const point = mapToItem(bodyText, mouse.x, mouse.y)
+            const link = bodyText.linkAt(point.x, point.y)
+            view.clearTextSelection()
+            if (link !== "")
+                backend.openLink(link)
+        }
+        onDoubleClicked: mouse => {
+            if (line.kind !== "text")
+                return
+            const atLine = mapToItem(line, mouse.x, mouse.y)
+            bodyText.cursorPosition = line.textPosition(atLine.x, atLine.y)
+            bodyText.selectWord()
+            line.ListView.view.setTextSelection(line.index, bodyText.selectionStart, line.index, bodyText.selectionEnd)
         }
     }
 

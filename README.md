@@ -22,6 +22,10 @@ janela: seus contatos à esquerda e a conversa à direita.
 - Importa o histórico do Gajim (e do Omajim em Python) pelo menu ⋮: lê uma
   cópia do `logs.db`, sem alterar o original, traz só a conta conectada e
   não repete mensagens que já estão aqui.
+- Arrastar sobre o texto seleciona de uma mensagem a outra, como no
+  ZapFast, e a conversa rola junto perto das bordas. Ctrl+C copia o trecho;
+  se ele atravessa várias mensagens, cada uma vem com horário e nome:
+  `[27/10/2026 14:33] Ana: texto`.
 - Shift+clique seleciona mensagens inteiras, da última clicada até a atual
   (Shift+clique numa selecionada a tira), e Ctrl+C copia todas como
   "[data hora] Nome: texto". Esc limpa a seleção.
