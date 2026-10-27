@@ -22,6 +22,7 @@ Item {
     required property double progress
     required property bool delivered
     required property string sender
+    required property string url
 
     width: ListView.view.width
     height: bubble.height
@@ -30,6 +31,9 @@ Item {
         switch (transferState) {
         case "offered": return outgoing ? qsTr("Waiting for them to accept") : qsTr("Wants to send you this file")
         case "active": return qsTr("%1% transferred").arg(Math.round(progress * 100))
+        case "uploading": return qsTr("%1% uploaded").arg(Math.round(progress * 100))
+        case "downloading": return qsTr("%1% downloaded").arg(Math.round(progress * 100))
+        case "remote": return qsTr("On the server")
         case "done": return outgoing ? qsTr("Sent") : qsTr("Saved")
         case "refused": return outgoing ? qsTr("They declined") : qsTr("Declined")
         case "canceled": return qsTr("Canceled")
@@ -114,17 +118,24 @@ Item {
                     elide: Text.ElideMiddle
                 }
                 Label {
-                    text: "%1 · %2".arg(line.fileSize).arg(line.stateLabel)
+                    text: line.fileSize !== "" ? "%1 · %2".arg(line.fileSize).arg(line.stateLabel) : line.stateLabel
                     color: win.mutedColor
                     font.pixelSize: 12
                 }
                 ProgressBar {
                     Layout.fillWidth: true
-                    visible: line.transferState === "active"
+                    visible: ["active", "uploading", "downloading"].indexOf(line.transferState) >= 0
                     value: line.progress
                 }
                 RowLayout {
                     spacing: 4
+                    // A file on the server comes down only when asked for.
+                    AccentButton {
+                        visible: !line.outgoing && line.url !== ""
+                                 && ["remote", "failed", "canceled"].indexOf(line.transferState) >= 0
+                        text: line.transferState === "remote" ? qsTr("Download") : qsTr("Try again")
+                        onClicked: backend.downloadFile(line.messageId)
+                    }
                     AccentButton {
                         visible: !line.outgoing && line.transferState === "offered"
                         text: qsTr("Accept")
@@ -139,7 +150,8 @@ Item {
                     }
                     Button {
                         Material.roundedScale: theme.radius
-                        visible: line.transferState === "active" || (line.outgoing && line.transferState === "offered")
+                        visible: ["active", "uploading", "downloading"].indexOf(line.transferState) >= 0
+                                 || (line.outgoing && line.transferState === "offered")
                         text: qsTr("Cancel")
                         flat: true
                         onClicked: backend.cancelTransfer(line.messageId)

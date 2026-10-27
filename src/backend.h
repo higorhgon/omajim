@@ -6,6 +6,8 @@
 #include <QSet>
 #include <QSettings>
 #include <QSslCertificate>
+#include <QSslError>
+#include <QUrl>
 #include <QTimer>
 #include <QStringList>
 #include <QVariantList>
@@ -18,7 +20,12 @@
 
 class FilePicker;
 class Notifier;
+class QFileInfo;
+class QNetworkAccessManager;
+class QNetworkReply;
 class QXmppClient;
+class QXmppHttpUpload;
+class QXmppHttpUploadManager;
 class QXmppMamManager;
 class QXmppMucManagerV2;
 class QXmppPepBookmarkManager;
@@ -53,6 +60,7 @@ class Backend : public QObject {
     Q_PROPERTY(bool currentChatIsRoom READ currentChatIsRoom NOTIFY currentChatChanged)
     Q_PROPERTY(QStringList currentRoomParticipants READ currentRoomParticipants NOTIFY participantsChanged)
     Q_PROPERTY(QVariantList invitations READ invitations NOTIFY invitationsChanged)
+    Q_PROPERTY(bool serverUploadAvailable READ serverUploadAvailable NOTIFY uploadSupportChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -83,6 +91,7 @@ public:
     bool currentChatIsRoom() const { return m_rooms.contains(m_currentChat); }
     QStringList currentRoomParticipants() const;
     QVariantList invitations() const { return m_invitations; }
+    bool serverUploadAvailable() const;
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
@@ -104,8 +113,12 @@ public:
     // "typing" while it does.
     Q_INVOKABLE void setComposing(bool composing);
 
-    Q_INVOKABLE void chooseFileToSend();
-    Q_INVOKABLE void sendFile(const QString &path);
+    // How a file travels: "server" uploads it (XEP-0363) and sends the link,
+    // which works for rooms and offline contacts; "direct" streams it to the
+    // contact's device over SI (XEP-0096), as Pidgin expects.
+    Q_INVOKABLE void chooseFileToSend(const QString &method = QStringLiteral("server"));
+    Q_INVOKABLE void sendFile(const QString &path, const QString &method = QStringLiteral("server"));
+    Q_INVOKABLE void downloadFile(qint64 messageId);
     Q_INVOKABLE void acceptFile(qint64 messageId);
     Q_INVOKABLE void refuseFile(qint64 messageId);
     Q_INVOKABLE void cancelTransfer(qint64 messageId);
@@ -137,6 +150,7 @@ signals:
     void typingChanged();
     void participantsChanged();
     void invitationsChanged();
+    void uploadSupportChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
 
@@ -187,6 +201,12 @@ private:
     qint64 addEntry(HistoryEntry &entry, Delivery delivery = Delivery::Live);
     void updateTransfer(qint64 id, const QString &state, const QString &path);
     void watchTransfer(qint64 id, QXmppTransferJob *job);
+    void sendFileDirect(const QFileInfo &info);
+    void uploadFile(const QFileInfo &info);
+    // Sends the link of an uploaded file and returns the message's id.
+    QString sendFileLink(const QString &peer, const QUrl &url);
+    void applyOutOfBand(HistoryEntry &entry, const QXmppMessage &message) const;
+    bool trustsCertificateOf(const QList<QSslError> &errors) const;
     void finishTransfer(qint64 id);
     QList<QSslCertificate> trustedCertificates() const;
 
@@ -209,6 +229,13 @@ private:
     QHash<QString, Room> m_rooms;
     QSet<QString> m_joiningRooms;
     QVariantList m_invitations;
+
+    // Files through the server: uploads and downloads by history line.
+    QNetworkAccessManager *m_network = nullptr;
+    QXmppHttpUploadManager *m_uploads = nullptr;
+    QHash<qint64, std::shared_ptr<QXmppHttpUpload>> m_uploadJobs;
+    QHash<qint64, QNetworkReply *> m_downloads;
+    QString m_pickMethod = QStringLiteral("server");
     bool m_syncing = false;
     int m_archivedUnread = 0;
     bool m_reloadCurrentChat = false;

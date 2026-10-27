@@ -42,7 +42,8 @@ bool History::open(const QString &path) {
                                " xmpp_id TEXT,"
                                " archive_id TEXT,"
                                " delivered INTEGER NOT NULL DEFAULT 0,"
-                               " sender TEXT)") &&
+                               " sender TEXT,"
+                               " url TEXT)") &&
                     query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)");
     if (!ok) {
         m_error = query.lastError().text();
@@ -57,7 +58,8 @@ bool History::open(const QString &path) {
         columns << query.value(1).toString();
     const QList<std::pair<QString, QString>> added{{"archive_id", "TEXT"},
                                                    {"delivered", "INTEGER NOT NULL DEFAULT 0"},
-                                                   {"sender", "TEXT"}};
+                                                   {"sender", "TEXT"},
+                                                   {"url", "TEXT"}};
     for (const auto &[name, type] : added) {
         if (!columns.contains(name) && !query.exec(QStringLiteral("ALTER TABLE messages ADD COLUMN %1 %2").arg(name, type))) {
             m_error = query.lastError().text();
@@ -81,7 +83,7 @@ qint64 History::add(HistoryEntry &entry) {
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
     query.prepare("INSERT INTO messages (peer, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id,"
-                  " archive_id, delivered, sender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                  " archive_id, delivered, sender, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     query.addBindValue(entry.peer);
     query.addBindValue(entry.outgoing ? 1 : 0);
     query.addBindValue(entry.kind);
@@ -94,6 +96,7 @@ qint64 History::add(HistoryEntry &entry) {
     query.addBindValue(entry.archiveId);
     query.addBindValue(entry.delivered ? 1 : 0);
     query.addBindValue(entry.sender);
+    query.addBindValue(entry.url);
     if (!query.exec()) {
         m_error = query.lastError().text();
         return 0;
@@ -109,7 +112,7 @@ QList<HistoryEntry> History::recent(const QString &peer, int limit) const {
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
     query.prepare("SELECT id, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id, archive_id,"
-                  " delivered, sender FROM messages WHERE peer = ? ORDER BY stamp DESC, id DESC LIMIT ?");
+                  " delivered, sender, url FROM messages WHERE peer = ? ORDER BY stamp DESC, id DESC LIMIT ?");
     query.addBindValue(peer);
     query.addBindValue(limit);
     if (!query.exec())
@@ -129,6 +132,7 @@ QList<HistoryEntry> History::recent(const QString &peer, int limit) const {
         entry.archiveId = query.value(9).toString();
         entry.delivered = query.value(10).toInt() != 0;
         entry.sender = query.value(11).toString();
+        entry.url = query.value(12).toString();
         entries.prepend(entry);
     }
     return entries;
@@ -167,6 +171,17 @@ bool History::markDelivered(const QString &peer, const QString &xmppId) {
     return query.exec() && query.numRowsAffected() > 0;
 }
 
+void History::setLink(qint64 id, const QString &url, const QString &xmppId) {
+    if (!isOpen())
+        return;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("UPDATE messages SET url = ?, xmpp_id = ? WHERE id = ?");
+    query.addBindValue(url);
+    query.addBindValue(xmppId);
+    query.addBindValue(id);
+    query.exec();
+}
+
 QDateTime History::lastStamp(const QString &peer) const {
     if (!isOpen())
         return {};
@@ -182,5 +197,7 @@ void History::failInterruptedTransfers() {
     if (!isOpen())
         return;
     QSqlQuery query(QSqlDatabase::database(m_connection));
-    query.exec("UPDATE messages SET state = 'failed' WHERE kind = 'file' AND state IN ('offered', 'active')");
+    query.exec("UPDATE messages SET state = 'failed' WHERE kind = 'file' AND state IN ('offered', 'active', 'uploading')");
+    // A download from the server can simply start over.
+    query.exec("UPDATE messages SET state = 'remote', file_path = '' WHERE kind = 'file' AND state = 'downloading'");
 }

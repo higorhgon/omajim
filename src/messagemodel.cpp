@@ -19,11 +19,12 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case StampRole: return entry.stamp.toLocalTime();
     case KindRole: return entry.kind;
     case FilePathRole: return entry.filePath;
-    case FileSizeRole: return Files::formatSize(entry.fileSize);
+    case FileSizeRole: return entry.fileSize > 0 ? Files::formatSize(entry.fileSize) : QString();
     case StateRole: return entry.state;
     case ProgressRole: return m_progress.value(entry.id, entry.state == "done" ? 1.0 : 0.0);
     case DeliveredRole: return entry.delivered;
     case SenderRole: return entry.sender;
+    case UrlRole: return entry.url;
     }
     return {};
 }
@@ -32,7 +33,8 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
     return {{IdRole, "messageId"}, {BodyRole, "body"}, {OutgoingRole, "outgoing"},
             {StampRole, "stamp"}, {KindRole, "kind"}, {FilePathRole, "filePath"},
             {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
-            {DeliveredRole, "delivered"}, {SenderRole, "sender"}};
+            {DeliveredRole, "delivered"}, {SenderRole, "sender"},
+            {UrlRole, "url"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -75,6 +77,25 @@ void MessageModel::markDelivered(const QString &xmppId) {
             return;
         }
     }
+}
+
+void MessageModel::setLink(qint64 id, const QString &url, const QString &xmppId) {
+    const int row = rowOf(id);
+    if (row < 0)
+        return;
+    m_entries[row].url = url;
+    m_entries[row].xmppId = xmppId;
+    emit dataChanged(index(row), index(row), {UrlRole});
+}
+
+QString MessageModel::url(qint64 id) const {
+    const int row = rowOf(id);
+    return row < 0 ? QString() : m_entries.at(row).url;
+}
+
+QString MessageModel::filePath(qint64 id) const {
+    const int row = rowOf(id);
+    return row < 0 ? QString() : m_entries.at(row).filePath;
 }
 
 int MessageModel::rowOf(qint64 id) const {

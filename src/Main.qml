@@ -100,7 +100,13 @@ ApplicationWindow {
         sequence: "Ctrl+O"
         context: Qt.ApplicationShortcut
         enabled: backend.signedIn && backend.currentChat !== ""
-        onActivated: backend.chooseFileToSend()
+        onActivated: backend.chooseFileToSend("server")
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+O"
+        context: Qt.ApplicationShortcut
+        enabled: backend.signedIn && backend.currentChat !== "" && !backend.currentChatIsRoom
+        onActivated: backend.chooseFileToSend("direct")
     }
     Shortcut {
         sequence: "Ctrl+W"

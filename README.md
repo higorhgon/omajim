@@ -23,11 +23,17 @@ janela: seus contatos à esquerda e a conversa à direita.
   salas ficam no topo da lista, cada mensagem mostra o apelido de quem
   escreveu, e só notificam quando alguém escreve o seu apelido ou manda uma
   mensagem privada. Convites aparecem na lista de contatos.
-- Envio e recebimento de arquivos por SI (XEP-0096), compatível com o Pidgin,
-  por conexão direta (SOCKS5) ou pelo servidor (IBB). Arraste um arquivo para
-  a conversa para enviá-lo. Os arquivos recebidos vão para a pasta de
-  Downloads, chegam como `.part` e só ganham o nome final quando estão
-  completos. Um arquivo que já existe nunca é substituído.
+- Arquivos de dois jeitos, escolhidos no botão "+":
+  - **pelo servidor** (HTTP Upload, XEP-0363), como o Gajim e o
+    Conversations: funciona em salas e com quem está offline. Ctrl+O, ou
+    arraste o arquivo para a conversa. Os arquivos que chegam assim aparecem
+    com um botão "Baixar";
+  - **direto** (SI, XEP-0096), compatível com o Pidgin, por conexão direta
+    (SOCKS5) ou pelo servidor (IBB). Ctrl+Shift+O.
+
+  Os arquivos recebidos vão para a pasta de Downloads e só ganham o nome
+  final quando estão completos. Um arquivo que já existe nunca é
+  substituído.
 - A senha fica no chaveiro da sessão (Secret Service, via `secret-tool`),
   nunca num arquivo de configuração.
 - Segue a cor de destaque do tema do Omarchy, o arredondamento das janelas do
@@ -54,7 +60,8 @@ no Gajim, continua na branch `main`.
 | Alt+↑ / Alt+↓ (ou Ctrl+Tab) | Conversa anterior ou seguinte |
 | Enter | Enviar a mensagem |
 | Shift+Enter | Nova linha na mensagem |
-| Ctrl+O | Enviar um arquivo |
+| Ctrl+O | Enviar um arquivo pelo servidor |
+| Ctrl+Shift+O | Enviar um arquivo direto (SI) |
 | Ctrl+N | Adicionar um contato |
 | Ctrl+J | Entrar numa sala |
 | Ctrl+W | Fechar a conversa |

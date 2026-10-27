@@ -2,6 +2,10 @@
 
 #include <QCollator>
 #include <QCryptographicHash>
+#include <QMimeDatabase>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QSaveFile>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -15,6 +19,7 @@
 #include <QXmppClient.h>
 #include <QXmppConfiguration.h>
 #include <QXmppMamManager.h>
+#include <QXmppHttpUploadManager.h>
 #include <QXmppMessage.h>
 #include <QXmppMessageReceiptManager.h>
 #include <QXmppMucData.h>
@@ -155,6 +160,16 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
                 addInvitation(invitation.jid(), from, invitation.reason(), invitation.password(), false);
             });
 
+    // Files through the server share one network manager, which trusts the
+    // certificates the user accepted for the XMPP server too.
+    m_network = new QNetworkAccessManager(this);
+    connect(m_network, &QNetworkAccessManager::sslErrors, this, [this](QNetworkReply *reply, const QList<QSslError> &errors) {
+        if (trustsCertificateOf(errors))
+            reply->ignoreSslErrors(errors);
+    });
+    m_uploads = m_client->addNewExtension<QXmppHttpUploadManager>(m_network);
+    connect(m_uploads, &QXmppHttpUploadManager::supportChanged, this, &Backend::uploadSupportChanged);
+
     // Some clients never send "paused", so a typing notice fades on its own.
     m_typingExpiry = new QTimer(this);
     m_typingExpiry->setInterval(5000);
@@ -278,7 +293,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     if (m_filePicker) {
         connect(m_filePicker, &FilePicker::picked, this, [this](const QString &path) {
             if (!path.isEmpty())
-                sendFile(path);
+                sendFile(path, m_pickMethod);
         });
         connect(m_filePicker, &FilePicker::failed, this, &Backend::setError);
     }
@@ -703,6 +718,7 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
         entry.sender = entry.outgoing ? roomNickname(entry.peer)
                                       : tr("%1 (private)").arg(QXmppUtils::jidToResource(message.from()));
     entry.body = message.body();
+    applyOutOfBand(entry, message);
     entry.xmppId = message.id();
     // Our server's id for it; another entity's stanza-id says nothing.
     const auto stanzaIds = message.stanzaIds();
@@ -893,28 +909,36 @@ void Backend::sendChatState(int state) {
     m_client->send(std::move(message));
 }
 
-void Backend::chooseFileToSend() {
+bool Backend::serverUploadAvailable() const {
+    return m_uploads->support() == QXmppHttpUploadManager::Support::Supported;
+}
+
+void Backend::chooseFileToSend(const QString &method) {
     if (m_currentChat.isEmpty() || !m_filePicker)
         return;
-    // SI goes to one person's device; a room has no device to send to.
-    if (m_rooms.contains(m_currentChat)) {
-        setError(tr("Files can't be sent to a group chat. Send them to a person instead."));
-        return;
-    }
+    m_pickMethod = method;
     m_filePicker->openFile(tr("Send a file to %1").arg(currentChatName()));
 }
 
-void Backend::sendFile(const QString &path) {
+void Backend::sendFile(const QString &path, const QString &method) {
     if (m_currentChat.isEmpty())
         return;
-    if (m_rooms.contains(m_currentChat)) {
-        setError(tr("Files can't be sent to a group chat. Send them to a person instead."));
-        return;
-    }
     // A file dropped on the window arrives as a file:// URL.
     const QFileInfo info(path.startsWith("file:") ? QUrl(path).toLocalFile() : path);
     if (!info.isFile() || !info.isReadable()) {
         setError(tr("%1 can't be read.").arg(path));
+        return;
+    }
+    if (method == "direct")
+        sendFileDirect(info);
+    else
+        uploadFile(info);
+}
+
+void Backend::sendFileDirect(const QFileInfo &info) {
+    // SI goes to one person's device; a room has no device to send to.
+    if (m_rooms.contains(m_currentChat)) {
+        setError(tr("Files can't be sent directly to a group chat. Send them through the server instead."));
         return;
     }
     // A file goes straight to one of the contact's devices, so it has to be
@@ -925,7 +949,7 @@ void Backend::sendFile(const QString &path) {
                      .arg(currentChatName()));
         return;
     }
-    QXmppTransferJob *job = m_transfers->sendFile(m_currentChat + "/" + resource, path);
+    QXmppTransferJob *job = m_transfers->sendFile(m_currentChat + "/" + resource, info.absoluteFilePath());
     if (!job) {
         setError(tr("The transfer of %1 couldn't start.").arg(info.fileName()));
         return;
@@ -945,6 +969,157 @@ void Backend::sendFile(const QString &path) {
     }
     m_jobs.insert(entry.id, {job, entry.peer, entry.filePath, {}, false});
     watchTransfer(entry.id, job);
+}
+
+void Backend::uploadFile(const QFileInfo &info) {
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so the file wasn't sent."));
+        return;
+    }
+    if (!serverUploadAvailable()) {
+        setError(tr("Your server doesn't take files (HTTP Upload). Send it directly to the person instead."));
+        return;
+    }
+    const auto services = m_uploads->services();
+    if (!services.isEmpty() && services.first().sizeLimit() && quint64(info.size()) > *services.first().sizeLimit()) {
+        setError(tr("%1 is %2, and your server takes files up to %3.")
+                     .arg(info.fileName(), Files::formatSize(info.size()),
+                          Files::formatSize(qint64(*services.first().sizeLimit()))));
+        return;
+    }
+    if (m_rooms.contains(m_currentChat)) {
+        auto room = m_muc->findRoom(m_currentChat);
+        if (!room || !room->joined().value()) {
+            setError(tr("You aren't in %1 right now, so the file wasn't sent.").arg(currentChatName()));
+            return;
+        }
+    }
+
+    HistoryEntry entry;
+    entry.peer = m_currentChat;
+    entry.outgoing = true;
+    entry.kind = "file";
+    entry.body = info.fileName();
+    entry.filePath = info.absoluteFilePath();
+    entry.fileSize = info.size();
+    entry.state = "uploading";
+    if (m_rooms.contains(m_currentChat))
+        entry.sender = roomNickname(m_currentChat);
+    if (!addEntry(entry))
+        return;
+
+    const qint64 id = entry.id;
+    const QString peer = entry.peer;
+    auto upload = m_uploads->uploadFile(info);
+    m_uploadJobs.insert(id, upload);
+    connect(upload.get(), &QXmppHttpUpload::progressChanged, this, [this, id] {
+        if (auto job = m_uploadJobs.value(id))
+            m_messages.setProgress(id, job->progress());
+    });
+    connect(upload.get(), &QXmppHttpUpload::finished, this,
+            [this, id, peer, name = info.fileName(), path = info.absoluteFilePath()](const QXmppHttpUpload::Result &result) {
+        m_uploadJobs.remove(id);
+        if (const QUrl *url = std::get_if<QUrl>(&result)) {
+            const QString messageId = sendFileLink(peer, *url);
+            m_history.setLink(id, url->toString(), messageId);
+            m_messages.setLink(id, url->toString(), messageId);
+            updateTransfer(id, "done", path);
+        } else if (std::holds_alternative<QXmpp::Cancelled>(result)) {
+            updateTransfer(id, "canceled", path);
+        } else {
+            updateTransfer(id, "failed", path);
+            setError(tr("%1 couldn't be uploaded: %2").arg(name, std::get<QXmppError>(result).description));
+        }
+    });
+}
+
+QString Backend::sendFileLink(const QString &peer, const QUrl &url) {
+    // The body is the link itself, as Gajim and Conversations expect, so
+    // clients without file support still show something useful.
+    QXmppMessage message({}, peer, url.toString());
+    message.setOutOfBandUrl(url.toString());
+    const QString id = QXmppUtils::generateStanzaUuid();
+    message.setId(id);
+    if (m_rooms.contains(peer)) {
+        if (auto room = m_muc->findRoom(peer)) {
+            message.setOriginId(id);
+            room->sendMessage(message);
+        }
+        return id;
+    }
+    message.setType(QXmppMessage::Chat);
+    message.setReceiptRequested(true);
+    m_client->send(std::move(message));
+    return id;
+}
+
+void Backend::applyOutOfBand(HistoryEntry &entry, const QXmppMessage &message) const {
+    // A message whose whole body is the shared link is a file, not text.
+    const QString url = message.outOfBandUrl();
+    if (url.isEmpty() || message.body().trimmed() != url)
+        return;
+    const QUrl parsed(url);
+    if (parsed.scheme() != "https" && parsed.scheme() != "http")
+        return;
+    entry.kind = "file";
+    entry.url = url;
+    entry.body = Files::safeFileName(parsed.fileName(QUrl::FullyDecoded));
+    entry.state = entry.outgoing ? "done" : "remote";
+}
+
+void Backend::downloadFile(qint64 messageId) {
+    if (m_downloads.contains(messageId))
+        return;
+    const QString url = m_messages.url(messageId);
+    if (url.isEmpty())
+        return;
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    if (!QDir().mkpath(directory)) {
+        setError(tr("The download folder %1 can't be created.").arg(directory));
+        return;
+    }
+    const QString path = Files::uniquePath(directory, Files::safeFileName(QUrl(url).fileName(QUrl::FullyDecoded)));
+    // QSaveFile writes beside the target and renames when complete, so a
+    // broken download never looks finished.
+    auto *file = new QSaveFile(path);
+    if (!file->open(QIODevice::WriteOnly)) {
+        setError(tr("%1 can't be written: %2").arg(path, file->errorString()));
+        delete file;
+        return;
+    }
+
+    QNetworkReply *reply = m_network->get(QNetworkRequest(QUrl(url)));
+    file->setParent(reply);
+    m_downloads.insert(messageId, reply);
+    updateTransfer(messageId, "downloading", path);
+    connect(reply, &QNetworkReply::readyRead, file, [reply, file] { file->write(reply->readAll()); });
+    connect(reply, &QNetworkReply::downloadProgress, this, [this, messageId](qint64 done, qint64 total) {
+        if (total > 0)
+            m_messages.setProgress(messageId, double(done) / double(total));
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, messageId, reply, file, path] {
+        m_downloads.remove(messageId);
+        file->write(reply->readAll());
+        if (reply->error() == QNetworkReply::NoError && file->commit()) {
+            m_messages.setProgress(messageId, 1.0);
+            updateTransfer(messageId, "done", path);
+        } else {
+            file->cancelWriting();
+            const bool canceled = reply->error() == QNetworkReply::OperationCanceledError;
+            updateTransfer(messageId, canceled ? "remote" : "failed", {});
+            if (!canceled)
+                setError(tr("%1 couldn't be downloaded: %2").arg(QFileInfo(path).fileName(), reply->errorString()));
+        }
+        reply->deleteLater();
+    });
+}
+
+bool Backend::trustsCertificateOf(const QList<QSslError> &errors) const {
+    const QList<QSslCertificate> pinned = trustedCertificates();
+    for (const QSslError &error : errors)
+        if (error.certificate().isNull() || !pinned.contains(error.certificate()))
+            return false;
+    return !errors.isEmpty();
 }
 
 void Backend::acceptFile(qint64 messageId) {
@@ -975,6 +1150,14 @@ void Backend::refuseFile(qint64 messageId) {
 }
 
 void Backend::cancelTransfer(qint64 messageId) {
+    if (auto upload = m_uploadJobs.value(messageId)) {
+        upload->cancel();
+        return;
+    }
+    if (QNetworkReply *download = m_downloads.value(messageId)) {
+        download->abort();
+        return;
+    }
     auto it = m_jobs.find(messageId);
     if (it == m_jobs.end())
         return;
@@ -1181,6 +1364,7 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
     entry.sender = QXmppUtils::jidToResource(message.from());
     entry.outgoing = !entry.sender.isEmpty() && entry.sender == roomNickname(roomJid);
     entry.body = message.body();
+    applyOutOfBand(entry, message);
     entry.xmppId = message.originId().isEmpty() ? message.id() : message.originId();
     const auto stanzaIds = message.stanzaIds();
     for (const QXmppStanzaId &stanzaId : stanzaIds)

@@ -15,6 +15,8 @@
 #include <QXmppResultSet.h>
 
 #include <QBuffer>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QCryptographicHash>
 #include <QImage>
 
@@ -397,6 +399,112 @@ private slots:
         QCOMPARE(history.recent("team@rooms.example.org", 1).first().sender, QString("bob"));
     }
 
+    void sharedLinksBecomeFiles() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+
+        auto receive = [&](const QString &id, const QString &body, const QString &oob) {
+            QXmppMessage message("bob@example.org/phone", "alice@example.org", body);
+            message.setType(QXmppMessage::Chat);
+            message.setId(id);
+            message.setOutOfBandUrl(oob);
+            emit backend.client()->messageReceived(message);
+        };
+        const QString link = "https://upload.example.org/abc/Relat%C3%B3rio%20final.pdf";
+        receive("f1", link, link);
+        // A link mentioned in a sentence stays text.
+        receive("f2", "look: " + link, link);
+
+        auto *messages = backend.messages();
+        QCOMPARE(messages->rowCount(), 2);
+        QCOMPARE(messages->data(messages->index(0), MessageModel::KindRole).toString(), QString("file"));
+        QCOMPARE(messages->data(messages->index(0), MessageModel::BodyRole).toString(), QString("Relatório final.pdf"));
+        QCOMPARE(messages->data(messages->index(0), MessageModel::StateRole).toString(), QString("remote"));
+        QCOMPARE(messages->data(messages->index(1), MessageModel::KindRole).toString(), QString("text"));
+    }
+
+    void filesComeDownFromTheServer() {
+        QTemporaryDir dir;
+        // Downloads land in a folder of the test's own.
+        QDir(dir.path()).mkpath("xdg");
+        QDir(dir.path()).mkpath("downloads");
+        write(dir.filePath("xdg/user-dirs.dirs"), "XDG_DOWNLOAD_DIR=\"" + dir.filePath("downloads").toUtf8() + "\"\n");
+        const QByteArray oldConfig = qgetenv("XDG_CONFIG_HOME");
+        qputenv("XDG_CONFIG_HOME", dir.filePath("xdg").toUtf8());
+        auto restore = qScopeGuard([&] { qputenv("XDG_CONFIG_HOME", oldConfig); });
+
+        // A one-file HTTP server.
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        const QByteArray content(100000, 'x');
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            QTcpSocket *socket = server.nextPendingConnection();
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, content] {
+                socket->readAll();
+                socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(content.size()) +
+                              "\r\nConnection: close\r\n\r\n" + content);
+                socket->disconnectFromHost();
+            });
+        });
+
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+        write(dir.filePath("downloads/notes.txt"), "already here");
+
+        const QString link = QStringLiteral("http://127.0.0.1:%1/notes.txt").arg(server.serverPort());
+        QXmppMessage message("bob@example.org/phone", "alice@example.org", link);
+        message.setType(QXmppMessage::Chat);
+        message.setId("d1");
+        message.setOutOfBandUrl(link);
+        emit backend.client()->messageReceived(message);
+
+        auto *messages = backend.messages();
+        const qint64 id = messages->data(messages->index(0), MessageModel::IdRole).toLongLong();
+        backend.downloadFile(id);
+        QTRY_COMPARE(messages->data(messages->index(0), MessageModel::StateRole).toString(), QString("done"));
+        // The file that was there stays; the new one takes the next name.
+        const QString saved = messages->data(messages->index(0), MessageModel::FilePathRole).toString();
+        QCOMPARE(saved, dir.filePath("downloads/notes (2).txt"));
+        QFile file(saved);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), content);
+        QFile original(dir.filePath("downloads/notes.txt"));
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(original.readAll(), QByteArray("already here"));
+    }
+
+    void interruptedDownloadsCanStartOver() {
+        QTemporaryDir dir;
+        History history;
+        QVERIFY(history.open(dir.filePath("history.sqlite")));
+        HistoryEntry entry;
+        entry.peer = "bob@example.org";
+        entry.kind = "file";
+        entry.body = "a.pdf";
+        entry.url = "https://upload.example.org/a.pdf";
+        entry.state = "downloading";
+        entry.filePath = "/tmp/a.pdf";
+        history.add(entry);
+        HistoryEntry upload = entry;
+        upload.outgoing = true;
+        upload.state = "uploading";
+        history.add(upload);
+
+        history.failInterruptedTransfers();
+        const auto entries = history.recent("bob@example.org", 5);
+        QCOMPARE(entries.at(0).state, QString("remote"));
+        QVERIFY(entries.at(0).filePath.isEmpty());
+        QCOMPARE(entries.at(0).url, entry.url);
+        QCOMPARE(entries.at(1).state, QString("failed"));
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;
@@ -517,7 +625,7 @@ private slots:
         backend.openChat("bob@example.org");
         QCOMPARE(backend.currentChat(), QString("bob@example.org"));
 
-        backend.chooseFileToSend();
+        backend.chooseFileToSend("direct");
         QVERIFY(picker.lastTitle.contains("bob"));
 
         write(dir.filePath("a.txt"), "hello");

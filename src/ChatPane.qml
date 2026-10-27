@@ -168,13 +168,28 @@ Item {
                 ToolButton {
                     Material.roundedScale: theme.radius
                     Layout.alignment: Qt.AlignBottom
-                    // Files go to one person's device, never to a room.
-                    visible: !backend.currentChatIsRoom
                     text: "+"
                     font.pixelSize: 20
-                    onClicked: backend.chooseFileToSend()
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Send a file (Ctrl+O)")
+                    onClicked: sendMenu.popup()
+                    ToolTip.visible: hovered && !sendMenu.visible
+                    ToolTip.text: qsTr("Send a file")
+
+                    Menu {
+                        id: sendMenu
+                        Material.roundedScale: theme.radius
+                        MenuItem {
+                            text: qsTr("Through the server (Ctrl+O)")
+                            enabled: backend.serverUploadAvailable
+                            onTriggered: backend.chooseFileToSend("server")
+                        }
+                        // Straight to the person's device, as Pidgin takes
+                        // files; a room has no device to send to.
+                        MenuItem {
+                            text: qsTr("Directly (Ctrl+Shift+O)")
+                            enabled: !backend.currentChatIsRoom
+                            onTriggered: backend.chooseFileToSend("direct")
+                        }
+                    }
                 }
                 ScrollView {
                     Layout.fillWidth: true
@@ -223,7 +238,7 @@ Item {
         enabled: backend.currentChat !== ""
         onDropped: drop => {
             if (drop.hasUrls) {
-                backend.sendFile(drop.urls[0])
+                backend.sendFile(drop.urls[0], backend.serverUploadAvailable || backend.currentChatIsRoom ? "server" : "direct")
                 drop.accept()
             }
         }

@@ -25,6 +25,8 @@ struct HistoryEntry {
     bool delivered = false;
     // In a group chat, the nickname of whoever wrote it.
     QString sender;
+    // A file shared through the server (XEP-0363/0066): where it can be fetched.
+    QString url;
 };
 
 // Conversations kept in SQLite, one database per account.
@@ -44,11 +46,15 @@ public:
     bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {}) const;
     void updateFile(qint64 id, const QString &state, const QString &filePath);
     bool markDelivered(const QString &peer, const QString &xmppId);
+    // An uploaded file gets its link, and the id of the message carrying
+    // it, once the upload is done.
+    void setLink(qint64 id, const QString &url, const QString &xmppId);
     // When the newest line of a conversation was written, or invalid.
     QDateTime lastStamp(const QString &peer) const;
 
     // A transfer can't continue after the app quits, so anything still
-    // offered or running from the last session is marked as failed.
+    // offered or running from the last session is marked as failed, and a
+    // download from the server goes back to waiting for a click.
     void failInterruptedTransfers();
 
 private:
