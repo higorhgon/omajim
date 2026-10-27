@@ -9,8 +9,9 @@ janela: seus contatos à esquerda e a conversa à direita.
 - Conversas 1:1 com histórico local (SQLite), notificações na área de
   trabalho e cópia das mensagens enviadas de outros dispositivos (carbons).
 - A barra lateral mostra só as conversas abertas, a mais recente no topo,
-  com o trecho da última mensagem, como no Gajim. A busca (Ctrl+K) passa
-  por todos os contatos e salas, e Enter com um endereço completo começa
+  com o trecho da última mensagem, como no Gajim. A busca (Ctrl+K ou
+  Ctrl+T) passa por todos os contatos e salas, de forma aproximada ("jcp"
+  acha "Jean Carlos Pereira", sem ligar para acentos), e Enter com um endereço completo começa
   uma conversa nova. Ctrl+W fecha a conversa; o histórico fica, e uma
   mensagem nova a abre de novo.
 - Apelido local (clique direito → "Definir apelido…"): um nome só neste
@@ -75,7 +76,7 @@ no Gajim, continua na branch `main`.
 
 | Tecla | Ação |
 | --- | --- |
-| Ctrl+K | Buscar contatos (Enter abre a conversa) |
+| Ctrl+K ou Ctrl+T | Buscar contatos (Enter abre a conversa) |
 | Alt+↑ / Alt+↓ (ou Ctrl+Tab) | Conversa anterior ou seguinte |
 | Enter | Enviar a mensagem |
 | Shift+Enter | Nova linha na mensagem |

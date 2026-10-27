@@ -24,7 +24,7 @@ Popup {
 
     readonly property var groups: [
         { title: qsTr("Conversations"), keys: [
-            ["Ctrl+K", qsTr("Search contacts")],
+            ["Ctrl+K / Ctrl+T", qsTr("Search contacts")],
             ["Alt+↑ / Alt+↓", qsTr("Previous or next conversation")],
             ["Ctrl+W", qsTr("Close the conversation")],
             ["Ctrl+N", qsTr("Add a contact")],

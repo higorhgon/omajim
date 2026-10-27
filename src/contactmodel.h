@@ -76,6 +76,8 @@ public:
     Q_INVOKABLE int rowOf(const QString &jid) const;
 
     static QString displayName(const QString &jid, const QString &name);
+    // How well a search matches a name, or -1 when it doesn't.
+    static int fuzzyScore(const QString &needle, const QString &haystack);
 
 signals:
     void filterChanged();

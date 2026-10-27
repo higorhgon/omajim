@@ -190,15 +190,63 @@ int ContactModel::rowOf(const QString &jid) const {
     return m_rows.indexOf(jid);
 }
 
+// Lowercase, without accents, so "joao" finds "João".
+static QString folded(const QString &text) {
+    QString plain;
+    const QString decomposed = text.normalized(QString::NormalizationForm_D);
+    for (const QChar c : decomposed)
+        if (c.category() != QChar::Mark_NonSpacing)
+            plain += c.toLower();
+    return plain;
+}
+
+int ContactModel::fuzzyScore(const QString &needle, const QString &haystack) {
+    const QString n = folded(needle), h = folded(haystack);
+    if (n.isEmpty())
+        return 0;
+    auto startsWord = [&h](qsizetype at) { return at == 0 || !h.at(at - 1).isLetterOrNumber(); };
+
+    // Typed as it appears in the name: the best kind of match, better still
+    // at the start of a word.
+    const qsizetype at = h.indexOf(n);
+    if (at >= 0)
+        return 50 + 6 * int(n.size()) + (startsWord(at) ? 20 : 0);
+
+    // Otherwise each typed letter in order, not necessarily together: "jcp"
+    // finds "Jean Carlos Pereira". Letters starting a word and letters in a
+    // row count more.
+    int score = 0, previous = -2;
+    qsizetype from = 0;
+    for (const QChar c : n) {
+        if (c.isSpace())
+            continue;
+        const qsizetype found = h.indexOf(c, from);
+        if (found < 0)
+            return -1;
+        score += 1 + (startsWord(found) ? 8 : 0) + (found == previous + 1 ? 5 : 0);
+        previous = int(found);
+        from = found + 1;
+    }
+    return score;
+}
+
 void ContactModel::rebuild() {
     QStringList rows;
+    QHash<QString, int> scores;
     const QString needle = m_filter.trimmed();
     for (const Contact &contact : std::as_const(m_contacts)) {
-        if (needle.isEmpty() ? contact.open
-                             : contact.jid.contains(needle, Qt::CaseInsensitive) ||
-                                   nameOf(contact.jid).contains(needle, Qt::CaseInsensitive) ||
-                                   displayName(contact.jid, contact.name).contains(needle, Qt::CaseInsensitive))
+        if (needle.isEmpty()) {
+            if (contact.open)
+                rows << contact.jid;
+            continue;
+        }
+        const int score = std::max({fuzzyScore(needle, nameOf(contact.jid)),
+                                    fuzzyScore(needle, displayName(contact.jid, contact.name)),
+                                    fuzzyScore(needle, contact.jid)});
+        if (score >= 0) {
             rows << contact.jid;
+            scores.insert(contact.jid, score);
+        }
     }
 
     QCollator collator;
@@ -214,9 +262,9 @@ void ContactModel::rebuild() {
         });
     } else std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
         const Contact &ca = m_contacts[a], &cb = m_contacts[b];
-        // Group chats on top, then people.
-        if (ca.isRoom != cb.isRoom)
-            return ca.isRoom;
+        // The closest match first; among equals, people who are around.
+        if (scores.value(a) != scores.value(b))
+            return scores.value(a) > scores.value(b);
         const bool onlineA = ca.presence != "offline", onlineB = cb.presence != "offline";
         if (onlineA != onlineB)
             return onlineA;

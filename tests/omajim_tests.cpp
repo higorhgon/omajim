@@ -847,6 +847,25 @@ private slots:
         QCOMPARE(again.contacts()->nameOf("jcp@example.org"), QString("Jean Carlos Pereira"));
     }
 
+    void searchIsFuzzyAndAccentBlind() {
+        QVERIFY(ContactModel::fuzzyScore("jcp", "Jean Carlos Pereira") > 0);
+        QVERIFY(ContactModel::fuzzyScore("joao", "João Silva") > 0);
+        QCOMPARE(ContactModel::fuzzyScore("xyz", "Jean Carlos Pereira"), -1);
+        // Out of order isn't a match.
+        QCOMPARE(ContactModel::fuzzyScore("pj", "Jean Pereira"), -1);
+        // A word's start and a plain substring rank higher than scattered letters.
+        QVERIFY(ContactModel::fuzzyScore("car", "Carla Souza") > ContactModel::fuzzyScore("car", "Oscar Ramos"));
+        QVERIFY(ContactModel::fuzzyScore("car", "Oscar Ramos") > ContactModel::fuzzyScore("car", "Clara Rocha"));
+
+        ContactModel model;
+        model.upsert("clara@example.org", "Clara Rocha");
+        model.upsert("carla@example.org", "Carla Souza");
+        model.upsert("bob@example.org", "Bob");
+        model.setFilter("car");
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.jidAt(0), QString("carla@example.org"));
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;
