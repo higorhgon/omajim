@@ -11,10 +11,12 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QUrl>
 
 #include "backend.h"
+#include "idlemonitor.h"
 #include "instance.h"
 #include "notifier.h"
 #include "portalfilepicker.h"
@@ -111,6 +113,14 @@ int main(int argc, char *argv[]) {
             showWindow();
     });
     QObject::connect(&tray, &Tray::quitRequested, &app, &QGuiApplication::quit);
+
+    // Away after a while without using the computer, as Gajim does; 0 turns
+    // a step off.
+    QSettings settings(QDir(config).filePath("omajim.conf"), QSettings::IniFormat);
+    const int awayMinutes = settings.value("idle/awayMinutes", 5).toInt();
+    const int xaMinutes = settings.value("idle/xaMinutes", 15).toInt();
+    IdleMonitor idle({awayMinutes * 60000, xaMinutes * 60000});
+    QObject::connect(&idle, &IdleMonitor::levelChanged, &backend, &Backend::setIdleLevel);
 
     backend.start();
     return app.exec();

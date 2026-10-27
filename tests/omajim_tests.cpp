@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <QSettings>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -987,6 +988,33 @@ private slots:
         QVERIFY(thumbs.value("mine").toBool());
         // Reactions aren't messages.
         QCOMPARE(messages->rowCount(), 2);
+    }
+
+    void idleTimeSetsAwayAndBack() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("online");
+        backend.setIdleLevel(1);
+        QCOMPARE(backend.status(), QString("away"));
+        backend.setIdleLevel(2);
+        QCOMPARE(backend.status(), QString("xa"));
+        backend.setIdleLevel(0);
+        QCOMPARE(backend.status(), QString("online"));
+
+        // The saved status stays the chosen one, not the automatic away.
+        backend.setIdleLevel(2);
+        {
+            QSettings saved(dir.filePath("config/omajim.conf"), QSettings::IniFormat);
+            const QString status = saved.value("account/status", "online").toString();
+            QVERIFY2(status == "online", qPrintable(status));
+        }
+        // A status picked meanwhile wins, and idle time leaves it alone.
+        backend.setStatus("dnd");
+        backend.setIdleLevel(0);
+        QCOMPARE(backend.status(), QString("dnd"));
+        backend.setIdleLevel(1);
+        QCOMPARE(backend.status(), QString("dnd"));
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

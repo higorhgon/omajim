@@ -535,12 +535,19 @@ void Backend::signOut() {
 }
 
 void Backend::setStatus(const QString &status) {
+    // A status picked by hand ends any automatic away.
+    m_statusBeforeIdle.clear();
+    applyStatus(status, true);
+}
+
+void Backend::applyStatus(const QString &status, bool remember) {
     static const QStringList known{"online", "chat", "away", "xa", "dnd", "offline"};
     if (!known.contains(status))
         return;
     if (status != m_status) {
         m_status = status;
-        m_settings.setValue("account/status", status);
+        if (remember)
+            m_settings.setValue("account/status", status);
         emit statusChanged();
     }
     if (status == "offline") {
@@ -2074,4 +2081,24 @@ void Backend::toggleReaction(qint64 messageId, const QString &emoji) {
 
 void Backend::copyText(const QString &text) {
     QGuiApplication::clipboard()->setText(text);
+}
+
+void Backend::setIdleLevel(int level) {
+    // Gajim's auto away: available becomes away, then not available, and
+    // comes back on its own; a status picked by hand is left alone.
+    if (level == 0) {
+        if (!m_statusBeforeIdle.isEmpty()) {
+            const QString previous = m_statusBeforeIdle;
+            m_statusBeforeIdle.clear();
+            applyStatus(previous, false);
+        }
+        return;
+    }
+    if (m_statusBeforeIdle.isEmpty()) {
+        if (m_status != "online" && m_status != "chat")
+            return;
+        m_statusBeforeIdle = m_status;
+    }
+    trace(QStringLiteral("idle: level %1").arg(level));
+    applyStatus(level >= 2 ? "xa" : "away", false);
 }

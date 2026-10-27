@@ -107,6 +107,9 @@ public:
     Q_INVOKABLE void signIn(const QString &jid, const QString &password, const QString &host, bool remember);
     Q_INVOKABLE void signOut();
     Q_INVOKABLE void setStatus(const QString &status);
+    // How long the user has been away from the computer: 0 back, 1 a while
+    // (away), 2 long (not available). Fed by the IdleMonitor.
+    void setIdleLevel(int level);
     Q_INVOKABLE void dismissError();
     Q_INVOKABLE void trustCertificate();
     Q_INVOKABLE void rejectCertificate();
@@ -200,6 +203,8 @@ private:
     };
 
     void connectToServer();
+    // Changes the status; remember false leaves the saved one as it was.
+    void applyStatus(const QString &status, bool remember);
     // An empty server follows the domain's SRV records.
     void connectTo(const QString &server, int port);
     void openHistory();
@@ -302,6 +307,8 @@ private:
     QString m_proxy;
     qint64 m_editingId = 0;
     qint64 m_replyId = 0;
+    // The status before automatic away, to come back to; empty when not away.
+    QString m_statusBeforeIdle;
     bool m_syncing = false;
     int m_archivedUnread = 0;
     bool m_reloadCurrentChat = false;

@@ -70,6 +70,12 @@ janela: seus contatos à esquerda e a conversa à direita.
   escolhido em Setup > Language, tudo ao vivo.
 - Certificados autoassinados: o Omajim mostra a impressão digital SHA-256 e
   só se autentica depois que você confia no certificado.
+- Ausente automático, como no Gajim: depois de 5 minutos sem usar o
+  computador, "Disponível" vira "Ausente", e depois de 15, "Indisponível";
+  ao voltar, o status anterior volta sozinho. Um status escolhido à mão não
+  é mexido. A inatividade vem do compositor (ext-idle-notify), que respeita
+  vídeos tocando; os tempos ficam em `~/.config/omajim/omajim.conf`
+  (`idle/awayMinutes`, `idle/xaMinutes`; 0 desliga).
 - Fica na bandeja: fechar a janela só a esconde e o Omajim continua
   recebendo mensagens (Ctrl+Q sai de vez). O item de bandeja usa o mesmo id
   do Omajim em Python, então o widget `omajim.status` da barra do Omarchy
