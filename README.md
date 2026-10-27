@@ -25,6 +25,8 @@ janela: seus contatos à esquerda e a conversa à direita.
 - Shift+clique seleciona mensagens inteiras, da última clicada até a atual
   (Shift+clique numa selecionada a tira), e Ctrl+C copia todas como
   "[data hora] Nome: texto". Esc limpa a seleção.
+- Formatação de texto como no Gajim (XEP-0393): `*negrito*`, `_itálico_`,
+  `~riscado~`, `` `código` ``, blocos entre ```` ``` ```` e citações com `>`.
 - Links clicáveis nas mensagens, e prévia das imagens: as que você envia ou
   baixa, e as que chegam pelo servidor de contatos e salas conhecidos, até
   10 MB. Imagens de quem não está nos contatos não são baixadas sozinhas,

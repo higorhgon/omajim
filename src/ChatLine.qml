@@ -113,7 +113,7 @@ Item {
                 id: bodyText
                 Layout.fillWidth: true
                 visible: line.kind === "text"
-                text: backend.formatMessage(line.body, line.ui.accent)
+                text: backend.formatMessage(line.body, line.ui.accent, line.ui.muted)
                 textFormat: TextEdit.RichText
                 onLinkActivated: link => backend.openLink(link)
                 readOnly: true

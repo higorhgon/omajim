@@ -1718,8 +1718,8 @@ bool Backend::sendCorrection(const QString &body) {
     return true;
 }
 
-QString Backend::formatMessage(const QString &body, const QString &linkColor) const {
-    return TextFormat::toHtml(body, linkColor);
+QString Backend::formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor) const {
+    return TextFormat::toHtml(body, linkColor, quoteColor);
 }
 
 void Backend::openLink(const QString &url) {

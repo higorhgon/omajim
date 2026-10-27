@@ -654,6 +654,21 @@ private slots:
         QVERIFY(!TextFormat::isOpenableLink("javascript:alert(1)"));
     }
 
+    void messagesShowTheirStyling() {
+        auto html = [](const QString &text) { return TextFormat::toHtml(text, "#1", "#2"); };
+        QCOMPARE(html("*bold* _italic_ ~gone~ `a*b*c`"), QString("<b>bold</b> <i>italic</i> <s>gone</s> <code>a*b*c</code>"));
+        QCOMPARE(html("*bold _and italic_*"), QString("<b>bold <i>and italic</i></b>"));
+        // Not styling: inside words, links, and loose directives.
+        QCOMPARE(html("file_name_here and 2*3*4"), QString("file_name_here and 2*3*4"));
+        QVERIFY(html("https://example.org/a_b_c").contains(">https://example.org/a_b_c</a>"));
+        QCOMPARE(html("* not bold *"), QString("* not bold *"));
+        // Blocks: code as it is, quotes in the quote color.
+        QCOMPARE(html("```\n*x* <y>\n```\nafter"), QString("<pre>*x* &lt;y&gt;</pre>after"));
+        QCOMPARE(html("> said\nreply"), QString("<span style=\"color:#2\">│ said</span><br>reply"));
+        // Still escaped inside styling.
+        QCOMPARE(html("*<b>*"), QString("<b>&lt;b&gt;</b>"));
+    }
+
     void imagesFromKnownContactsGetPreviews() {
         QTemporaryDir dir;
         QTcpServer server;

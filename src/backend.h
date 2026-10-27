@@ -133,7 +133,7 @@ public:
     Q_INVOKABLE void cancelTransfer(qint64 messageId);
     Q_INVOKABLE void openFile(const QString &path);
     // A message as rich text with clickable links, and opening one of them.
-    Q_INVOKABLE QString formatMessage(const QString &body, const QString &linkColor) const;
+    Q_INVOKABLE QString formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor) const;
     Q_INVOKABLE void openLink(const QString &url);
     // The selected messages as "[date time] Name: text" lines, to the clipboard.
     Q_INVOKABLE void copySelectedMessages();
