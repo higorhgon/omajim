@@ -18,5 +18,9 @@
   "%n people": {
     "one": "%n person",
     "other": "%n people"
+  },
+  "Send %n files to %1?": {
+    "one": "Send %n file to %1?",
+    "other": "Send %n files to %1?"
   }
 }

@@ -17,6 +17,7 @@
         <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>
         <file alias="SignInView.qml">SignInView.qml</file>
         <file alias="StatusPicker.qml">StatusPicker.qml</file>
+        <file alias="TextContextMenu.qml">TextContextMenu.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/pt-BR.json">i18n/pt-BR.json</file>
     </qresource>

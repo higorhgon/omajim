@@ -9,6 +9,8 @@
 #include <QNetworkReply>
 #include <QSaveFile>
 #include <QClipboard>
+#include <QImage>
+#include <QMimeData>
 #include <QDesktopServices>
 #include <QGuiApplication>
 #include <QDir>
@@ -2167,4 +2169,46 @@ int Backend::revealMessage(qint64 id) {
         if (shown.at(row).id == id)
             return row;
     return -1;
+}
+
+QVariantMap Backend::clipboardContent() const {
+    const QMimeData *data = QGuiApplication::clipboard()->mimeData();
+    if (!data)
+        return {};
+    // Files copied in a file manager come as a list of file URLs.
+    if (data->hasUrls()) {
+        QStringList paths;
+        for (const QUrl &url : data->urls())
+            if (url.isLocalFile() && QFileInfo(url.toLocalFile()).isFile())
+                paths << url.toLocalFile();
+        if (!paths.isEmpty())
+            return {{"kind", "files"}, {"paths", paths}};
+    }
+    if (data->hasImage())
+        return {{"kind", "image"}};
+    return {};
+}
+
+QString Backend::savePastedImage() {
+    const QMimeData *data = QGuiApplication::clipboard()->mimeData();
+    if (!data || !data->hasImage())
+        return {};
+    const QString directory = QDir(m_dataDirectory).filePath("accounts/" + m_jid + "/pasted");
+    QDir().mkpath(directory);
+    const QString name = tr("pasted-%1.png").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss"));
+    const QString path = Files::uniquePath(directory, name);
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        setError(tr("%1 can't be written: %2").arg(path, file.errorString()));
+        return {};
+    }
+    // The PNG as the source gave it, when it did; otherwise encoded here.
+    const QByteArray png = data->data("image/png");
+    const bool written = !png.isEmpty() ? file.write(png) == png.size()
+                                        : qvariant_cast<QImage>(data->imageData()).save(&file, "PNG");
+    if (!written || !file.commit()) {
+        setError(tr("The pasted picture couldn't be saved."));
+        return {};
+    }
+    return path;
 }

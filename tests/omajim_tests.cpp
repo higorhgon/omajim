@@ -24,6 +24,9 @@
 #include <QXmppTask.h>
 
 #include <QBuffer>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QMimeData>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QCryptographicHash>
@@ -1081,6 +1084,37 @@ private slots:
                  QString("A REUNIÃO foi adiada"));
         QCOMPARE(backend.messages()->rowCount(), 390);
         QVERIFY(backend.searchConversation("  ").isEmpty());
+    }
+
+    void pastedPicturesAndFilesAreOfferedToSend() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        QClipboard *clipboard = QGuiApplication::clipboard();
+
+        // Files copied in a file manager.
+        write(dir.filePath("video.mp4"), "x");
+        auto *files = new QMimeData;
+        files->setUrls({QUrl::fromLocalFile(dir.filePath("video.mp4")), QUrl::fromLocalFile(dir.filePath("gone.pdf"))});
+        clipboard->setMimeData(files);
+        QVariantMap content = backend.clipboardContent();
+        QCOMPARE(content.value("kind").toString(), QString("files"));
+        QCOMPARE(content.value("paths").toStringList(), QStringList{dir.filePath("video.mp4")});
+
+        // A screenshot: saved as a PNG to send.
+        QImage shot(30, 20, QImage::Format_RGB32);
+        shot.fill(Qt::green);
+        clipboard->setImage(shot);
+        QCOMPARE(backend.clipboardContent().value("kind").toString(), QString("image"));
+        const QString path = backend.savePastedImage();
+        QVERIFY(path.endsWith(".png"));
+        QCOMPARE(QImage(path).size(), QSize(30, 20));
+
+        // Text stays text.
+        clipboard->setText("just words");
+        QVERIFY(backend.clipboardContent().isEmpty());
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

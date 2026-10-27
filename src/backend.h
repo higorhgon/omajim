@@ -153,6 +153,12 @@ public:
     // oldest first, and the row of one on screen, loading older lines when
     // it's further back than what's shown; -1 when it's gone.
     Q_INVOKABLE QVariantList searchConversation(const QString &text) const;
+    // What Ctrl+V would bring that isn't text: {kind: "files", paths} for
+    // files copied in a file manager, {kind: "image"} for a picture such as
+    // a screenshot, or an empty map.
+    Q_INVOKABLE QVariantMap clipboardContent() const;
+    // Saves the clipboard's picture as a PNG to send, and returns its path.
+    Q_INVOKABLE QString savePastedImage();
     Q_INVOKABLE int revealMessage(qint64 id);
     // Copies text selected across messages: [{row, text}] in order, text
     // null for a line scrolled away (taken whole). Within one message just

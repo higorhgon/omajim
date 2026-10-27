@@ -42,8 +42,9 @@ Popup {
     }
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.45) }
 
+    // Spacing is set per block, so an empty body leaves no gap.
     contentItem: ColumnLayout {
-        spacing: 18
+        spacing: 0
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -69,12 +70,16 @@ Popup {
         ColumnLayout {
             id: bodyColumn
             Layout.fillWidth: true
-            visible: visibleChildren.length > 0
+            // Room above only with something in it. (Hiding an empty body
+            // instead would hide its children for good, as a child of a
+            // hidden item never counts as visible.)
+            Layout.topMargin: implicitHeight > 0 ? 18 : 0
             spacing: 10
         }
 
         RowLayout {
             Layout.fillWidth: true
+            Layout.topMargin: 18
             spacing: 10
             Item { Layout.fillWidth: true }
             AppButton {

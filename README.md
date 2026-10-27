@@ -29,6 +29,10 @@ janela: seus contatos à esquerda e a conversa à direita.
 - Ctrl+F busca no histórico inteiro da conversa, sem ligar para acentos;
   Enter e Shift+Enter passam pelos resultados, trazendo as mensagens
   antigas quando preciso.
+- Ctrl+V com uma imagem (um print, por exemplo) ou com arquivos copiados no
+  gerenciador de arquivos (vídeos, documentos) pergunta antes e envia;
+  texto continua sendo colado como texto. O clique direito nos campos de
+  texto usa o menu no estilo do app.
 - Shift+clique seleciona mensagens inteiras, da última clicada até a atual
   (Shift+clique numa selecionada a tira), e Ctrl+C copia todas como
   "[data hora] Nome: texto". Esc limpa a seleção.
@@ -109,6 +113,7 @@ no Gajim, continua na branch `main`.
 | Ctrl+J | Entrar numa sala |
 | Ctrl+W | Fechar a conversa (tira da barra lateral) |
 | Ctrl+F | Buscar na conversa |
+| Ctrl+V | Colar texto, imagem ou arquivos |
 | ? (fora do campo de texto), F1 ou Ctrl+/ | Mostrar os atalhos |
 | ↑ (campo vazio) | Corrigir a última mensagem |
 | Shift+clique | Selecionar mensagens inteiras |

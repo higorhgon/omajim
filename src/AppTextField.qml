@@ -16,6 +16,7 @@ TextField {
     placeholderTextColor: ui.muted
     selectionColor: ui.selection
     selectedTextColor: ui.selectionText
+    ContextMenu.menu: TextContextMenu { target: field }
 
     background: Rectangle {
         color: field.ui.background

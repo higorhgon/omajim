@@ -71,6 +71,28 @@ Rectangle {
         })
     }
 
+    // A picture or files in the clipboard: confirm before sending, as Gajim
+    // does. Text pastes as text. True when there was something to offer.
+    function offerPaste() {
+        if (backend.currentChat === "")
+            return false
+        const content = backend.clipboardContent()
+        if (content.kind === "files") {
+            pasteDialog.paths = content.paths
+            pasteDialog.open()
+            return true
+        }
+        if (content.kind === "image") {
+            const path = backend.savePastedImage()
+            if (path === "")
+                return true
+            pasteDialog.paths = [path]
+            pasteDialog.open()
+            return true
+        }
+        return false
+    }
+
     function send() {
         if (backend.sendMessage(composer.text))
             composer.clear()
@@ -533,11 +555,18 @@ Rectangle {
                         selectionColor: pane.ui.selection
                         selectedTextColor: pane.ui.selectionText
                         font.pixelSize: 14
+                        ContextMenu.menu: TextContextMenu {
+                            target: composer
+                            pasteHandler: pane.offerPaste
+                        }
                         onTextChanged: backend.setComposing(text.length > 0)
                         // Ctrl+C with nothing selected here copies what's
-                        // selected in the conversation.
+                        // selected in the conversation; Ctrl+V with a picture
+                        // or files in the clipboard offers to send them.
                         Keys.onPressed: event => {
                             if (event.matches(StandardKey.Copy) && composer.selectedText === "" && pane.copySelection())
+                                event.accepted = true
+                            else if (event.matches(StandardKey.Paste) && pane.offerPaste())
                                 event.accepted = true
                         }
                         // Up in an empty field brings back our last line to correct.
@@ -592,6 +621,37 @@ Rectangle {
                     onClicked: pane.send()
                 }
             }
+        }
+    }
+
+    AppDialog {
+        id: pasteDialog
+        property var paths: []
+        readonly property bool single: paths.length === 1
+        readonly property bool picture: single && /\.(png|jpe?g|gif|webp|bmp)$/i.test(paths[0])
+
+        title: single ? qsTr("Send to %1?").arg(backend.currentChatName)
+                      : qsTr("Send %n files to %1?", "", paths.length).arg(backend.currentChatName)
+        subtitle: paths.map(path => path.split("/").pop()).join(", ")
+        acceptText: qsTr("Send")
+        onClosed: composer.forceActiveFocus()
+        onAccepted: {
+            const method = backend.serverUploadAvailable || backend.currentChatIsRoom ? "server" : "direct"
+            for (const path of paths)
+                backend.sendFile(path, method)
+        }
+
+        Image {
+            Layout.fillWidth: true
+            // A fixed box the picture fits into; its own size isn't known
+            // until the layout gives it a width.
+            Layout.preferredHeight: 220
+            visible: pasteDialog.picture
+            source: pasteDialog.picture ? "file://" + pasteDialog.paths[0] : ""
+            sourceSize.width: 800
+            fillMode: Image.PreserveAspectFit
+            // Loaded at once, so the dialog doesn't grow after it opens.
+            asynchronous: false
         }
     }
 
