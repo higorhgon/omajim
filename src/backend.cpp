@@ -8,7 +8,9 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QSaveFile>
+#include <QClipboard>
 #include <QDesktopServices>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -1850,4 +1852,25 @@ void Backend::setAlias(const QString &jid, const QString &alias) {
         return;
     m_history.setAlias(bare, alias);
     m_contacts.setAlias(bare, alias);
+}
+
+QString Backend::selectedMessagesText() const {
+    QStringList lines;
+    const auto entries = m_messages.selectedEntries();
+    for (const HistoryEntry &entry : entries) {
+        const QString who = entry.outgoing ? (entry.sender.isEmpty() ? QXmppUtils::jidToUser(m_jid) : entry.sender)
+                          : !entry.sender.isEmpty() ? entry.sender
+                          : m_contacts.nameOf(entry.peer);
+        const QString text = entry.kind == "file" ? (entry.url.isEmpty() ? tr("File: %1").arg(entry.body) : entry.url)
+                                                  : entry.body;
+        lines << QStringLiteral("[%1] %2: %3")
+                     .arg(QLocale().toString(entry.stamp.toLocalTime(), QLocale::ShortFormat), who, text);
+    }
+    return lines.join('\n');
+}
+
+void Backend::copySelectedMessages() {
+    const QString text = selectedMessagesText();
+    if (!text.isEmpty())
+        QGuiApplication::clipboard()->setText(text);
 }

@@ -15,6 +15,20 @@ Rectangle {
             composer.clear()
     }
 
+    Shortcut {
+        sequences: [StandardKey.Copy]
+        enabled: backend.messages.selectedCount > 0
+        onActivated: {
+            backend.copySelectedMessages()
+            backend.messages.clearSelection()
+        }
+    }
+    Shortcut {
+        sequence: "Escape"
+        enabled: backend.messages.selectedCount > 0
+        onActivated: backend.messages.clearSelection()
+    }
+
     Connections {
         target: backend
         function onCurrentChatChanged() {
@@ -156,6 +170,8 @@ Rectangle {
             bottomMargin: 16
             model: backend.messages
             boundsBehavior: Flickable.StopAtBounds
+            // The message a Shift+click range starts from.
+            property var selectionAnchor: -1
             ScrollBar.vertical: ScrollBar {}
             delegate: ChatLine {}
 
@@ -170,6 +186,39 @@ Rectangle {
                 visible: messages.count === 0
                 text: qsTr("No messages with %1 yet.").arg(backend.currentChatName)
                 color: pane.ui.muted
+            }
+        }
+
+        // Picked messages, and what to do with them.
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 20
+            Layout.rightMargin: 20
+            Layout.bottomMargin: 10
+            visible: backend.messages.selectedCount > 0
+            spacing: 10
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("%n messages selected · Shift+click adds or removes", "", backend.messages.selectedCount)
+                color: pane.ui.muted
+                font.pixelSize: 13
+                elide: Text.ElideRight
+            }
+            AppButton {
+                flat: true
+                implicitHeight: 32
+                text: qsTr("Clear")
+                onClicked: backend.messages.clearSelection()
+            }
+            AppButton {
+                primary: true
+                font.bold: false
+                implicitHeight: 32
+                text: qsTr("Copy")
+                onClicked: {
+                    backend.copySelectedMessages()
+                    backend.messages.clearSelection()
+                }
             }
         }
 

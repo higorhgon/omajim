@@ -2,6 +2,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QSet>
 
 #include "history.h"
 
@@ -10,6 +11,7 @@
 class MessageModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    Q_PROPERTY(int selectedCount READ selectedCount NOTIFY selectionChanged)
 
 public:
     enum Role {
@@ -28,6 +30,7 @@ public:
         EditedRole,
         PreviewRole,
         RouteRole,
+        SelectedRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);
@@ -47,6 +50,14 @@ public:
     // history, since it's rebuilt from the files on disk.
     void setPreview(qint64 id, const QString &path);
     void setRoute(qint64 id, const QString &route);
+
+    // Whole messages picked with Shift+click, to copy them together.
+    int selectedCount() const { return m_selected.size(); }
+    // Selects every line from one message to another, in either order.
+    Q_INVOKABLE void selectRange(qint64 from, qint64 to);
+    Q_INVOKABLE void toggleSelected(qint64 id);
+    Q_INVOKABLE void clearSelection();
+    QList<HistoryEntry> selectedEntries() const;
     const QList<HistoryEntry> &entries() const { return m_entries; }
     // What the model knows of a line, for lines on screen; empty otherwise.
     QString url(qint64 id) const;
@@ -54,6 +65,7 @@ public:
 
 signals:
     void countChanged();
+    void selectionChanged();
 
 private:
     int rowOf(qint64 id) const;
@@ -62,4 +74,5 @@ private:
     QHash<qint64, double> m_progress;
     QHash<qint64, QString> m_previews;
     QHash<qint64, QString> m_routes;
+    QSet<qint64> m_selected;
 };

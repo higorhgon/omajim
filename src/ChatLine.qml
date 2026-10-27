@@ -22,6 +22,7 @@ Item {
     required property bool edited
     required property string preview
     required property string route
+    required property bool selected
 
     readonly property var ui: theme.colors
 
@@ -80,8 +81,10 @@ Item {
         height: content.implicitHeight + 20
         radius: theme.radius
         // Ours in a tint of the accent, theirs on the theme's button color.
-        color: line.outgoing ? Qt.tint(line.ui.background, Qt.alpha(line.ui.accent, 0.16)) : line.ui.button
-        border.color: line.outgoing ? Qt.alpha(line.ui.accent, 0.4) : "transparent"
+        color: line.selected ? Qt.tint(line.ui.background, Qt.alpha(line.ui.accent, 0.3))
+             : line.outgoing ? Qt.tint(line.ui.background, Qt.alpha(line.ui.accent, 0.16)) : line.ui.button
+        border.color: line.selected ? line.ui.accent : line.outgoing ? Qt.alpha(line.ui.accent, 0.4) : "transparent"
+        border.width: line.selected ? 2 : 1
 
         ColumnLayout {
             id: content
@@ -280,6 +283,30 @@ Item {
                     ToolTip.text: qsTr("Delivered")
                     HoverHandler { id: deliveredHover }
                 }
+            }
+        }
+    }
+
+    // Shift+click picks whole messages: from the last one clicked to this,
+    // or, on one already picked, just leaves it out. A plain click goes on
+    // to the text and buttons underneath and starts a new range.
+    MouseArea {
+        anchors.fill: bubble
+        acceptedButtons: Qt.LeftButton
+        onPressed: mouse => {
+            const view = line.ListView.view
+            if (mouse.modifiers & Qt.ShiftModifier) {
+                if (line.selected)
+                    backend.messages.toggleSelected(line.messageId)
+                else
+                    backend.messages.selectRange(view.selectionAnchor >= 0 ? view.selectionAnchor : line.messageId,
+                                                 line.messageId)
+                view.selectionAnchor = line.messageId
+                mouse.accepted = true
+            } else {
+                view.selectionAnchor = line.messageId
+                backend.messages.clearSelection()
+                mouse.accepted = false
             }
         }
     }

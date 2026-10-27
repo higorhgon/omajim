@@ -866,6 +866,43 @@ private slots:
         QCOMPARE(model.jidAt(0), QString("carla@example.org"));
     }
 
+    void wholeMessagesCanBeSelectedAndCopied() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.contacts()->upsert("bob@example.org", "Bob");
+        backend.openChat("bob@example.org");
+        auto receive = [&](const QString &id, const QString &body) {
+            QXmppMessage message("bob@example.org/phone", "alice@example.org", body);
+            message.setType(QXmppMessage::Chat);
+            message.setId(id);
+            emit backend.client()->messageReceived(message);
+        };
+        receive("s1", "first");
+        receive("s2", "second");
+        receive("s3", "third");
+        auto *messages = backend.messages();
+        auto id = [&](int row) { return messages->data(messages->index(row), MessageModel::IdRole).toLongLong(); };
+
+        // From the third back to the first: all three, in order.
+        messages->selectRange(id(2), id(0));
+        QCOMPARE(messages->selectedCount(), 3);
+        messages->toggleSelected(id(1));
+        QCOMPARE(messages->selectedCount(), 2);
+        QVERIFY(!messages->data(messages->index(1), MessageModel::SelectedRole).toBool());
+
+        const QStringList lines = backend.selectedMessagesText().split('\n');
+        QCOMPARE(lines.size(), 2);
+        QVERIFY(lines.at(0).endsWith("] Bob: first"));
+        QVERIFY(lines.at(1).endsWith("] Bob: third"));
+
+        // Another conversation starts with nothing selected.
+        backend.openChat("carol@example.org");
+        QCOMPARE(messages->selectedCount(), 0);
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;

@@ -28,6 +28,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case SenderRole: return entry.sender;
     case UrlRole: return entry.url;
     case EditedRole: return entry.edited;
+    case SelectedRole: return m_selected.contains(entry.id);
     case RouteRole: return m_routes.value(entry.id);
     case PreviewRole: return m_previews.contains(entry.id) ? QUrl::fromLocalFile(m_previews.value(entry.id)).toString() : QString();
     }
@@ -40,11 +41,16 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
             {UrlRole, "url"}, {EditedRole, "edited"},
-            {PreviewRole, "preview"}, {RouteRole, "route"}};
+            {PreviewRole, "preview"}, {RouteRole, "route"}, {SelectedRole, "selected"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
     const bool countChanges = entries.size() != m_entries.size();
+    // Another conversation: nothing of it is selected.
+    if (!m_selected.isEmpty()) {
+        m_selected.clear();
+        emit selectionChanged();
+    }
     beginResetModel();
     m_entries = entries;
     endResetModel();
@@ -133,4 +139,42 @@ int MessageModel::rowOf(qint64 id) const {
         if (m_entries.at(row).id == id)
             return row;
     return -1;
+}
+
+void MessageModel::selectRange(qint64 from, qint64 to) {
+    int first = rowOf(from), last = rowOf(to);
+    if (first < 0 || last < 0)
+        return;
+    if (first > last)
+        std::swap(first, last);
+    for (int row = first; row <= last; ++row)
+        m_selected.insert(m_entries.at(row).id);
+    emit dataChanged(index(first), index(last), {SelectedRole});
+    emit selectionChanged();
+}
+
+void MessageModel::toggleSelected(qint64 id) {
+    const int row = rowOf(id);
+    if (row < 0)
+        return;
+    if (!m_selected.remove(id))
+        m_selected.insert(id);
+    emit dataChanged(index(row), index(row), {SelectedRole});
+    emit selectionChanged();
+}
+
+void MessageModel::clearSelection() {
+    if (m_selected.isEmpty())
+        return;
+    m_selected.clear();
+    emit dataChanged(index(0), index(m_entries.size() - 1), {SelectedRole});
+    emit selectionChanged();
+}
+
+QList<HistoryEntry> MessageModel::selectedEntries() const {
+    QList<HistoryEntry> entries;
+    for (const HistoryEntry &entry : m_entries)
+        if (m_selected.contains(entry.id))
+            entries << entry;
+    return entries;
 }

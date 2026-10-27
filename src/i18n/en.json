@@ -7,6 +7,10 @@
     "one": "%n message of %1 in %2.",
     "other": "%n messages of %1 in %2."
   },
+  "%n messages selected · Shift+click adds or removes": {
+    "one": "%n message selected · Shift+click adds or removes",
+    "other": "%n messages selected · Shift+click adds or removes"
+  },
   "%n new messages while you were away": {
     "one": "%n new message while you were away",
     "other": "%n new messages while you were away"

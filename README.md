@@ -22,6 +22,9 @@ janela: seus contatos à esquerda e a conversa à direita.
 - Importa o histórico do Gajim (e do Omajim em Python) pelo menu ⋮: lê uma
   cópia do `logs.db`, sem alterar o original, traz só a conta conectada e
   não repete mensagens que já estão aqui.
+- Shift+clique seleciona mensagens inteiras, da última clicada até a atual
+  (Shift+clique numa selecionada a tira), e Ctrl+C copia todas como
+  "[data hora] Nome: texto". Esc limpa a seleção.
 - Links clicáveis nas mensagens, e prévia das imagens: as que você envia ou
   baixa, e as que chegam pelo servidor de contatos e salas conhecidos, até
   10 MB. Imagens de quem não está nos contatos não são baixadas sozinhas,
@@ -87,6 +90,8 @@ no Gajim, continua na branch `main`.
 | Ctrl+W | Fechar a conversa (tira da barra lateral) |
 | ? (fora do campo de texto), F1 ou Ctrl+/ | Mostrar os atalhos |
 | ↑ (campo vazio) | Corrigir a última mensagem |
+| Shift+clique | Selecionar mensagens inteiras |
+| Ctrl+C (com seleção) | Copiar as mensagens selecionadas |
 | Ctrl+Q | Sair |
 
 Num app de chat quase sempre se está digitando, então os atalhos usam um

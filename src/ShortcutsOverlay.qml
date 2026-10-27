@@ -33,7 +33,9 @@ Popup {
             ["Enter", qsTr("Send the message")],
             ["Shift+Enter", qsTr("New line in the message")],
             ["↑", qsTr("Correct your last message")],
-            ["Esc", qsTr("Stop correcting")] ] },
+            ["Esc", qsTr("Stop correcting")],
+            ["Shift+Click", qsTr("Select whole messages")],
+            ["Ctrl+C", qsTr("Copy the selected messages")] ] },
         { title: qsTr("Files"), keys: [
             ["Ctrl+O", qsTr("Send a file through the server")],
             ["Ctrl+Shift+O", qsTr("Send a file directly")] ] },

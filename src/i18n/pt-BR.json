@@ -31,6 +31,11 @@
     "one": "%n mensagem de %1 em %2.",
     "other": "%n mensagens de %1 em %2."
   },
+  "%n messages selected · Shift+click adds or removes": {
+    "many": "%n de mensagens selecionadas · Shift+clique adiciona ou tira",
+    "one": "%n mensagem selecionada · Shift+clique adiciona ou tira",
+    "other": "%n mensagens selecionadas · Shift+clique adiciona ou tira"
+  },
   "%n new messages while you were away": {
     "many": "%n de mensagens novas enquanto você estava fora",
     "one": "%n mensagem nova enquanto você estava fora",
@@ -55,12 +60,15 @@
   "Busy": "Ocupado",
   "Cancel": "Cancelar",
   "Canceled": "Cancelado",
+  "Clear": "Limpar",
   "Close": "Fechar",
   "Close conversation": "Fechar conversa",
   "Close the conversation": "Fechar a conversa",
   "Connecting…": "Conectando…",
   "Connection problem: %1": "Problema na conexão: %1",
   "Conversations": "Conversas",
+  "Copy": "Copiar",
+  "Copy the selected messages": "Copiar as mensagens selecionadas",
   "Correct": "Corrigir",
   "Correct your last message": "Corrigir sua última mensagem",
   "Correcting your last message (Esc cancels)": "Corrigindo sua última mensagem (Esc cancela)",
@@ -127,6 +135,7 @@
   "Save": "Salvar",
   "Saved": "Salvo",
   "Search contacts": "Buscar contatos",
+  "Select whole messages": "Selecionar mensagens inteiras",
   "Send": "Enviar",
   "Send a file": "Enviar um arquivo",
   "Send a file directly": "Enviar um arquivo direto",
