@@ -156,6 +156,16 @@ sem proxy, pelo próprio XMPP (IBB), mais lento mas que sempre passa. O
 cartão do arquivo mostra o caminho usado (conexão direta, proxy ou IBB), e
 uma notificação avisa quando um arquivo direto termina de chegar.
 
+## Instalação
+
+O pacote `omajim-qt` sai do [arch-repo](https://github.com/higorhgon/arch-repo),
+a cada commit nesta branch. Ele substitui o `omajim-git` (o Omajim em Python):
+os dois instalam o comando `omajim`, então fica um ou outro.
+
+```sh
+sudo pacman -S omajim-qt
+```
+
 ## Desenvolvimento
 
 Precisa de `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qxmpp` e
@@ -164,7 +174,7 @@ Precisa de `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qxmpp` e
 ```sh
 bin/build          # compila em build/omajim
 bin/test           # roda os testes offscreen
-bin/install        # gera e instala o pacote (substitui o omajim-git)
+bin/install        # gera e instala o omajim-qt (substitui o omajim-git)
 ```
 
 Para compilar sem instalar o `qxmpp`, aponte `QXMPP_ROOT` para o pacote

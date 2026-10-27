@@ -1,6 +1,6 @@
 # Maintainer: Higor Henrique Prata Gonçalves <higorlhp2@gmail.com>
 
-pkgname=omajim
+pkgname=omajim-qt
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Cliente XMPP para o Omarchy, com transferência de arquivos SI (Pidgin)'
@@ -8,11 +8,18 @@ arch=('x86_64' 'aarch64')
 url='https://github.com/higorhgon/omajim'
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qxmpp' 'libsecret' 'xdg-desktop-portal' 'wayland')
-makedepends=('gcc' 'make' 'wayland-protocols')
-# O Omajim em Python instala o mesmo comando e o mesmo ícone.
+makedepends=('gcc' 'make' 'git' 'wayland-protocols')
+provides=('omajim')
+# O Omajim em Python instala o mesmo comando e o mesmo ícone: um ou outro.
 conflicts=('omajim-git')
 source=()
 sha256sums=()
+
+# Uma versão por commit, para o arch-repo recompilar a cada mudança.
+pkgver() {
+  cd "$startdir/.."
+  printf "0.1.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
 
 build() {
   cd "$startdir/.."
