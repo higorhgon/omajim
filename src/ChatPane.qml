@@ -35,6 +35,10 @@ Rectangle {
             if (backend.currentChat !== "")
                 composer.forceActiveFocus()
         }
+        function onReplyChanged() {
+            if (backend.replyingTo !== "")
+                composer.forceActiveFocus()
+        }
     }
 
     ColumnLayout {
@@ -189,6 +193,43 @@ Rectangle {
             }
         }
 
+        // The message being answered; Esc or the cross drops it.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.leftMargin: 20
+            Layout.rightMargin: 20
+            Layout.bottomMargin: 8
+            visible: backend.replyingTo !== ""
+            implicitHeight: 40
+            radius: Math.min(4, theme.radius)
+            color: pane.ui.panel
+            border.color: pane.ui.border
+
+            Rectangle {
+                width: 3
+                height: parent.height
+                color: pane.ui.accent
+            }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 4
+                spacing: 8
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Replying to %1").arg(backend.replyingTo)
+                    color: pane.ui.muted
+                    font.pixelSize: 13
+                    elide: Text.ElideRight
+                }
+                IconButton {
+                    iconName: "close"
+                    description: qsTr("Don't reply (Esc)")
+                    onClicked: backend.cancelReply()
+                }
+            }
+        }
+
         // Picked messages, and what to do with them.
         RowLayout {
             Layout.fillWidth: true
@@ -297,6 +338,8 @@ Rectangle {
                             if (backend.editing) {
                                 backend.cancelEditing()
                                 clear()
+                            } else if (backend.replyingTo !== "") {
+                                backend.cancelReply()
                             } else {
                                 event.accepted = false
                             }

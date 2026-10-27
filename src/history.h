@@ -33,6 +33,15 @@ struct HistoryEntry {
     // correction, which later corrections may point to instead.
     bool edited = false;
     QString correctionId;
+    // The message this one answers (XEP-0461), by its id.
+    QString replyId;
+};
+
+// One person's reactions to a message (XEP-0444): they always come as the
+// whole set, which replaces the one before.
+struct Reaction {
+    QString sender;
+    QStringList emojis;
 };
 
 // A contact as the server's roster lists it, kept so the list shows at once
@@ -91,6 +100,11 @@ public:
     void setChatOpen(const QString &peer, bool open);
     // The newest line of a conversation; id 0 when there's none.
     HistoryEntry lastLine(const QString &peer) const;
+    // A line by its own id or the server's (rooms answer and react to the
+    // latter); id 0 when it isn't here.
+    HistoryEntry findByAnyId(const QString &peer, const QString &id) const;
+    QList<Reaction> reactions(const QString &peer, const QString &messageId) const;
+    void setReaction(const QString &peer, const QString &messageId, const QString &sender, const QStringList &emojis);
 
     // Names the user gave contacts here, never sent to the server.
     QHash<QString, QString> aliases() const;

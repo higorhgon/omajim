@@ -31,6 +31,8 @@ public:
         PreviewRole,
         RouteRole,
         SelectedRole,
+        ReplyRole,
+        ReactionsRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);
@@ -50,6 +52,13 @@ public:
     // history, since it's rebuilt from the files on disk.
     void setPreview(qint64 id, const QString &path);
     void setRoute(qint64 id, const QString &route);
+    // What a line answers ({name, text, id}) and its reactions
+    // ([{emoji, count, mine, who}]), worked out by the backend.
+    void setReply(qint64 id, const QVariantMap &reply);
+    void setReactions(qint64 id, const QVariantList &reactions);
+    HistoryEntry entry(qint64 id) const;
+    // The line with this message id or server id, for jumping to it; -1 if none.
+    Q_INVOKABLE int rowOfMessage(const QString &messageId) const;
 
     // Whole messages picked with Shift+click, to copy them together.
     int selectedCount() const { return m_selected.size(); }
@@ -75,4 +84,6 @@ private:
     QHash<qint64, QString> m_previews;
     QHash<qint64, QString> m_routes;
     QSet<qint64> m_selected;
+    QHash<qint64, QVariantMap> m_replies;
+    QHash<qint64, QVariantList> m_reactions;
 };

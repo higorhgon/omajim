@@ -27,6 +27,9 @@ janela: seus contatos à esquerda e a conversa à direita.
   "[data hora] Nome: texto". Esc limpa a seleção.
 - Formatação de texto como no Gajim (XEP-0393): `*negrito*`, `_itálico_`,
   `~riscado~`, `` `código` ``, blocos entre ```` ``` ```` e citações com `>`.
+- Respostas (XEP-0461) e reações (XEP-0444): a mensagem respondida aparece
+  citada (um clique leva até ela) e as reações aparecem embaixo. Clique
+  direito numa mensagem para responder, reagir ou copiar o texto.
 - Links clicáveis nas mensagens, e prévia das imagens: as que você envia ou
   baixa, e as que chegam pelo servidor de contatos e salas conhecidos, até
   10 MB. Imagens de quem não está nos contatos não são baixadas sozinhas,

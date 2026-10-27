@@ -23,6 +23,8 @@ Item {
     required property string preview
     required property string route
     required property bool selected
+    required property var reply
+    required property var reactions
 
     readonly property var ui: theme.colors
 
@@ -63,11 +65,13 @@ Item {
         font.bold: true
     }
 
+    // Measured as it will show, styling included: code is wider than the
+    // plain text with its markers.
     Text {
         id: measure
         visible: false
-        text: line.body
-        textFormat: Text.PlainText
+        text: line.kind === "text" ? bodyText.text : line.body
+        textFormat: Text.RichText
         font.pixelSize: 14
     }
 
@@ -77,7 +81,8 @@ Item {
         // Sized from the text laid out on one line, so short messages get a
         // snug bubble and long ones wrap at the maximum width.
         width: Math.min(line.width * 0.72, line.kind === "file" ? 340
-                        : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2, 64) + 28)
+                        : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2,
+                                   line.reply && line.reply.id ? 220 : 64, reactionRow.implicitWidth) + 28)
         height: content.implicitHeight + 20
         radius: theme.radius
         // Ours in a tint of the accent, theirs on the theme's button color.
@@ -105,6 +110,54 @@ Item {
                     for (let i = 0; i < line.sender.length; ++i)
                         hash = (hash * 31 + line.sender.charCodeAt(i)) >>> 0
                     return Qt.hsla((hash % 360) / 360, 0.6, 0.68, 1)
+                }
+            }
+
+            // The line this one answers; a click scrolls to it.
+            Rectangle {
+                Layout.fillWidth: true
+                visible: !!(line.reply && line.reply.id)
+                implicitHeight: quoteColumn.implicitHeight + 12
+                radius: Math.min(4, theme.radius)
+                color: Qt.alpha(line.ui.background, 0.6)
+
+                Rectangle {
+                    width: 3
+                    height: parent.height
+                    color: line.ui.accent
+                }
+                ColumnLayout {
+                    id: quoteColumn
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    anchors.leftMargin: 12
+                    spacing: 1
+                    Label {
+                        Layout.fillWidth: true
+                        visible: text !== ""
+                        text: line.reply ? line.reply.name || "" : ""
+                        color: line.ui.accent
+                        font.pixelSize: 12
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: line.reply ? line.reply.text || "" : ""
+                        color: line.ui.muted
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                        maximumLineCount: 2
+                        wrapMode: Text.Wrap
+                    }
+                }
+                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    onTapped: {
+                        const row = backend.messages.rowOfMessage(line.reply.id)
+                        if (row >= 0)
+                            line.ListView.view.positionViewAtIndex(row, ListView.Center)
+                    }
                 }
             }
 
@@ -249,6 +302,37 @@ Item {
                 }
             }
 
+            // Reactions, one chip per emoji; a click adds or takes back ours.
+            Flow {
+                id: reactionRow
+                Layout.fillWidth: true
+                visible: line.reactions && line.reactions.length > 0
+                spacing: 6
+                Repeater {
+                    model: line.reactions || []
+                    delegate: Rectangle {
+                        id: chip
+                        required property var modelData
+                        implicitWidth: chipLabel.implicitWidth + 16
+                        implicitHeight: 24
+                        radius: 12
+                        color: modelData.mine ? Qt.alpha(line.ui.accent, 0.25) : line.ui.background
+                        border.color: modelData.mine ? line.ui.accent : line.ui.border
+                        Label {
+                            id: chipLabel
+                            anchors.centerIn: parent
+                            text: "%1 %2".arg(chip.modelData.emoji).arg(chip.modelData.count)
+                            color: line.ui.foreground
+                            font.pixelSize: 12
+                        }
+                        HoverHandler { id: chipHover; cursorShape: Qt.PointingHandCursor }
+                        ToolTip.visible: chipHover.hovered
+                        ToolTip.text: chip.modelData.who
+                        TapHandler { onTapped: backend.toggleReaction(line.messageId, chip.modelData.emoji) }
+                    }
+                }
+            }
+
             RowLayout {
                 Layout.alignment: line.outgoing ? Qt.AlignRight : Qt.AlignLeft
                 spacing: 4
@@ -292,8 +376,13 @@ Item {
     // to the text and buttons underneath and starts a new range.
     MouseArea {
         anchors.fill: bubble
-        acceptedButtons: Qt.LeftButton
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
         onPressed: mouse => {
+            if (mouse.button === Qt.RightButton) {
+                lineMenu.popup()
+                mouse.accepted = true
+                return
+            }
             const view = line.ListView.view
             if (mouse.modifiers & Qt.ShiftModifier) {
                 if (line.selected)
@@ -308,6 +397,50 @@ Item {
                 backend.messages.clearSelection()
                 mouse.accepted = false
             }
+        }
+    }
+
+    // Right-click: answer, react, copy.
+    AppMenu {
+        id: lineMenu
+        readonly property var quick: ["👍", "❤️", "😂", "😮", "😢", "🙏"]
+
+        Item {
+            implicitWidth: emojiRow.implicitWidth + 12
+            implicitHeight: 40
+            Row {
+                id: emojiRow
+                anchors.centerIn: parent
+                spacing: 2
+                Repeater {
+                    model: lineMenu.quick
+                    delegate: ToolButton {
+                        required property string modelData
+                        width: 34
+                        height: 34
+                        text: modelData
+                        font.pixelSize: 18
+                        background: Rectangle {
+                            radius: Math.min(4, theme.radius)
+                            color: parent.hovered ? line.ui.hover : "transparent"
+                        }
+                        onClicked: {
+                            backend.toggleReaction(line.messageId, modelData)
+                            lineMenu.close()
+                        }
+                    }
+                }
+            }
+        }
+        AppMenuSeparator {}
+        AppMenuItem {
+            text: qsTr("Reply")
+            onTriggered: backend.startReply(line.messageId)
+        }
+        AppMenuItem {
+            text: qsTr("Copy text")
+            enabled: line.kind === "text"
+            onTriggered: backend.copyText(line.body)
         }
     }
 }

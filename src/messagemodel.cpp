@@ -29,6 +29,8 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case UrlRole: return entry.url;
     case EditedRole: return entry.edited;
     case SelectedRole: return m_selected.contains(entry.id);
+    case ReplyRole: return m_replies.value(entry.id);
+    case ReactionsRole: return m_reactions.value(entry.id);
     case RouteRole: return m_routes.value(entry.id);
     case PreviewRole: return m_previews.contains(entry.id) ? QUrl::fromLocalFile(m_previews.value(entry.id)).toString() : QString();
     }
@@ -41,7 +43,8 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
             {UrlRole, "url"}, {EditedRole, "edited"},
-            {PreviewRole, "preview"}, {RouteRole, "route"}, {SelectedRole, "selected"}};
+            {PreviewRole, "preview"}, {RouteRole, "route"}, {SelectedRole, "selected"},
+            {ReplyRole, "reply"}, {ReactionsRole, "reactions"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -177,4 +180,32 @@ QList<HistoryEntry> MessageModel::selectedEntries() const {
         if (m_selected.contains(entry.id))
             entries << entry;
     return entries;
+}
+
+void MessageModel::setReply(qint64 id, const QVariantMap &reply) {
+    m_replies.insert(id, reply);
+    const int row = rowOf(id);
+    if (row >= 0)
+        emit dataChanged(index(row), index(row), {ReplyRole});
+}
+
+void MessageModel::setReactions(qint64 id, const QVariantList &reactions) {
+    m_reactions.insert(id, reactions);
+    const int row = rowOf(id);
+    if (row >= 0)
+        emit dataChanged(index(row), index(row), {ReactionsRole});
+}
+
+HistoryEntry MessageModel::entry(qint64 id) const {
+    const int row = rowOf(id);
+    return row < 0 ? HistoryEntry{} : m_entries.at(row);
+}
+
+int MessageModel::rowOfMessage(const QString &messageId) const {
+    if (messageId.isEmpty())
+        return -1;
+    for (int row = m_entries.size() - 1; row >= 0; --row)
+        if (m_entries.at(row).xmppId == messageId || m_entries.at(row).archiveId == messageId)
+            return row;
+    return -1;
 }

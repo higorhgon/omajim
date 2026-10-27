@@ -27,7 +27,9 @@
 #include <QXmppDiscoveryManager.h>
 #include <QXmppHttpUploadManager.h>
 #include <QXmppLogger.h>
+#include <QXmppFallback.h>
 #include <QXmppMessage.h>
+#include <QXmppMessageReaction.h>
 #include <QXmppMessageReceiptManager.h>
 #include <QXmppMucData.h>
 #include <QXmppMucManagerV2.h>
@@ -797,6 +799,7 @@ qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
         if (delivery == Delivery::Live) {
             m_messages.append(entry);
             ensurePreview(entry);
+            decorate(entry);
         }
         else
             m_reloadCurrentChat = true;
@@ -836,6 +839,11 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
     const QString from = QXmppUtils::jidToBareJid(message.from()).toLower();
     if (delivery == Delivery::Live && from != m_jid && !m_rooms.contains(from) && message.state() != QXmppMessage::None)
         handleChatState(from, message.state());
+    if (const auto reaction = message.reaction()) {
+        const QString peer = from == m_jid ? QXmppUtils::jidToBareJid(message.to()).toLower() : from;
+        applyReaction(peer, from, *reaction);
+        return true;
+    }
     if (message.body().isEmpty())
         return false;
 
@@ -851,6 +859,12 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
         entry.sender = entry.outgoing ? roomNickname(entry.peer)
                                       : tr("%1 (private)").arg(QXmppUtils::jidToResource(message.from()));
     entry.body = message.body();
+    if (const auto reply = message.reply()) {
+        entry.replyId = reply->id;
+        const QString stripped = message.readFallbackRemovedText(QXmppFallback::Body, {QStringLiteral("urn:xmpp:reply:0")});
+        if (!stripped.trimmed().isEmpty())
+            entry.body = stripped;
+    }
     applyOutOfBand(entry, message);
     entry.xmppId = message.id();
     // Our server's id for it; another entity's stanza-id says nothing.
@@ -933,14 +947,18 @@ void Backend::openChat(const QString &jid) {
         sendChatState(QXmppMessage::Active);
     m_pauseTimer->stop();
     m_sentState = 0;
-    if (bare != m_currentChat)
+    if (bare != m_currentChat) {
         cancelEditing();
+        cancelReply();
+    }
     m_currentChat = bare;
     if (!m_contacts.isOpen(bare))
         openConversation(bare);
     m_messages.reset(m_history.recent(bare, HistoryLimit));
-    for (const HistoryEntry &entry : m_messages.entries())
+    for (const HistoryEntry &entry : m_messages.entries()) {
         ensurePreview(entry);
+        decorate(entry);
+    }
     if (m_windowActive)
         m_contacts.clearUnread(bare);
     if (m_rooms.contains(bare))
@@ -986,12 +1004,14 @@ bool Backend::sendMessage(const QString &text) {
         entry.body = body;
         entry.xmppId = message.id();
         entry.sender = roomNickname(m_currentChat);
+        quoteReply(message, entry);
         const QString name = currentChatName();
         room->sendMessage(message).then(this, [this, name](QXmpp::Result<> &&result) {
             if (auto *error = std::get_if<QXmppError>(&result))
                 setError(tr("The message to %1 wasn't sent: %2").arg(name, error->description));
         });
         addEntry(entry);
+        cancelReply();
         return true;
     }
 
@@ -1007,12 +1027,14 @@ bool Backend::sendMessage(const QString &text) {
     entry.outgoing = true;
     entry.body = body;
     entry.xmppId = message.id();
+    quoteReply(message, entry);
     const QString peer = m_currentChat;
     m_client->send(std::move(message)).then(this, [this, peer](QXmpp::SendResult &&result) {
         if (std::holds_alternative<QXmppError>(result))
             setError(tr("The message to %1 wasn't sent: %2").arg(peer, std::get<QXmppError>(result).description));
     });
     addEntry(entry);
+    cancelReply();
     return true;
 }
 
@@ -1538,6 +1560,10 @@ void Backend::refreshRoom(const QString &jid) {
 }
 
 void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &message, Delivery delivery) {
+    if (const auto reaction = message.reaction()) {
+        applyReaction(roomJid, QXmppUtils::jidToResource(message.from()), *reaction);
+        return;
+    }
     // A message without a body is a subject change or a state; the header
     // shows the subject.
     if (message.body().isEmpty()) {
@@ -1549,6 +1575,12 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
     entry.sender = QXmppUtils::jidToResource(message.from());
     entry.outgoing = !entry.sender.isEmpty() && entry.sender == roomNickname(roomJid);
     entry.body = message.body();
+    if (const auto reply = message.reply()) {
+        entry.replyId = reply->id;
+        const QString stripped = message.readFallbackRemovedText(QXmppFallback::Body, {QStringLiteral("urn:xmpp:reply:0")});
+        if (!stripped.trimmed().isEmpty())
+            entry.body = stripped;
+    }
     applyOutOfBand(entry, message);
     entry.xmppId = message.originId().isEmpty() ? message.id() : message.originId();
     const auto stanzaIds = message.stanzaIds();
@@ -1885,4 +1917,161 @@ void Backend::copySelectedMessages() {
     const QString text = selectedMessagesText();
     if (!text.isEmpty())
         QGuiApplication::clipboard()->setText(text);
+}
+
+QString Backend::targetId(const HistoryEntry &entry) const {
+    if (m_rooms.contains(entry.peer) && !entry.archiveId.isEmpty())
+        return entry.archiveId;
+    return entry.xmppId;
+}
+
+QString Backend::ownReactionKey(const QString &peer) const {
+    return m_rooms.contains(peer) ? roomNickname(peer) : m_jid;
+}
+
+void Backend::decorate(const HistoryEntry &entry) {
+    if (!entry.replyId.isEmpty()) {
+        const HistoryEntry original = m_history.findByAnyId(entry.peer, entry.replyId);
+        QVariantMap reply{{"id", entry.replyId}};
+        if (original.id != 0) {
+            reply.insert("name", original.outgoing ? tr("You")
+                                 : !original.sender.isEmpty() ? original.sender : m_contacts.nameOf(original.peer));
+            reply.insert("text", original.kind == "file" ? tr("File: %1").arg(original.body) : original.body.simplified());
+        } else {
+            reply.insert("name", QString());
+            reply.insert("text", tr("A message that isn't in this history"));
+        }
+        m_messages.setReply(entry.id, reply);
+    }
+
+    // Some clients point at the room's id, some at the message's own.
+    QList<Reaction> reactions = m_history.reactions(entry.peer, targetId(entry));
+    if (!entry.xmppId.isEmpty() && targetId(entry) != entry.xmppId)
+        reactions += m_history.reactions(entry.peer, entry.xmppId);
+    const QString own = ownReactionKey(entry.peer);
+    QList<QString> order;
+    QHash<QString, QStringList> who;
+    for (const Reaction &reaction : reactions) {
+        for (const QString &emoji : reaction.emojis) {
+            if (!who.contains(emoji))
+                order << emoji;
+            const QString name = reaction.sender == own ? tr("You")
+                               : m_rooms.contains(entry.peer) ? reaction.sender
+                               : m_contacts.nameOf(reaction.sender);
+            if (!who[emoji].contains(name))
+                who[emoji] << name;
+        }
+    }
+    QVariantList list;
+    for (const QString &emoji : order)
+        list << QVariantMap{{"emoji", emoji}, {"count", who.value(emoji).size()},
+                            {"mine", who.value(emoji).contains(tr("You"))}, {"who", who.value(emoji).join(", ")}};
+    m_messages.setReactions(entry.id, list);
+}
+
+void Backend::applyReaction(const QString &peer, const QString &sender, const QXmppMessageReaction &reaction) {
+    QStringList emojis;
+    for (const QString &emoji : reaction.emojis())
+        if (!emoji.trimmed().isEmpty() && !emojis.contains(emoji))
+            emojis << emoji;
+    m_history.setReaction(peer, reaction.messageId(), sender, emojis);
+    if (peer != m_currentChat)
+        return;
+    const int row = m_messages.rowOfMessage(reaction.messageId());
+    if (row >= 0)
+        decorate(m_messages.entries().at(row));
+}
+
+void Backend::quoteReply(QXmppMessage &message, HistoryEntry &entry) {
+    if (m_replyId == 0)
+        return;
+    const HistoryEntry original = m_messages.entry(m_replyId);
+    const QString id = targetId(original);
+    if (original.id == 0 || id.isEmpty())
+        return;
+    const QString to = m_rooms.contains(original.peer)
+                           ? original.peer + "/" + (original.outgoing ? roomNickname(original.peer) : original.sender)
+                           : (original.outgoing ? m_jid : original.peer);
+    message.setReply(QXmpp::Reply{to, id});
+
+    // Clients without replies see the quote the body starts with; the
+    // fallback marker (XEP-0428) lets the others leave it out.
+    const QString name = original.outgoing ? QXmppUtils::jidToUser(m_jid)
+                       : !original.sender.isEmpty() ? original.sender : m_contacts.nameOf(original.peer);
+    QString quote;
+    for (const QString &line : original.body.split('\n'))
+        quote += "> " + line + "\n";
+    quote = QStringLiteral("> %1:\n").arg(name) + quote;
+    message.setBody(quote + entry.body);
+    const auto length = uint32_t(quote.toUcs4().size());
+    message.setFallbackMarkers({QXmppFallback(QStringLiteral("urn:xmpp:reply:0"),
+                                              {QXmppFallback::Reference{QXmppFallback::Body, QXmppFallback::Range{0, length}}})});
+    entry.replyId = id;
+}
+
+QString Backend::replyingTo() const {
+    if (m_replyId == 0)
+        return {};
+    const HistoryEntry original = m_messages.entry(m_replyId);
+    const QString name = original.outgoing ? tr("You")
+                       : !original.sender.isEmpty() ? original.sender : m_contacts.nameOf(original.peer);
+    const QString text = original.kind == "file" ? tr("File: %1").arg(original.body) : original.body.simplified();
+    return name.isEmpty() ? text : QStringLiteral("%1: %2").arg(name, text);
+}
+
+void Backend::startReply(qint64 messageId) {
+    const HistoryEntry original = m_messages.entry(messageId);
+    if (original.id == 0 || targetId(original).isEmpty()) {
+        setError(tr("This message can't be answered: it has no id to point at."));
+        return;
+    }
+    cancelEditing();
+    m_replyId = messageId;
+    emit replyChanged();
+}
+
+void Backend::cancelReply() {
+    if (m_replyId == 0)
+        return;
+    m_replyId = 0;
+    emit replyChanged();
+}
+
+void Backend::toggleReaction(qint64 messageId, const QString &emoji) {
+    const HistoryEntry entry = m_messages.entry(messageId);
+    const QString target = targetId(entry);
+    if (entry.id == 0 || target.isEmpty())
+        return;
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so the reaction wasn't sent."));
+        return;
+    }
+    // A reaction always carries our whole set for the message.
+    const QString own = ownReactionKey(entry.peer);
+    QStringList emojis;
+    for (const Reaction &reaction : m_history.reactions(entry.peer, target))
+        if (reaction.sender == own)
+            emojis = reaction.emojis;
+    if (!emojis.removeAll(emoji))
+        emojis << emoji;
+
+    QXmppMessageReaction reaction;
+    reaction.setMessageId(target);
+    reaction.setEmojis(emojis);
+    QXmppMessage message({}, entry.peer);
+    message.setId(QXmppUtils::generateStanzaUuid());
+    message.setReaction(reaction);
+    if (m_rooms.contains(entry.peer)) {
+        if (auto room = m_muc->findRoom(entry.peer))
+            room->sendMessage(message);
+    } else {
+        message.setType(QXmppMessage::Chat);
+        m_client->send(std::move(message));
+    }
+    m_history.setReaction(entry.peer, target, own, emojis);
+    decorate(entry);
+}
+
+void Backend::copyText(const QString &text) {
+    QGuiApplication::clipboard()->setText(text);
 }

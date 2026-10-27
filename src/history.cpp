@@ -10,7 +10,7 @@
 // Every column a HistoryEntry carries, in the order read() takes them.
 static const QString Columns = QStringLiteral(
     "id, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id, archive_id, delivered, sender, url,"
-    " edited, correction_id");
+    " edited, correction_id, reply_id");
 
 static HistoryEntry read(const QSqlQuery &query, const QString &peer) {
     HistoryEntry entry;
@@ -30,6 +30,7 @@ static HistoryEntry read(const QSqlQuery &query, const QString &peer) {
     entry.url = query.value(12).toString();
     entry.edited = query.value(13).toInt() != 0;
     entry.correctionId = query.value(14).toString();
+    entry.replyId = query.value(15).toString();
     return entry;
 }
 
@@ -71,7 +72,8 @@ bool History::open(const QString &path) {
                                " sender TEXT,"
                                " url TEXT,"
                                " edited INTEGER NOT NULL DEFAULT 0,"
-                               " correction_id TEXT)") &&
+                               " correction_id TEXT,"
+                               " reply_id TEXT)") &&
                     query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)") &&
                     query.exec("CREATE TABLE IF NOT EXISTS roster ("
                                " jid TEXT PRIMARY KEY,"
@@ -81,7 +83,9 @@ bool History::open(const QString &path) {
                                " approved INTEGER NOT NULL DEFAULT 0)") &&
                     query.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)") &&
                     query.exec("CREATE TABLE IF NOT EXISTS chats (peer TEXT PRIMARY KEY, open INTEGER NOT NULL)") &&
-                    query.exec("CREATE TABLE IF NOT EXISTS aliases (jid TEXT PRIMARY KEY, alias TEXT NOT NULL)");
+                    query.exec("CREATE TABLE IF NOT EXISTS aliases (jid TEXT PRIMARY KEY, alias TEXT NOT NULL)") &&
+                    query.exec("CREATE TABLE IF NOT EXISTS reactions (peer TEXT NOT NULL, message_id TEXT NOT NULL,"
+                               " sender TEXT NOT NULL, emojis TEXT NOT NULL, PRIMARY KEY (peer, message_id, sender))");
     if (!ok) {
         m_error = query.lastError().text();
         db.close();
@@ -98,7 +102,8 @@ bool History::open(const QString &path) {
                                                    {"sender", "TEXT"},
                                                    {"url", "TEXT"},
                                                    {"edited", "INTEGER NOT NULL DEFAULT 0"},
-                                                   {"correction_id", "TEXT"}};
+                                                   {"correction_id", "TEXT"},
+                                                   {"reply_id", "TEXT"}};
     for (const auto &[name, type] : added) {
         if (!columns.contains(name) && !query.exec(QStringLiteral("ALTER TABLE messages ADD COLUMN %1 %2").arg(name, type))) {
             m_error = query.lastError().text();
@@ -122,7 +127,7 @@ qint64 History::add(HistoryEntry &entry) {
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
     query.prepare("INSERT INTO messages (peer, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id,"
-                  " archive_id, delivered, sender, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                  " archive_id, delivered, sender, url, reply_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     query.addBindValue(entry.peer);
     query.addBindValue(entry.outgoing ? 1 : 0);
     query.addBindValue(entry.kind);
@@ -136,6 +141,7 @@ qint64 History::add(HistoryEntry &entry) {
     query.addBindValue(entry.delivered ? 1 : 0);
     query.addBindValue(entry.sender);
     query.addBindValue(entry.url);
+    query.addBindValue(entry.replyId);
     if (!query.exec()) {
         m_error = query.lastError().text();
         return 0;
@@ -441,6 +447,51 @@ void History::setAlias(const QString &jid, const QString &alias) {
         query.prepare("INSERT OR REPLACE INTO aliases (jid, alias) VALUES (?, ?)");
         query.addBindValue(jid);
         query.addBindValue(alias.trimmed());
+    }
+    query.exec();
+}
+
+HistoryEntry History::findByAnyId(const QString &peer, const QString &id) const {
+    if (!isOpen() || id.isEmpty())
+        return {};
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare(QStringLiteral("SELECT %1 FROM messages WHERE peer = ? AND (xmpp_id = ? OR archive_id = ?)"
+                                 " ORDER BY stamp LIMIT 1").arg(Columns));
+    query.addBindValue(peer);
+    query.addBindValue(id);
+    query.addBindValue(id);
+    return query.exec() && query.next() ? read(query, peer) : HistoryEntry{};
+}
+
+QList<Reaction> History::reactions(const QString &peer, const QString &messageId) const {
+    QList<Reaction> reactions;
+    if (!isOpen() || messageId.isEmpty())
+        return reactions;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("SELECT sender, emojis FROM reactions WHERE peer = ? AND message_id = ? ORDER BY rowid");
+    query.addBindValue(peer);
+    query.addBindValue(messageId);
+    if (query.exec())
+        while (query.next())
+            reactions << Reaction{query.value(0).toString(), query.value(1).toString().split('\n', Qt::SkipEmptyParts)};
+    return reactions;
+}
+
+void History::setReaction(const QString &peer, const QString &messageId, const QString &sender, const QStringList &emojis) {
+    if (!isOpen())
+        return;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    if (emojis.isEmpty()) {
+        query.prepare("DELETE FROM reactions WHERE peer = ? AND message_id = ? AND sender = ?");
+        query.addBindValue(peer);
+        query.addBindValue(messageId);
+        query.addBindValue(sender);
+    } else {
+        query.prepare("INSERT OR REPLACE INTO reactions (peer, message_id, sender, emojis) VALUES (?, ?, ?, ?)");
+        query.addBindValue(peer);
+        query.addBindValue(messageId);
+        query.addBindValue(sender);
+        query.addBindValue(emojis.join('\n'));
     }
     query.exec();
 }

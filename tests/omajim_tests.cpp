@@ -9,7 +9,9 @@
 #include <QSqlQuery>
 #include <QXmlStreamWriter>
 #include <QXmppClient.h>
+#include <QXmppFallback.h>
 #include <QXmppMessage.h>
+#include <QXmppMessageReaction.h>
 #include <QXmppMucData.h>
 #include <QXmppMucManagerV2.h>
 #include <QXmppPepBookmarkManager.h>
@@ -927,6 +929,64 @@ private slots:
         QCOMPARE(backend.client()->findExtension<QXmppVersionManager>()->clientName(), QString("Omajim"));
         auto *disco = backend.client()->findExtension<QXmppDiscoveryManager>();
         QCOMPARE(disco->clientCapabilitiesNode(), QString("https://github.com/higorhgon/omajim"));
+    }
+
+    void repliesAndReactionsShowOnTheirLine() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.contacts()->upsert("bob@example.org", "Bob");
+        backend.openChat("bob@example.org");
+        auto *client = backend.client();
+
+        QXmppMessage first("bob@example.org/phone", "alice@example.org", "see you at 10");
+        first.setType(QXmppMessage::Chat);
+        first.setId("m1");
+        emit client->messageReceived(first);
+
+        // A reply whose body starts with the quote other clients show.
+        const QString quote = "> Bob:\n> see you at 10\n";
+        QXmppMessage answer("bob@example.org/phone", "alice@example.org", quote + "ok, 10 it is");
+        answer.setType(QXmppMessage::Chat);
+        answer.setId("m2");
+        answer.setReply(QXmpp::Reply{"bob@example.org", "m1"});
+        answer.setFallbackMarkers({QXmppFallback("urn:xmpp:reply:0",
+            {QXmppFallback::Reference{QXmppFallback::Body, QXmppFallback::Range{0, uint32_t(quote.size())}}})});
+        emit client->messageReceived(answer);
+
+        auto *messages = backend.messages();
+        QCOMPARE(messages->rowCount(), 2);
+        QCOMPARE(messages->data(messages->index(1), MessageModel::BodyRole).toString(), QString("ok, 10 it is"));
+        const QVariantMap reply = messages->data(messages->index(1), MessageModel::ReplyRole).toMap();
+        QCOMPARE(reply.value("name").toString(), QString("Bob"));
+        QCOMPARE(reply.value("text").toString(), QString("see you at 10"));
+        QCOMPARE(messages->rowOfMessage("m1"), 0);
+
+        auto react = [&](const QString &from, const QString &to, const QStringList &emojis) {
+            QXmppMessageReaction reaction;
+            reaction.setMessageId("m1");
+            reaction.setEmojis(emojis);
+            QXmppMessage message(from, to);
+            message.setType(QXmppMessage::Chat);
+            message.setReaction(reaction);
+            emit client->messageReceived(message);
+        };
+        react("bob@example.org/phone", "alice@example.org", {"👍", "❤️"});
+        // A new set replaces the old one.
+        react("bob@example.org/phone", "alice@example.org", {"👍"});
+        // Ours, from another of our devices.
+        react("alice@example.org/laptop", "bob@example.org", {"👍"});
+
+        const QVariantList reactions = messages->data(messages->index(0), MessageModel::ReactionsRole).toList();
+        QCOMPARE(reactions.size(), 1);
+        const QVariantMap thumbs = reactions.first().toMap();
+        QCOMPARE(thumbs.value("emoji").toString(), QString("👍"));
+        QCOMPARE(thumbs.value("count").toInt(), 2);
+        QVERIFY(thumbs.value("mine").toBool());
+        // Reactions aren't messages.
+        QCOMPARE(messages->rowCount(), 2);
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

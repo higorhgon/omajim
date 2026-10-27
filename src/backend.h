@@ -30,6 +30,7 @@ class QXmppMamManager;
 class QXmppMucManagerV2;
 class QXmppPepBookmarkManager;
 class QXmppMessage;
+class QXmppMessageReaction;
 class QXmppPresence;
 class QXmppRosterManager;
 class QXmppSocksServer;
@@ -62,6 +63,7 @@ class Backend : public QObject {
     Q_PROPERTY(QVariantList invitations READ invitations NOTIFY invitationsChanged)
     Q_PROPERTY(bool serverUploadAvailable READ serverUploadAvailable NOTIFY uploadSupportChanged)
     Q_PROPERTY(bool editing READ editing NOTIFY editingChanged)
+    Q_PROPERTY(QString replyingTo READ replyingTo NOTIFY replyChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -94,6 +96,7 @@ public:
     QVariantList invitations() const { return m_invitations; }
     bool serverUploadAvailable() const;
     bool editing() const { return m_editingId != 0; }
+    QString replyingTo() const;
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
@@ -118,6 +121,11 @@ public:
     // corrected (XEP-0308), and the next send replaces it.
     Q_INVOKABLE QString startEditingLast();
     Q_INVOKABLE void cancelEditing();
+    // Answering a line (XEP-0461): the next message quotes it.
+    Q_INVOKABLE void startReply(qint64 messageId);
+    Q_INVOKABLE void cancelReply();
+    // Adds or takes back one of our reactions to a line (XEP-0444).
+    Q_INVOKABLE void toggleReaction(qint64 messageId, const QString &emoji);
     // The message field has text (or was just cleared); the contact sees
     // "typing" while it does.
     Q_INVOKABLE void setComposing(bool composing);
@@ -137,6 +145,7 @@ public:
     Q_INVOKABLE void openLink(const QString &url);
     // The selected messages as "[date time] Name: text" lines, to the clipboard.
     Q_INVOKABLE void copySelectedMessages();
+    Q_INVOKABLE void copyText(const QString &text);
     QString selectedMessagesText() const;
     // Gajim's history for this account: where it is and how many messages
     // it holds ({path, found, error}), and bringing them over.
@@ -174,6 +183,7 @@ signals:
     void invitationsChanged();
     void uploadSupportChanged();
     void editingChanged();
+    void replyChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
 
@@ -243,6 +253,14 @@ private:
     // Applies a correction to the line it replaces, if its author wrote it.
     bool applyCorrection(const HistoryEntry &correction, const QString &replaceId);
     bool sendCorrection(const QString &body);
+    // Fills in a line's quote and reactions on screen.
+    void decorate(const HistoryEntry &entry);
+    // Reactions and replies point at a message by its id, or in a room by
+    // the id the room gave it.
+    QString targetId(const HistoryEntry &entry) const;
+    QString ownReactionKey(const QString &peer) const;
+    void applyReaction(const QString &peer, const QString &sender, const QXmppMessageReaction &reaction);
+    void quoteReply(QXmppMessage &message, HistoryEntry &entry);
     bool trustsCertificateOf(const QList<QSslError> &errors) const;
     // Shows a picture for an image file line: the file itself when it's on
     // disk, or a copy fetched into the preview cache from a known contact.
@@ -283,6 +301,7 @@ private:
     QString m_pickMethod = QStringLiteral("server");
     QString m_proxy;
     qint64 m_editingId = 0;
+    qint64 m_replyId = 0;
     bool m_syncing = false;
     int m_archivedUnread = 0;
     bool m_reloadCurrentChat = false;
