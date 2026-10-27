@@ -611,12 +611,14 @@ Rectangle {
                     }
                 }
 
-                AppButton {
+                // An icon, quieter than a word for something sent many times a minute.
+                IconButton {
                     Layout.alignment: Qt.AlignBottom
+                    implicitWidth: 38
+                    implicitHeight: 38
                     primary: true
-                    // Sent many times a minute, so it stays as quiet as the field around it.
-                    font.bold: false
-                    text: backend.editing ? qsTr("Correct") : qsTr("Send")
+                    iconName: backend.editing ? "check" : "send"
+                    description: backend.editing ? qsTr("Correct") : qsTr("Send")
                     enabled: composer.text.trim() !== "" && backend.connectionState === "online"
                     onClicked: pane.send()
                 }

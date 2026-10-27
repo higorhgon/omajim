@@ -34,14 +34,15 @@ ToolButton {
             width: 18
             height: 18
             name: button.iconName
-            opacity: button.enabled ? 1 : 0.4
-            color: button.primary ? button.ui.accentText : button.ink
+            opacity: button.enabled || button.primary ? 1 : 0.4
+            color: button.primary ? (button.enabled ? button.ui.accentText : button.ui.muted) : button.ink
         }
     }
 
     background: Rectangle {
         radius: Math.min(4, theme.radius)
-        color: button.primary ? (button.lit ? button.ui.accentHover : button.ui.accent)
+        color: button.primary ? (!button.enabled ? button.ui.border
+                                 : button.lit ? button.ui.accentHover : button.ui.accent)
              : button.lit ? button.ui.hover
              : button.framed ? button.frameColor : "transparent"
         border.color: button.visualFocus ? button.ui.accent
