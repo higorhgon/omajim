@@ -99,7 +99,7 @@ ApplicationWindow {
         enabled: backend.signedIn && backend.currentChat !== "" && !backend.currentChatIsRoom
         onActivated: backend.chooseFileToSend("direct")
     }
-    Shortcut { sequence: "Ctrl+W"; context: Qt.ApplicationShortcut; enabled: backend.currentChat !== ""; onActivated: backend.closeChat() }
+    Shortcut { sequence: "Ctrl+W"; context: Qt.ApplicationShortcut; enabled: backend.currentChat !== ""; onActivated: backend.closeConversation(backend.currentChat) }
     Shortcut { sequences: ["Alt+Down", "Ctrl+Tab"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: win.moveChat(1) }
     Shortcut { sequences: ["Alt+Up", "Ctrl+Shift+Tab"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: win.moveChat(-1) }
 

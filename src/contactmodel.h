@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QDateTime>
 #include <QHash>
 #include <QStringList>
 
@@ -15,10 +16,17 @@ struct Contact {
     int unread = 0;
     // A group chat (XEP-0045) rather than a person.
     bool isRoom = false;
+    // In the list of open conversations, and its newest line for the
+    // preview under the name.
+    bool open = false;
+    QDateTime lastActivity;
+    QString lastMessage;
+    bool lastOutgoing = false;
 };
 
-// The roster as the contact list shows it: people who are around first,
-// then alphabetically, narrowed by the search field.
+// The sidebar. Without a search it lists the open conversations, newest
+// first, like Gajim's chat list; a search goes through every contact and
+// room, people who are around first, then alphabetically.
 class ContactModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
@@ -26,7 +34,8 @@ class ContactModel : public QAbstractListModel {
     Q_PROPERTY(int totalUnread READ totalUnread NOTIFY totalUnreadChanged)
 
 public:
-    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole, IsRoomRole };
+    enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole, IsRoomRole,
+                LastActivityRole, LastMessageRole, LastOutgoingRole };
 
     explicit ContactModel(QObject *parent = nullptr);
 
@@ -45,6 +54,12 @@ public:
     void setPresence(const QString &jid, const QString &presence, const QString &statusText);
     void setAllOffline();
     void setAvatar(const QString &jid, const QString &path);
+    // Opens the conversation and moves it up if the line is its newest.
+    void setActivity(const QString &jid, const QDateTime &stamp, const QString &text, bool outgoing);
+    void setOpen(const QString &jid, bool open);
+    // Known for searching, without touching a name already there.
+    void ensure(const QString &jid);
+    bool isOpen(const QString &jid) const { return m_contacts.value(jid).open; }
     void addUnread(const QString &jid);
     void clearUnread(const QString &jid);
 

@@ -22,13 +22,17 @@ QVariant ContactModel::data(const QModelIndex &index, int role) const {
     case UnreadRole: return contact.unread;
     case AvatarRole: return contact.avatar;
     case IsRoomRole: return contact.isRoom;
+    case LastActivityRole: return contact.lastActivity.toLocalTime();
+    case LastMessageRole: return contact.lastMessage;
+    case LastOutgoingRole: return contact.lastOutgoing;
     }
     return {};
 }
 
 QHash<int, QByteArray> ContactModel::roleNames() const {
     return {{JidRole, "jid"}, {NameRole, "name"}, {PresenceRole, "presence"},
-            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}, {IsRoomRole, "isRoom"}};
+            {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}, {IsRoomRole, "isRoom"},
+            {LastActivityRole, "lastActivity"}, {LastMessageRole, "lastMessage"}, {LastOutgoingRole, "lastOutgoing"}};
 }
 
 QString ContactModel::displayName(const QString &jid, const QString &name) {
@@ -117,6 +121,34 @@ void ContactModel::setAvatar(const QString &jid, const QString &path) {
     emit contactChanged(jid);
 }
 
+void ContactModel::setActivity(const QString &jid, const QDateTime &stamp, const QString &text, bool outgoing) {
+    Contact &contact = m_contacts[jid];
+    contact.jid = jid;
+    contact.open = true;
+    if (!contact.lastActivity.isValid() || stamp >= contact.lastActivity) {
+        contact.lastActivity = stamp;
+        contact.lastMessage = text;
+        contact.lastOutgoing = outgoing;
+    }
+    rebuild();
+    emit contactChanged(jid);
+}
+
+void ContactModel::ensure(const QString &jid) {
+    if (m_contacts.contains(jid))
+        return;
+    m_contacts[jid].jid = jid;
+    rebuild();
+}
+
+void ContactModel::setOpen(const QString &jid, bool open) {
+    auto it = m_contacts.find(jid);
+    if (it == m_contacts.end() || it->open == open)
+        return;
+    it->open = open;
+    rebuild();
+}
+
 void ContactModel::addUnread(const QString &jid) {
     auto it = m_contacts.find(jid);
     if (it == m_contacts.end())
@@ -147,15 +179,24 @@ void ContactModel::rebuild() {
     QStringList rows;
     const QString needle = m_filter.trimmed();
     for (const Contact &contact : std::as_const(m_contacts)) {
-        if (needle.isEmpty() || contact.jid.contains(needle, Qt::CaseInsensitive) ||
-            displayName(contact.jid, contact.name).contains(needle, Qt::CaseInsensitive))
+        if (needle.isEmpty() ? contact.open
+                             : contact.jid.contains(needle, Qt::CaseInsensitive) ||
+                                   displayName(contact.jid, contact.name).contains(needle, Qt::CaseInsensitive))
             rows << contact.jid;
     }
 
     QCollator collator;
     collator.setCaseSensitivity(Qt::CaseInsensitive);
     collator.setNumericMode(true);
-    std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
+    if (needle.isEmpty()) {
+        // Open conversations: the latest activity first, as in Gajim.
+        std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
+            const Contact &ca = m_contacts[a], &cb = m_contacts[b];
+            if (ca.lastActivity != cb.lastActivity)
+                return ca.lastActivity > cb.lastActivity;
+            return collator.compare(displayName(ca.jid, ca.name), displayName(cb.jid, cb.name)) < 0;
+        });
+    } else std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
         const Contact &ca = m_contacts[a], &cb = m_contacts[b];
         // Group chats on top, then people.
         if (ca.isRoom != cb.isRoom)

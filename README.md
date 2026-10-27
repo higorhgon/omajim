@@ -8,6 +8,11 @@ janela: seus contatos à esquerda e a conversa à direita.
 
 - Conversas 1:1 com histórico local (SQLite), notificações na área de
   trabalho e cópia das mensagens enviadas de outros dispositivos (carbons).
+- A barra lateral mostra só as conversas abertas, a mais recente no topo,
+  com o trecho da última mensagem, como no Gajim. A busca (Ctrl+K) passa
+  por todos os contatos e salas, e Enter com um endereço completo começa
+  uma conversa nova. Ctrl+W fecha a conversa; o histórico fica, e uma
+  mensagem nova a abre de novo.
 - A lista de contatos fica guardada e aparece na hora ao abrir, antes de
   conectar; o servidor só manda o que mudou (roster versioning).
 - Importa o histórico do Gajim (e do Omajim em Python) pelo menu ⋮: lê uma
@@ -67,7 +72,7 @@ no Gajim, continua na branch `main`.
 
 | Tecla | Ação |
 | --- | --- |
-| Ctrl+K | Buscar contatos |
+| Ctrl+K | Buscar contatos (Enter abre a conversa) |
 | Alt+↑ / Alt+↓ (ou Ctrl+Tab) | Conversa anterior ou seguinte |
 | Enter | Enviar a mensagem |
 | Shift+Enter | Nova linha na mensagem |
@@ -75,7 +80,7 @@ no Gajim, continua na branch `main`.
 | Ctrl+Shift+O | Enviar um arquivo direto (SI) |
 | Ctrl+N | Adicionar um contato |
 | Ctrl+J | Entrar numa sala |
-| Ctrl+W | Fechar a conversa |
+| Ctrl+W | Fechar a conversa (tira da barra lateral) |
 | ? (fora do campo de texto), F1 ou Ctrl+/ | Mostrar os atalhos |
 | ↑ (campo vazio) | Corrigir a última mensagem |
 | Ctrl+Q | Sair |

@@ -8,6 +8,9 @@ Rectangle {
     id: pane
 
     readonly property var ui: theme.colors
+    // A search lists every contact and room; otherwise only the open
+    // conversations show.
+    readonly property bool searching: search.text.trim() !== ""
     color: ui.panel
 
     function focusSearch() {
@@ -79,6 +82,7 @@ Rectangle {
 
         AppTextField {
             id: search
+            objectName: "searchField"
             Layout.fillWidth: true
             Layout.leftMargin: 12
             Layout.rightMargin: 12
@@ -91,11 +95,16 @@ Rectangle {
                 list.currentIndex = 0
             }
             Keys.onEscapePressed: text = ""
+            // Enter opens the first match, or a conversation with a full
+            // address nobody has yet, like Gajim's Start Chat.
             onAccepted: {
-                if (backend.contacts.count > 0) {
+                if (backend.contacts.count > 0)
                     backend.openChat(backend.contacts.jidAt(0))
-                    text = ""
-                }
+                else if (/^[^@\s]+@[^@\s]+$/.test(text.trim()))
+                    backend.openChat(text.trim())
+                else
+                    return
+                text = ""
             }
 
             AppIcon {
@@ -154,6 +163,9 @@ Rectangle {
                 required property int unread
                 required property string avatar
                 required property bool isRoom
+                required property var lastActivity
+                required property string lastMessage
+                required property bool lastOutgoing
 
                 readonly property bool selected: jid === backend.currentChat
                 readonly property bool focusedRow: list.activeFocus && ListView.isCurrentItem
@@ -163,7 +175,10 @@ Rectangle {
                 height: 56
                 leftPadding: 20
                 rightPadding: 16
-                onClicked: backend.openChat(jid)
+                onClicked: {
+                    backend.openChat(jid)
+                    search.text = ""
+                }
 
                 background: Rectangle {
                     color: row.selected ? pane.ui.selection
@@ -176,6 +191,13 @@ Rectangle {
                 }
                 AppMenu {
                     id: contactMenu
+                    AppMenuItem {
+                        visible: !pane.searching
+                        height: visible ? implicitHeight : 0
+                        text: qsTr("Close conversation")
+                        hint: row.selected ? "Ctrl+W" : ""
+                        onTriggered: backend.closeConversation(row.jid)
+                    }
                     AppMenuItem {
                         text: row.isRoom ? qsTr("Leave %1").arg(row.name) : qsTr("Remove %1").arg(row.name)
                         destructive: true
@@ -197,16 +219,41 @@ Rectangle {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 1
-                        Label {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: row.name
-                            color: row.ink
-                            elide: Text.ElideRight
-                            font.weight: row.unread > 0 ? Font.DemiBold : Font.Normal
+                            spacing: 8
+                            Label {
+                                Layout.fillWidth: true
+                                text: row.name
+                                color: row.ink
+                                elide: Text.ElideRight
+                                font.weight: row.unread > 0 ? Font.DemiBold : Font.Normal
+                            }
+                            // When the newest line was written: the time
+                            // today, the date before.
+                            Label {
+                                visible: !pane.searching && text !== ""
+                                text: {
+                                    translator.language
+                                    const stamp = row.lastActivity
+                                    if (!stamp || isNaN(stamp.getTime()) || row.lastMessage === "")
+                                        return ""
+                                    return new Date().toDateString() === stamp.toDateString()
+                                           ? stamp.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
+                                           : stamp.toLocaleDateString(Qt.locale(), Locale.ShortFormat)
+                                }
+                                color: row.selected ? row.ink : pane.ui.muted
+                                opacity: row.selected ? 0.75 : 1
+                                font.pixelSize: 11
+                            }
                         }
+                        // The newest line in the list of conversations; the
+                        // status or address while searching.
                         Label {
                             Layout.fillWidth: true
-                            text: row.statusText !== "" ? row.statusText : row.jid
+                            text: !pane.searching && row.lastMessage !== ""
+                                  ? (row.lastOutgoing ? qsTr("You: %1").arg(row.lastMessage) : row.lastMessage)
+                                  : row.statusText !== "" ? row.statusText : row.jid
                             color: row.selected ? row.ink : pane.ui.muted
                             opacity: row.selected ? 0.75 : 1
                             font.pixelSize: 12
@@ -238,9 +285,9 @@ Rectangle {
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
                 color: pane.ui.muted
-                text: search.text !== "" ? qsTr("No contact matches “%1”.").arg(search.text)
-                    : backend.connectionState === "online" ? qsTr("No contacts yet. Ctrl+N adds one.")
-                    : qsTr("Contacts show up once you're connected.")
+                text: /^[^@\s]+@[^@\s]+$/.test(search.text.trim()) ? qsTr("Enter starts a conversation with %1.").arg(search.text.trim())
+                    : search.text !== "" ? qsTr("No contact matches “%1”.").arg(search.text)
+                    : qsTr("No open conversations. Search for a contact to start one (Ctrl+K).")
             }
         }
     }

@@ -79,6 +79,18 @@ public:
     // When the newest line of a conversation was written, or invalid.
     QDateTime lastStamp(const QString &peer) const;
 
+    // Conversations shown in the sidebar, kept open between runs like
+    // Gajim's chat list. A first run opens every conversation with history.
+    QStringList openChats();
+    // Whether the conversation was ever opened or closed, so a room joined
+    // again stays closed if the user closed it.
+    bool isKnownChat(const QString &peer) const;
+    // Everyone with a conversation here, open or closed, for searching.
+    QStringList knownChats() const;
+    void setChatOpen(const QString &peer, bool open);
+    // The newest line of a conversation; id 0 when there's none.
+    HistoryEntry lastLine(const QString &peer) const;
+
     QString rosterVersion() const;
     QList<RosterRow> roster() const;
     void replaceRoster(const QString &version, const QList<RosterRow> &rows);

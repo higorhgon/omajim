@@ -646,6 +646,14 @@ void Backend::openHistory() {
         m_contacts.setAvatar(row.jid, m_avatars->pathFor(row.jid));
     }
     trace(QStringLiteral("roster: %1 contacts from the cache").arg(cached.size()));
+
+    const QStringList open = m_history.openChats();
+    for (const QString &jid : open)
+        openConversation(jid);
+    // Closed conversations stay findable, even with people not in the roster.
+    const QStringList known = m_history.knownChats();
+    for (const QString &jid : known)
+        m_contacts.ensure(jid);
 }
 
 void Backend::setError(const QString &text) {
@@ -759,6 +767,8 @@ qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
         setError(tr("The message couldn't be saved to the history: %1").arg(m_history.errorString()));
         return 0;
     }
+    m_history.setChatOpen(entry.peer, true);
+    m_contacts.setActivity(entry.peer, entry.stamp, previewOf(entry), entry.outgoing);
     if (entry.peer == m_currentChat) {
         // Archived lines can be older than what's on screen, so the chat
         // reloads in order once the sync is over.
@@ -904,6 +914,8 @@ void Backend::openChat(const QString &jid) {
     if (bare != m_currentChat)
         cancelEditing();
     m_currentChat = bare;
+    if (!m_contacts.isOpen(bare))
+        openConversation(bare);
     m_messages.reset(m_history.recent(bare, HistoryLimit));
     for (const HistoryEntry &entry : m_messages.entries())
         ensurePreview(entry);
@@ -1420,6 +1432,8 @@ QStringList Backend::currentRoomParticipants() const {
 void Backend::addRoom(const QString &jid, const Room &room) {
     m_rooms.insert(jid, room);
     m_contacts.upsertRoom(jid, room.name);
+    if (!m_history.isKnownChat(jid))
+        openConversation(jid);
     refreshRoom(jid);
 }
 
@@ -1528,6 +1542,7 @@ void Backend::leaveRoom(const QString &jid) {
         room->leave();
     m_rooms.remove(jid);
     m_bookmarks->removeBookmark(jid);
+    m_history.setChatOpen(jid, false);
     m_contacts.remove(jid);
     if (jid == m_currentChat)
         closeChat();
@@ -1732,4 +1747,29 @@ QVariantMap Backend::importGajimHistory(const QString &path) {
     }
     trace(QStringLiteral("gajim import: %1 of %2 messages").arg(result.imported).arg(result.found));
     return {{"imported", result.imported}, {"found", result.found}, {"error", result.error}};
+}
+
+QString Backend::previewOf(const HistoryEntry &entry) const {
+    const QString text = entry.kind == "file" ? tr("File: %1").arg(entry.body) : entry.body.simplified();
+    // In a room, who said it.
+    return !entry.outgoing && !entry.sender.isEmpty() ? QStringLiteral("%1: %2").arg(entry.sender, text) : text;
+}
+
+void Backend::openConversation(const QString &jid) {
+    m_history.setChatOpen(jid, true);
+    const HistoryEntry last = m_history.lastLine(jid);
+    if (last.id != 0)
+        m_contacts.setActivity(jid, last.stamp, previewOf(last), last.outgoing);
+    else
+        m_contacts.setActivity(jid, QDateTime::currentDateTimeUtc(), {}, false);
+}
+
+void Backend::closeConversation(const QString &jid) {
+    const QString bare = normalizedJid(jid);
+    if (bare.isEmpty())
+        return;
+    m_history.setChatOpen(bare, false);
+    m_contacts.setOpen(bare, false);
+    if (bare == m_currentChat)
+        closeChat();
 }

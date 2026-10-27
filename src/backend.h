@@ -110,6 +110,9 @@ public:
 
     Q_INVOKABLE void openChat(const QString &jid);
     Q_INVOKABLE void closeChat();
+    // Takes a conversation off the sidebar; its history stays, and a new
+    // message opens it again.
+    Q_INVOKABLE void closeConversation(const QString &jid);
     Q_INVOKABLE bool sendMessage(const QString &text);
     // Up in an empty message field: our last line comes back to be
     // corrected (XEP-0308), and the next send replaces it.
@@ -211,6 +214,10 @@ private:
     void refreshPresence(const QString &bareJid);
     void syncRoster();
     void showContact(const QString &jid);
+    // Puts a conversation in the sidebar with its newest line, or at the
+    // top when it has none yet.
+    void openConversation(const QString &jid);
+    QString previewOf(const HistoryEntry &entry) const;
     void handleAvatarHash(const QXmppPresence &presence);
     void fetchAvatar(const QString &jid);
     QString bestResource(const QString &bareJid) const;

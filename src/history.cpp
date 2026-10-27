@@ -79,7 +79,8 @@ bool History::open(const QString &path) {
                                " groups TEXT,"
                                " subscription TEXT,"
                                " approved INTEGER NOT NULL DEFAULT 0)") &&
-                    query.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)");
+                    query.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)") &&
+                    query.exec("CREATE TABLE IF NOT EXISTS chats (peer TEXT PRIMARY KEY, open INTEGER NOT NULL)");
     if (!ok) {
         m_error = query.lastError().text();
         db.close();
@@ -364,4 +365,55 @@ void History::beginBatch() {
 void History::commitBatch() {
     if (isOpen())
         QSqlDatabase::database(m_connection).commit();
+}
+
+QStringList History::openChats() {
+    QStringList peers;
+    if (!isOpen())
+        return peers;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.exec("SELECT value FROM meta WHERE key = 'chats_seeded'");
+    if (!query.next()) {
+        query.exec("INSERT OR IGNORE INTO chats (peer, open) SELECT DISTINCT peer, 1 FROM messages");
+        query.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('chats_seeded', '1')");
+    }
+    if (query.exec("SELECT peer FROM chats WHERE open = 1"))
+        while (query.next())
+            peers << query.value(0).toString();
+    return peers;
+}
+
+bool History::isKnownChat(const QString &peer) const {
+    if (!isOpen())
+        return false;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("SELECT 1 FROM chats WHERE peer = ?");
+    query.addBindValue(peer);
+    return query.exec() && query.next();
+}
+
+void History::setChatOpen(const QString &peer, bool open) {
+    if (!isOpen())
+        return;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("INSERT OR REPLACE INTO chats (peer, open) VALUES (?, ?)");
+    query.addBindValue(peer);
+    query.addBindValue(open ? 1 : 0);
+    query.exec();
+}
+
+HistoryEntry History::lastLine(const QString &peer) const {
+    const auto lines = recent(peer, 1);
+    return lines.isEmpty() ? HistoryEntry{} : lines.first();
+}
+
+QStringList History::knownChats() const {
+    QStringList peers;
+    if (!isOpen())
+        return peers;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    if (query.exec("SELECT peer FROM chats UNION SELECT DISTINCT peer FROM messages"))
+        while (query.next())
+            peers << query.value(0).toString();
+    return peers;
 }

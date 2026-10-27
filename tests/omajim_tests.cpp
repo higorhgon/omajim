@@ -629,6 +629,8 @@ private slots:
         backend.start();
         QVERIFY(backend.signedIn());
         QCOMPARE(backend.connectionState(), QString("offline"));
+        // No conversation with Bob yet, so he shows in a search.
+        backend.contacts()->setFilter("bob");
         QCOMPARE(backend.contacts()->rowCount(), 1);
         QCOMPARE(backend.contacts()->data(backend.contacts()->index(0), ContactModel::NameRole).toString(), QString("Bob"));
     }
@@ -796,11 +798,15 @@ private slots:
         QCOMPARE(entries.at(1).state, QString("done"));
     }
 
-    void contactsListOnlinePeopleFirst() {
+    void searchListsOnlinePeopleFirst() {
         ContactModel model;
         model.upsert("zoe@example.org", "Zoe");
         model.upsert("adam@example.org", "Adam");
         model.upsert("bea@example.org", {});
+        // Without a search only open conversations show, and none is open.
+        QCOMPARE(model.rowCount(), 0);
+        model.setFilter("example");
+        QCOMPARE(model.rowCount(), 3);
         QCOMPARE(model.jidAt(0), QString("adam@example.org"));
 
         model.setPresence("zoe@example.org", "away", "lunch");
@@ -811,6 +817,68 @@ private slots:
         model.setFilter("ad");
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.jidAt(0), QString("adam@example.org"));
+    }
+
+    void openConversationsListNewestFirst() {
+        ContactModel model;
+        model.upsert("zoe@example.org", "Zoe");
+        model.upsert("adam@example.org", "Adam");
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        model.setActivity("adam@example.org", now.addSecs(-60), "older", false);
+        model.setActivity("zoe@example.org", now, "newer", true);
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.jidAt(0), QString("zoe@example.org"));
+        QCOMPARE(model.data(model.index(0), ContactModel::LastMessageRole).toString(), QString("newer"));
+        QVERIFY(model.data(model.index(0), ContactModel::LastOutgoingRole).toBool());
+
+        // An older line arriving late doesn't push a conversation up.
+        model.setActivity("adam@example.org", now.addSecs(-120), "oldest", false);
+        QCOMPARE(model.jidAt(0), QString("zoe@example.org"));
+        QCOMPARE(model.data(model.index(1), ContactModel::LastMessageRole).toString(), QString("older"));
+
+        model.setOpen("zoe@example.org", false);
+        QCOMPARE(model.rowCount(), 1);
+    }
+
+    void conversationsStayOpenOrClosed() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        {
+            History history;
+            QVERIFY(history.open(dir.filePath("data/accounts/alice@example.org/history.sqlite")));
+            HistoryEntry old;
+            old.peer = "bob@example.org";
+            old.body = "from before";
+            history.add(old);
+        }
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        // The first run opens the conversations that have history.
+        QCOMPARE(backend.contacts()->rowCount(), 1);
+        QCOMPARE(backend.contacts()->data(backend.contacts()->index(0), ContactModel::LastMessageRole).toString(),
+                 QString("from before"));
+
+        backend.closeConversation("bob@example.org");
+        QCOMPARE(backend.contacts()->rowCount(), 0);
+
+        // A message opens it again.
+        QXmppMessage message("bob@example.org/phone", "alice@example.org", "hello again");
+        message.setType(QXmppMessage::Chat);
+        message.setId("o1");
+        emit backend.client()->messageReceived(message);
+        QCOMPARE(backend.contacts()->rowCount(), 1);
+        QCOMPARE(backend.contacts()->data(backend.contacts()->index(0), ContactModel::LastMessageRole).toString(),
+                 QString("hello again"));
+        backend.closeConversation("bob@example.org");
+
+        // Closed stays closed on the next start.
+        Backend again(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        again.setStatus("offline");
+        again.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        QCOMPARE(again.contacts()->rowCount(), 0);
+        again.contacts()->setFilter("bob");
+        QCOMPARE(again.contacts()->rowCount(), 1);
     }
 
     void contactsCountUnread() {
