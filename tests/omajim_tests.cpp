@@ -5,6 +5,7 @@
 #include <QtTest>
 
 #include <QSqlDatabase>
+#include <QSqlError>
 #include <QSqlQuery>
 #include <QXmlStreamWriter>
 #include <QXmppClient.h>
@@ -28,6 +29,7 @@
 #include "contactmodel.h"
 #include "filepicker.h"
 #include "files.h"
+#include "gajimimport.h"
 #include "history.h"
 #include "messagemodel.h"
 #include "rosterstore.h"
@@ -697,6 +699,81 @@ private slots:
         QTest::qWait(300);
         QCOMPARE(requests, 1);
         QVERIFY(messages->data(messages->index(0), MessageModel::PreviewRole).toString().isEmpty());
+    }
+
+    void gajimHistoryComesOverOnce() {
+        QTemporaryDir dir;
+        const QString source = dir.filePath("logs.db");
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "gajim");
+            db.setDatabaseName(source);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            for (const char *statement : {
+                     "CREATE TABLE account (pk INTEGER PRIMARY KEY, jid TEXT NOT NULL)",
+                     "CREATE TABLE remote (pk INTEGER PRIMARY KEY, jid TEXT NOT NULL)",
+                     "CREATE TABLE message (pk INTEGER PRIMARY KEY, fk_account_pk INTEGER, fk_remote_pk INTEGER,"
+                     " resource TEXT, type INTEGER, direction INTEGER, timestamp FLOAT, state INTEGER, id TEXT,"
+                     " stanza_id TEXT, text TEXT, correction_id TEXT)",
+                     "CREATE TABLE oob (pk INTEGER PRIMARY KEY, fk_message_pk INTEGER, url TEXT, description TEXT)",
+                     "CREATE TABLE filetransfer (pk INTEGER PRIMARY KEY, fk_message_pk INTEGER, name TEXT, size INTEGER)",
+                     "INSERT INTO account VALUES (1, 'alice@example.org'), (2, 'other@example.org')",
+                     "INSERT INTO remote VALUES (1, 'bob@example.org'), (2, 'team@rooms.example.org')",
+                     "INSERT INTO message VALUES (1, 1, 1, 'phone', 1, 1, 100.5, 0, 'g1', 's1', 'hi alice', NULL)",
+                     "INSERT INTO message VALUES (2, 1, 1, NULL, 1, 2, 101, 0, 'g2', NULL, 'see you at 10', NULL)",
+                     "INSERT INTO message VALUES (3, 1, 1, NULL, 1, 2, 102, 0, 'g3', NULL, 'see you at 11', 'g2')",
+                     "INSERT INTO message VALUES (4, 1, 2, 'carol', 2, 1, 103, 0, NULL, NULL, 'standup now', NULL)",
+                     "INSERT INTO message VALUES (5, 1, 2, 'dave', 3, 1, 104, 0, 'g5', NULL, 'psst', NULL)",
+                     "INSERT INTO message VALUES (6, 1, 1, NULL, 1, 1, 105, 0, 'g6', NULL, 'https://up.example.org/a/plan.pdf', NULL)",
+                     "INSERT INTO oob VALUES (1, 6, 'https://up.example.org/a/plan.pdf', NULL)",
+                     "INSERT INTO message VALUES (7, 1, 1, NULL, 1, 1, 106, 0, 'g7', NULL, NULL, NULL)",
+                     "INSERT INTO filetransfer VALUES (1, 7, 'photo.jpg', 2048)",
+                     "INSERT INTO message VALUES (8, 2, 1, NULL, 1, 1, 107, 0, 'x1', NULL, 'not ours', NULL)"})
+                QVERIFY2(q.exec(statement), qPrintable(q.lastError().text()));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase("gajim");
+        QFile original(source);
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        const QByteArray before = QCryptographicHash::hash(original.readAll(), QCryptographicHash::Sha256);
+        original.close();
+
+        QCOMPARE(GajimImport::count(source, "Alice@example.org").found, 6);
+
+        History history;
+        QVERIFY(history.open(dir.filePath("ours.sqlite")));
+        // Already here from the server's archive: skipped by its id.
+        HistoryEntry archived;
+        archived.peer = "bob@example.org";
+        archived.body = "hi alice";
+        archived.archiveId = "s1";
+        archived.stamp = QDateTime::fromMSecsSinceEpoch(100500, QTimeZone::UTC);
+        history.add(archived);
+
+        auto result = GajimImport::import(source, "alice@example.org", history);
+        QVERIFY2(result.error.isEmpty(), qPrintable(result.error));
+        QCOMPARE(result.found, 6);
+        QCOMPARE(result.imported, 5);
+
+        const auto bob = history.recent("bob@example.org", 10);
+        QCOMPARE(bob.size(), 4);
+        QCOMPARE(bob.at(1).body, QString("see you at 11"));
+        QVERIFY(bob.at(1).edited && bob.at(1).outgoing);
+        QCOMPARE(bob.at(2).kind, QString("file"));
+        QCOMPARE(bob.at(2).body, QString("plan.pdf"));
+        QCOMPARE(bob.at(2).state, QString("remote"));
+        QCOMPARE(bob.at(3).body, QString("photo.jpg"));
+        QCOMPARE(bob.at(3).fileSize, qint64(2048));
+
+        const auto room = history.recent("team@rooms.example.org", 10);
+        QCOMPARE(room.size(), 2);
+        QCOMPARE(room.at(0).sender, QString("carol"));
+        QVERIFY(room.at(1).sender.startsWith("dave"));
+
+        // Again: nothing new, and Gajim's file is as it was.
+        QCOMPARE(GajimImport::import(source, "alice@example.org", history).imported, 0);
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(QCryptographicHash::hash(original.readAll(), QCryptographicHash::Sha256), before);
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

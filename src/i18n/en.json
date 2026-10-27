@@ -1,4 +1,12 @@
 {
+  "%n messages imported.": {
+    "one": "%n message imported.",
+    "other": "%n messages imported."
+  },
+  "%n messages of %1 in %2.": {
+    "one": "%n message of %1 in %2.",
+    "other": "%n messages of %1 in %2."
+  },
   "%n new messages while you were away": {
     "one": "%n new message while you were away",
     "other": "%n new messages while you were away"

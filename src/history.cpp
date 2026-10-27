@@ -344,3 +344,24 @@ void History::clearRoster() {
     query.exec("DELETE FROM roster");
     query.exec("DELETE FROM meta WHERE key = 'roster_version'");
 }
+
+bool History::containsExact(const QString &peer, const QDateTime &stamp, const QString &body) const {
+    if (!isOpen())
+        return false;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("SELECT 1 FROM messages WHERE peer = ? AND stamp = ? AND body = ? LIMIT 1");
+    query.addBindValue(peer);
+    query.addBindValue(stamp.toMSecsSinceEpoch());
+    query.addBindValue(body);
+    return query.exec() && query.next();
+}
+
+void History::beginBatch() {
+    if (isOpen())
+        QSqlDatabase::database(m_connection).transaction();
+}
+
+void History::commitBatch() {
+    if (isOpen())
+        QSqlDatabase::database(m_connection).commit();
+}

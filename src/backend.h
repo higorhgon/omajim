@@ -132,6 +132,10 @@ public:
     // A message as rich text with clickable links, and opening one of them.
     Q_INVOKABLE QString formatMessage(const QString &body, const QString &linkColor) const;
     Q_INVOKABLE void openLink(const QString &url);
+    // Gajim's history for this account: where it is and how many messages
+    // it holds ({path, found, error}), and bringing them over.
+    Q_INVOKABLE QVariantMap findGajimHistory() const;
+    Q_INVOKABLE QVariantMap importGajimHistory(const QString &path);
 
     Q_INVOKABLE bool addContact(const QString &jid, const QString &name);
     Q_INVOKABLE void removeContact(const QString &jid);

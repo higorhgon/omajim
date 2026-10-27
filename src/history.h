@@ -60,6 +60,11 @@ public:
     qint64 add(HistoryEntry &entry);
     QList<HistoryEntry> recent(const QString &peer, int limit) const;
     bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {}) const;
+    // The same text at the same moment, for messages that came without ids.
+    bool containsExact(const QString &peer, const QDateTime &stamp, const QString &body) const;
+    // Many writes as one transaction, for imports.
+    void beginBatch();
+    void commitBatch();
     void updateFile(qint64 id, const QString &state, const QString &filePath);
     bool markDelivered(const QString &peer, const QString &xmppId);
     // The line a correction points to, by its own id or its last

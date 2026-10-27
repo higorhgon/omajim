@@ -11,6 +11,9 @@ Popup {
     property string subtitle
     property string acceptText: qsTr("OK")
     property bool acceptEnabled: true
+    // False keeps the dialog open, to show the outcome of what it did.
+    property bool closeOnAccept: true
+    property bool showCancel: true
     default property alias body: bodyColumn.data
     readonly property var ui: theme.colors
 
@@ -20,7 +23,8 @@ Popup {
         if (!acceptEnabled)
             return
         accepted()
-        close()
+        if (closeOnAccept)
+            close()
     }
 
     parent: Overlay.overlay
@@ -65,6 +69,7 @@ Popup {
         ColumnLayout {
             id: bodyColumn
             Layout.fillWidth: true
+            visible: visibleChildren.length > 0
             spacing: 10
         }
 
@@ -73,6 +78,7 @@ Popup {
             spacing: 10
             Item { Layout.fillWidth: true }
             AppButton {
+                visible: dialog.showCancel
                 text: qsTr("Cancel")
                 onClicked: dialog.close()
             }

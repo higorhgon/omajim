@@ -10,6 +10,9 @@ janela: seus contatos à esquerda e a conversa à direita.
   trabalho e cópia das mensagens enviadas de outros dispositivos (carbons).
 - A lista de contatos fica guardada e aparece na hora ao abrir, antes de
   conectar; o servidor só manda o que mudou (roster versioning).
+- Importa o histórico do Gajim (e do Omajim em Python) pelo menu ⋮: lê uma
+  cópia do `logs.db`, sem alterar o original, traz só a conta conectada e
+  não repete mensagens que já estão aqui.
 - Links clicáveis nas mensagens, e prévia das imagens: as que você envia ou
   baixa, e as que chegam pelo servidor de contatos e salas conhecidos, até
   10 MB. Imagens de quem não está nos contatos não são baixadas sozinhas,

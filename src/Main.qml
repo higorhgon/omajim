@@ -197,6 +197,7 @@ ApplicationWindow {
                     id: moreMenu
                     objectName: "moreMenu"
                     AppMenuItem { text: qsTr("Keyboard shortcuts"); hint: "?"; onTriggered: shortcutsOverlay.open() }
+                    AppMenuItem { text: qsTr("Import history from Gajim…"); onTriggered: importDialog.open() }
                     AppMenuSeparator {}
                     AppMenuItem { text: qsTr("Sign out"); onTriggered: backend.signOut() }
                     AppMenuItem { text: qsTr("Quit"); hint: "Ctrl+Q"; destructive: true; onTriggered: Qt.quit() }
@@ -374,6 +375,45 @@ ApplicationWindow {
                 placeholderText: qsTr("Room password (optional)")
                 echoMode: TextInput.Password
                 onAccepted: joinRoomDialog.accept()
+            }
+        }
+
+        // Gajim's conversations, counted first and imported on request; the
+        // same dialog then says how it went.
+        AppDialog {
+            id: importDialog
+            objectName: "importDialog"
+            property var found: ({})
+            property var outcome: null
+
+            title: qsTr("Import history from Gajim")
+            subtitle: outcome ? (outcome.error !== "" ? outcome.error
+                                 : outcome.imported > 0 ? qsTr("%n messages imported.", "", outcome.imported)
+                                 : qsTr("Everything was already here; nothing new to import."))
+                    : found.error ? found.error
+                    : found.found > 0 ? qsTr("%n messages of %1 in %2.", "", found.found).arg(backend.jid).arg(found.path)
+                    : qsTr("No Gajim history of %1 on this computer.").arg(backend.jid)
+            acceptText: outcome || !(found.found > 0) ? qsTr("Close") : qsTr("Import")
+            showCancel: !outcome && found.found > 0
+            closeOnAccept: false
+            onOpened: {
+                outcome = null
+                found = backend.findGajimHistory()
+            }
+            onAccepted: {
+                if (outcome || !(found.found > 0))
+                    close()
+                else
+                    outcome = backend.importGajimHistory(found.path)
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: !importDialog.outcome && importDialog.found.found > 0
+                text: qsTr("Gajim's file isn't changed, and messages already here aren't added twice.")
+                color: win.ui.muted
+                font.pixelSize: 13
+                wrapMode: Text.Wrap
             }
         }
 

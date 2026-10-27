@@ -41,6 +41,7 @@
 
 #include "filepicker.h"
 #include "files.h"
+#include "gajimimport.h"
 #include "notifier.h"
 #include "rosterstore.h"
 #include "textformat.h"
@@ -1703,4 +1704,32 @@ void Backend::ensurePreview(const HistoryEntry &entry) {
             file->cancelWriting();
         reply->deleteLater();
     });
+}
+
+QVariantMap Backend::findGajimHistory() const {
+    // The file with the most of this account's messages, when both Gajim
+    // and the Python Omajim have one.
+    QVariantMap best{{"path", QString()}, {"found", 0}, {"error", QString()}};
+    const QStringList paths = GajimImport::candidates();
+    for (const QString &path : paths) {
+        const auto result = GajimImport::count(path, m_jid);
+        if (!result.error.isEmpty() && best.value("found").toInt() == 0)
+            best.insert("error", result.error);
+        if (result.found > best.value("found").toInt())
+            best = {{"path", path}, {"found", result.found}, {"error", QString()}};
+    }
+    return best;
+}
+
+QVariantMap Backend::importGajimHistory(const QString &path) {
+    if (!m_history.isOpen())
+        return {{"imported", 0}, {"error", tr("The message history isn't open.")}};
+    const auto result = GajimImport::import(path, m_jid, m_history);
+    if (!m_currentChat.isEmpty()) {
+        m_messages.reset(m_history.recent(m_currentChat, HistoryLimit));
+        for (const HistoryEntry &entry : m_messages.entries())
+            ensurePreview(entry);
+    }
+    trace(QStringLiteral("gajim import: %1 of %2 messages").arg(result.imported).arg(result.found));
+    return {{"imported", result.imported}, {"found", result.found}, {"error", result.error}};
 }
