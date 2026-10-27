@@ -82,7 +82,8 @@ Item {
         // snug bubble and long ones wrap at the maximum width.
         width: Math.min(line.width * 0.72, line.kind === "file" ? 340
                         : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2,
-                                   line.reply && line.reply.id ? 220 : 64, reactionRow.implicitWidth) + 28)
+                                   line.reply && line.reply.id ? 220 : 64, reactionRow.implicitWidth,
+                                   Math.ceil(stampRow.implicitWidth) + 2) + 28)
         height: content.implicitHeight + 20
         radius: theme.radius
         // Ours in a tint of the accent, theirs on the theme's button color.
@@ -333,7 +334,9 @@ Item {
                 }
             }
 
+            // When it was written, and whether it was edited or delivered.
             RowLayout {
+                id: stampRow
                 Layout.alignment: line.outgoing ? Qt.AlignRight : Qt.AlignLeft
                 spacing: 4
 

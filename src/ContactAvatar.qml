@@ -37,7 +37,7 @@ Item {
             text: avatar.isRoom ? "#" : avatar.name.trim().charAt(0).toLocaleUpperCase()
             color: "white"
             font.pixelSize: Math.round(avatar.height * 0.42)
-            font.weight: Font.DemiBold
+            font.weight: Font.Bold
         }
     }
 

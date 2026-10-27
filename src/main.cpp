@@ -82,6 +82,10 @@ int main(int argc, char *argv[]) {
     Backend backend(config, data, &filePicker, &secrets, &notifier);
     Tray tray(&backend);
 
+    // Text drawn by FreeType with the desktop's hinting, like every other app:
+    // Qt Quick's default distance-field text smears small bold type at 1x.
+    QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     QObject::connect(&translator, &Translator::changed, &tray, &Tray::retranslate);

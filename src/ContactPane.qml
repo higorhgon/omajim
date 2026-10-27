@@ -234,7 +234,7 @@ Rectangle {
                                 text: row.name
                                 color: row.ink
                                 elide: Text.ElideRight
-                                font.weight: row.unread > 0 ? Font.DemiBold : Font.Normal
+                                font.weight: row.unread > 0 ? Font.Bold : Font.Normal
                             }
                             // When the newest line was written: the time
                             // today, the date before.
