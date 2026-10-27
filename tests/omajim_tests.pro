@@ -16,7 +16,8 @@ HEADERS += \
     ../src/notifier.h \
     ../src/secretstore.h \
     ../src/theme.h \
-    ../src/translator.h
+    ../src/translator.h \
+    ../src/tray.h
 
 SOURCES += \
     omajim_tests.cpp \
@@ -28,4 +29,5 @@ SOURCES += \
     ../src/notifier.cpp \
     ../src/secretstore.cpp \
     ../src/theme.cpp \
-    ../src/translator.cpp
+    ../src/translator.cpp \
+    ../src/tray.cpp

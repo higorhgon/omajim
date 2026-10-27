@@ -13,6 +13,7 @@
 #include "secretstore.h"
 #include "theme.h"
 #include "translator.h"
+#include "tray.h"
 
 // Hands out whatever the test put in, without touching the real keyring.
 class FakeSecretStore : public SecretStore {
@@ -295,6 +296,54 @@ private slots:
         QVERIFY(!backend.sendMessage("hi"));
         QVERIFY(!backend.errorText().isEmpty());
         QCOMPARE(backend.messages()->rowCount(), 0);
+    }
+
+    void trayIconShowsNewMessagesFirst() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        Tray tray(&backend, nullptr, false);
+        QCOMPARE(tray.iconName(), QString("omajim-status-offline-symbolic"));
+
+        QSignalSpy newIcon(&tray, &Tray::NewIcon);
+        backend.contacts()->upsert("bob@example.org", "Bob");
+        backend.contacts()->addUnread("bob@example.org");
+        QCOMPARE(tray.state(), QString("message-new"));
+        QCOMPARE(newIcon.count(), 1);
+
+        backend.contacts()->clearUnread("bob@example.org");
+        QCOMPARE(tray.state(), QString("offline"));
+    }
+
+    void trayMenuSetsTheStatus() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.setStatus("offline");
+        TrayMenu menu(&backend);
+
+        DBusMenuLayoutItem layout;
+        menu.GetLayout(0, -1, {}, layout);
+        QCOMPARE(layout.children.size(), 4);
+        const DBusMenuLayoutItem status = layout.children.at(1);
+        QCOMPARE(status.properties.value("children-display").toString(), QString("submenu"));
+        QCOMPARE(status.children.size(), 6);
+        QCOMPARE(status.children.last().properties.value("toggle-state").toInt(), 1);
+
+        // Only the top level, when asked for depth 0.
+        menu.GetLayout(0, 0, {}, layout);
+        QVERIFY(layout.children.isEmpty());
+
+        menu.Event(14, "clicked", QDBusVariant(0), 0);
+        QCOMPARE(backend.status(), QString("dnd"));
+        backend.setStatus("offline");
+
+        QSignalSpy quit(&menu, &TrayMenu::quitRequested);
+        QVERIFY(menu.EventGroup({DBusMenuEvent{4, "clicked", QDBusVariant(0), 0}}).isEmpty());
+        QCOMPARE(quit.count(), 1);
+        QCOMPARE(menu.EventGroup({DBusMenuEvent{99, "clicked", QDBusVariant(0), 0}}), QList<int>{99});
     }
 
 private:

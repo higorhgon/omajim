@@ -19,6 +19,14 @@ janela: seus contatos à esquerda e a conversa à direita.
   Hyprland e o idioma escolhido em Setup > Language, tudo ao vivo.
 - Certificados autoassinados: o Omajim mostra a impressão digital SHA-256 e
   só se autentica depois que você confia no certificado.
+- Fica na bandeja: fechar a janela só a esconde e o Omajim continua
+  recebendo mensagens (Ctrl+Q sai de vez). O item de bandeja usa o mesmo id
+  do Omajim em Python, então o widget `omajim.status` da barra do Omarchy
+  mostra o status e as mensagens novas, abre a janela com um clique e traz o
+  menu de status com o botão direito. Sem bandeja, fechar a janela fecha o
+  app.
+- Abrir o `omajim` de novo traz a janela que já está aberta, em vez de
+  iniciar uma segunda cópia.
 
 Esta é a reescrita do Omajim. O cliente anterior, em Python e GTK e baseado
 no Gajim, continua na branch `main`.

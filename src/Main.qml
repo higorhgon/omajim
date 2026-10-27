@@ -48,9 +48,21 @@ ApplicationWindow {
 
     onActiveChanged: backend.windowActive = active
 
+    // With the tray item showing, closing the window keeps Omajim connected
+    // in the background, like other chat apps; Ctrl+Q quits for real.
+    onClosing: close => {
+        if (tray.available && backend.signedIn) {
+            close.accepted = false
+            win.hide()
+        } else {
+            Qt.quit()
+        }
+    }
+
     Connections {
         target: backend
         function onRaiseRequested() {
+            win.show()
             win.raise()
             win.requestActivate()
         }

@@ -25,4 +25,7 @@ package() {
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 "$startdir/omajim.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/omajim.svg"
   install -Dm644 "$startdir/omajim.desktop" "$pkgdir/usr/share/applications/omajim.desktop"
+  # The tray item names these icons; the omajim.status bar widget reads the
+  # status from the name, and other trays draw them.
+  install -Dm644 -t "$pkgdir/usr/share/icons/hicolor/scalable/status" "$startdir"/icons/omajim-status-*-symbolic.svg
 }
