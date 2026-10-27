@@ -27,6 +27,9 @@ QVariant ContactModel::data(const QModelIndex &index, int role) const {
     case LastActivityRole: return contact.lastActivity.toLocalTime();
     case LastMessageRole: return contact.lastMessage;
     case LastOutgoingRole: return contact.lastOutgoing;
+    // The section a contact is listed under: "#rooms" for group chats, the
+    // first group, or empty for none (the window names those two).
+    case GroupRole: return contact.isRoom ? QStringLiteral("#rooms") : contact.groups.value(0);
     }
     return {};
 }
@@ -34,7 +37,8 @@ QVariant ContactModel::data(const QModelIndex &index, int role) const {
 QHash<int, QByteArray> ContactModel::roleNames() const {
     return {{JidRole, "jid"}, {NameRole, "name"}, {PresenceRole, "presence"},
             {StatusTextRole, "statusText"}, {UnreadRole, "unread"}, {AvatarRole, "avatar"}, {IsRoomRole, "isRoom"}, {AliasRole, "alias"}, {RosterNameRole, "rosterName"},
-            {LastActivityRole, "lastActivity"}, {LastMessageRole, "lastMessage"}, {LastOutgoingRole, "lastOutgoing"}};
+            {LastActivityRole, "lastActivity"}, {LastMessageRole, "lastMessage"}, {LastOutgoingRole, "lastOutgoing"},
+            {GroupRole, "group"}};
 }
 
 QString ContactModel::displayName(const QString &jid, const QString &name) {
@@ -156,6 +160,37 @@ QString ContactModel::nameOf(const QString &jid) const {
     return contact.alias.isEmpty() ? displayName(jid, contact.name) : contact.alias;
 }
 
+void ContactModel::setBrowsing(bool browsing) {
+    if (browsing == m_browsing)
+        return;
+    m_browsing = browsing;
+    emit browsingChanged();
+    rebuild();
+}
+
+void ContactModel::setGroups(const QString &jid, const QStringList &groups) {
+    auto it = m_contacts.find(jid);
+    if (it == m_contacts.end())
+        return;
+    QStringList sorted = groups;
+    sorted.sort(Qt::CaseInsensitive);
+    if (sorted == it->groups)
+        return;
+    it->groups = sorted;
+    rebuild();
+    emit contactChanged(jid);
+}
+
+QStringList ContactModel::allGroups() const {
+    QStringList groups;
+    for (const Contact &contact : m_contacts)
+        for (const QString &group : contact.groups)
+            if (!groups.contains(group))
+                groups << group;
+    groups.sort(Qt::CaseInsensitive);
+    return groups;
+}
+
 void ContactModel::setOpen(const QString &jid, bool open) {
     auto it = m_contacts.find(jid);
     if (it == m_contacts.end() || it->open == open)
@@ -236,13 +271,16 @@ void ContactModel::rebuild() {
     const QString needle = m_filter.trimmed();
     for (const Contact &contact : std::as_const(m_contacts)) {
         if (needle.isEmpty()) {
-            if (contact.open)
+            if (contact.open || m_browsing)
                 rows << contact.jid;
             continue;
         }
-        const int score = std::max({fuzzyScore(needle, nameOf(contact.jid)),
-                                    fuzzyScore(needle, displayName(contact.jid, contact.name)),
-                                    fuzzyScore(needle, contact.jid)});
+        int score = std::max({fuzzyScore(needle, nameOf(contact.jid)),
+                              fuzzyScore(needle, displayName(contact.jid, contact.name)),
+                              fuzzyScore(needle, contact.jid)});
+        // A group's name lists its people, a little after direct matches.
+        for (const QString &group : contact.groups)
+            score = std::max(score, fuzzyScore(needle, group) - 5);
         if (score >= 0) {
             rows << contact.jid;
             scores.insert(contact.jid, score);
@@ -252,7 +290,23 @@ void ContactModel::rebuild() {
     QCollator collator;
     collator.setCaseSensitivity(Qt::CaseInsensitive);
     collator.setNumericMode(true);
-    if (needle.isEmpty()) {
+    if (needle.isEmpty() && m_browsing) {
+        // The whole roster in sections: rooms, the groups in order, then
+        // people without one; within each, who's around first.
+        auto section = [](const Contact &c) {
+            return c.isRoom ? QStringLiteral("0") : c.groups.isEmpty() ? QStringLiteral("2") : "1" + c.groups.first();
+        };
+        std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
+            const Contact &ca = m_contacts[a], &cb = m_contacts[b];
+            const int bySection = collator.compare(section(ca), section(cb));
+            if (bySection != 0)
+                return bySection < 0;
+            const bool onlineA = ca.presence != "offline", onlineB = cb.presence != "offline";
+            if (onlineA != onlineB)
+                return onlineA;
+            return collator.compare(nameOf(ca.jid), nameOf(cb.jid)) < 0;
+        });
+    } else if (needle.isEmpty()) {
         // Open conversations: the latest activity first, as in Gajim.
         std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
             const Contact &ca = m_contacts[a], &cb = m_contacts[b];

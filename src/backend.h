@@ -64,6 +64,9 @@ class Backend : public QObject {
     Q_PROPERTY(bool serverUploadAvailable READ serverUploadAvailable NOTIFY uploadSupportChanged)
     Q_PROPERTY(bool editing READ editing NOTIFY editingChanged)
     Q_PROPERTY(QString replyingTo READ replyingTo NOTIFY replyChanged)
+    // The sidebar's mode, remembered: every contact by group, or only the
+    // open conversations.
+    Q_PROPERTY(bool showAllContacts READ showAllContacts WRITE setShowAllContacts NOTIFY showAllContactsChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -97,6 +100,8 @@ public:
     bool serverUploadAvailable() const;
     bool editing() const { return m_editingId != 0; }
     QString replyingTo() const;
+    bool showAllContacts() const { return m_contacts.browsing(); }
+    void setShowAllContacts(bool show);
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
@@ -177,6 +182,9 @@ public:
     // A name for a contact on this computer only; empty goes back to the
     // roster's name.
     Q_INVOKABLE void setAlias(const QString &jid, const QString &alias);
+    // Moves a contact to a roster group on the server; empty takes it out
+    // of every group.
+    Q_INVOKABLE void setContactGroup(const QString &jid, const QString &group);
     Q_INVOKABLE void acceptRequest(const QString &jid);
     // Joins a group chat and keeps it as a bookmark on the server, so it's
     // there on the next sign-in too.
@@ -204,6 +212,7 @@ signals:
     void uploadSupportChanged();
     void editingChanged();
     void replyChanged();
+    void showAllContactsChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
 

@@ -18,6 +18,8 @@ struct Contact {
     int unread = 0;
     // A group chat (XEP-0045) rather than a person.
     bool isRoom = false;
+    // The roster's groups for a person.
+    QStringList groups;
     // In the list of open conversations, and its newest line for the
     // preview under the name.
     bool open = false;
@@ -34,10 +36,13 @@ class ContactModel : public QAbstractListModel {
     Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
     Q_PROPERTY(int totalUnread READ totalUnread NOTIFY totalUnreadChanged)
+    // Browsing (the search field focused, nothing typed): every contact and
+    // room, in sections by group, as Gajim's roster.
+    Q_PROPERTY(bool browsing READ browsing WRITE setBrowsing NOTIFY browsingChanged)
 
 public:
     enum Role { JidRole = Qt::UserRole + 1, NameRole, PresenceRole, StatusTextRole, UnreadRole, AvatarRole, IsRoomRole, AliasRole, RosterNameRole,
-                LastActivityRole, LastMessageRole, LastOutgoingRole };
+                LastActivityRole, LastMessageRole, LastOutgoingRole, GroupRole };
 
     explicit ContactModel(QObject *parent = nullptr);
 
@@ -47,6 +52,8 @@ public:
 
     QString filter() const { return m_filter; }
     void setFilter(const QString &filter);
+    bool browsing() const { return m_browsing; }
+    void setBrowsing(bool browsing);
     int totalUnread() const;
 
     void upsert(const QString &jid, const QString &name);
@@ -61,6 +68,9 @@ public:
     void setOpen(const QString &jid, bool open);
     // Known for searching, without touching a name already there.
     void ensure(const QString &jid);
+    void setGroups(const QString &jid, const QStringList &groups);
+    // Every group in the roster, sorted, to offer when moving a contact.
+    Q_INVOKABLE QStringList allGroups() const;
     void setAlias(const QString &jid, const QString &alias);
     // How a contact is called everywhere: the alias, the roster name, or
     // the address's user part.
@@ -81,6 +91,7 @@ public:
 
 signals:
     void filterChanged();
+    void browsingChanged();
     void countChanged();
     void totalUnreadChanged();
     void contactChanged(const QString &jid);
@@ -92,4 +103,5 @@ private:
     QHash<QString, Contact> m_contacts;
     QStringList m_rows;
     QString m_filter;
+    bool m_browsing = false;
 };

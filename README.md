@@ -17,6 +17,12 @@ janela: seus contatos à esquerda e a conversa à direita.
 - Apelido local (clique direito → "Definir apelido…"): um nome só neste
   computador, que aparece em todo lugar no lugar do nome do servidor, sem
   alterá-lo. Vazio volta ao nome do servidor.
+- Abaixo da busca, "Conversas | Contatos" escolhe o que a barra lateral
+  mostra (Ctrl+Shift+K alterna, e a escolha fica salva): só as conversas
+  abertas, para andar entre elas com Alt+↑/↓, ou todos os contatos por
+  grupo, como no Gajim (salas, os grupos e "Sem grupo"). A busca procura em
+  tudo e também acha pelo nome do grupo; o clique direito move um contato
+  de grupo, no servidor.
 - A lista de contatos fica guardada e aparece na hora ao abrir, antes de
   conectar; o servidor só manda o que mudou (roster versioning).
 - Importa o histórico do Gajim (e do Omajim em Python) pelo menu ⋮: lê uma
@@ -104,6 +110,7 @@ no Gajim, continua na branch `main`.
 | Tecla | Ação |
 | --- | --- |
 | Ctrl+K ou Ctrl+T | Buscar contatos (Enter abre a conversa) |
+| Ctrl+Shift+K | Alternar entre conversas e todos os contatos |
 | Alt+↑ / Alt+↓ (ou Ctrl+Tab) | Conversa anterior ou seguinte |
 | Enter | Enviar a mensagem |
 | Shift+Enter | Nova linha na mensagem |

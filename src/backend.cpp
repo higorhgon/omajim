@@ -112,6 +112,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
         m_client->setLogger(logger);
     }
     m_jid = m_settings.value("account/jid").toString();
+    m_contacts.setBrowsing(m_settings.value("ui/showAllContacts", false).toBool());
     m_status = m_settings.value("account/status", "online").toString();
 
     // Contacts' clients show who they talk to: Omajim, not QXmpp's defaults.
@@ -672,6 +673,7 @@ void Backend::openHistory() {
     for (const RosterRow &row : cached) {
         m_knownContacts.insert(row.jid);
         m_contacts.upsert(row.jid, row.name);
+        m_contacts.setGroups(row.jid, row.groups);
         m_contacts.setAvatar(row.jid, m_avatars->pathFor(row.jid));
     }
     trace(QStringLiteral("roster: %1 contacts from the cache").arg(cached.size()));
@@ -714,7 +716,9 @@ void Backend::syncRoster() {
 
 void Backend::showContact(const QString &jid) {
     m_knownContacts.insert(jid);
-    m_contacts.upsert(jid, m_roster->getRosterEntry(jid).name());
+    const auto entry = m_roster->getRosterEntry(jid);
+    m_contacts.upsert(jid, entry.name());
+    m_contacts.setGroups(jid, entry.groups().values());
     if (m_avatars)
         m_contacts.setAvatar(jid, m_avatars->pathFor(jid));
 }
@@ -2211,4 +2215,28 @@ QString Backend::savePastedImage() {
         return {};
     }
     return path;
+}
+
+void Backend::setContactGroup(const QString &jid, const QString &group) {
+    const QString bare = normalizedJid(jid);
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so the contact can't be moved."));
+        return;
+    }
+    const QString name = group.trimmed();
+    const QSet<QString> groups = name.isEmpty() ? QSet<QString>() : QSet<QString>{name};
+    m_roster->updateRosterGroups(bare, groups).then(this, [this, bare](QXmppRosterManager::Result &&result) {
+        if (auto *error = std::get_if<QXmppError>(&result))
+            setError(tr("%1 couldn't be moved: %2").arg(m_contacts.nameOf(bare), error->description));
+    });
+    // The roster push from the server confirms it; show it right away.
+    m_contacts.setGroups(bare, QStringList(groups.begin(), groups.end()));
+}
+
+void Backend::setShowAllContacts(bool show) {
+    if (show == m_contacts.browsing())
+        return;
+    m_contacts.setBrowsing(show);
+    m_settings.setValue("ui/showAllContacts", show);
+    emit showAllContactsChanged();
 }

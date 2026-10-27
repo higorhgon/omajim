@@ -9,10 +9,15 @@ Rectangle {
 
     readonly property var ui: theme.colors
     signal aliasRequested(string jid, string alias, string rosterName)
+    signal groupRequested(string jid, string name, string group)
     // A search lists every contact and room; otherwise only the open
     // conversations show.
     readonly property bool searching: search.text.trim() !== ""
     color: ui.panel
+
+    function sectionName(group) {
+        return group === "#rooms" ? qsTr("Group chats") : group === "" ? qsTr("No group") : group
+    }
 
     function focusSearch() {
         search.forceActiveFocus()
@@ -118,6 +123,52 @@ Rectangle {
             }
         }
 
+        // Conversations | Contacts: what the list shows while nothing is
+        // searched. Arrows and Alt+Up/Down move within it.
+        Rectangle {
+            id: modeSwitch
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            implicitHeight: 32
+            radius: Math.min(4, theme.radius)
+            color: pane.ui.background
+            border.color: pane.ui.border
+
+            Row {
+                anchors.fill: parent
+                anchors.margins: 3
+                Repeater {
+                    model: [{label: qsTr("Conversations"), all: false}, {label: qsTr("Contacts"), all: true}]
+                    delegate: Rectangle {
+                        id: segment
+                        required property var modelData
+                        readonly property bool active: backend.showAllContacts === modelData.all
+                        width: (modeSwitch.width - 6) / 2
+                        height: parent.height
+                        radius: Math.min(3, theme.radius)
+                        color: active ? pane.ui.selection : segmentHover.hovered ? pane.ui.hover : "transparent"
+                        Label {
+                            anchors.centerIn: parent
+                            text: segment.modelData.label
+                            font.pixelSize: 13
+                            font.bold: segment.active
+                            color: segment.active ? pane.ui.selectionText : pane.ui.muted
+                        }
+                        HoverHandler { id: segmentHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: backend.showAllContacts = segment.modelData.all }
+                        Accessible.role: Accessible.RadioButton
+                        Accessible.name: segment.modelData.label
+                        Accessible.checked: segment.active
+                    }
+                }
+            }
+            ToolTip.visible: switchHover.hovered
+            ToolTip.delay: 600
+            ToolTip.text: qsTr("Ctrl+Shift+K switches")
+            HoverHandler { id: switchHover }
+        }
+
         Repeater {
             model: backend.subscriptionRequests
             delegate: RequestCard {
@@ -154,6 +205,20 @@ Rectangle {
 
             Keys.onReturnPressed: backend.openChat(backend.contacts.jidAt(currentIndex))
 
+            section.property: backend.contacts.browsing && !pane.searching ? "group" : ""
+            section.criteria: ViewSection.FullString
+            section.delegate: Label {
+                required property string section
+                width: ListView.view.width
+                leftPadding: 20
+                topPadding: 14
+                bottomPadding: 6
+                text: pane.sectionName(section).toUpperCase()
+                font.pixelSize: 11
+                font.letterSpacing: 1
+                color: pane.ui.accent
+            }
+
             delegate: ItemDelegate {
                 id: row
                 required property int index
@@ -169,6 +234,7 @@ Rectangle {
                 required property bool lastOutgoing
                 required property string alias
                 required property string rosterName
+                required property string group
 
                 readonly property bool selected: jid === backend.currentChat
                 readonly property bool focusedRow: list.activeFocus && ListView.isCurrentItem
@@ -176,6 +242,8 @@ Rectangle {
 
                 width: ListView.view.width
                 height: 56
+                // Taking focus would end browsing before the click opens the chat.
+                focusPolicy: Qt.NoFocus
                 leftPadding: 20
                 rightPadding: 16
                 onClicked: {
@@ -197,6 +265,12 @@ Rectangle {
                     AppMenuItem {
                         text: qsTr("Set a nickname…")
                         onTriggered: pane.aliasRequested(row.jid, row.alias, row.rosterName)
+                    }
+                    AppMenuItem {
+                        visible: !row.isRoom
+                        height: visible ? implicitHeight : 0
+                        text: qsTr("Move to group…")
+                        onTriggered: pane.groupRequested(row.jid, row.name, row.group)
                     }
                     AppMenuItem {
                         visible: !pane.searching
@@ -260,7 +334,8 @@ Rectangle {
                             Layout.fillWidth: true
                             text: !pane.searching && row.lastMessage !== ""
                                   ? (row.lastOutgoing ? qsTr("You: %1").arg(row.lastMessage) : row.lastMessage)
-                                  : row.statusText !== "" ? row.statusText : row.jid
+                                  : [pane.searching && row.group !== "" && row.group !== "#rooms" ? row.group : "",
+                                     row.statusText !== "" ? row.statusText : row.jid].filter(part => part !== "").join(" · ")
                             color: row.selected ? row.ink : pane.ui.muted
                             opacity: row.selected ? 0.75 : 1
                             font.pixelSize: 12
@@ -294,6 +369,7 @@ Rectangle {
                 color: pane.ui.muted
                 text: /^[^@\s]+@[^@\s]+$/.test(search.text.trim()) ? qsTr("Enter starts a conversation with %1.").arg(search.text.trim())
                     : search.text !== "" ? qsTr("No contact matches “%1”.").arg(search.text)
+                    : backend.showAllContacts ? qsTr("No contacts yet. Ctrl+N adds one.")
                     : qsTr("No open conversations. Search for a contact to start one (Ctrl+K).")
             }
         }

@@ -84,6 +84,7 @@ ApplicationWindow {
     Shortcut { sequences: ["?", "Shift+?"]; enabled: !win.typing; onActivated: shortcutsOverlay.open() }
     Shortcut { sequences: ["F1", "Ctrl+/"]; context: Qt.ApplicationShortcut; onActivated: shortcutsOverlay.visible ? shortcutsOverlay.close() : shortcutsOverlay.open() }
     Shortcut { sequence: "Ctrl+Q"; context: Qt.ApplicationShortcut; onActivated: Qt.quit() }
+    Shortcut { sequence: "Ctrl+Shift+K"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: backend.showAllContacts = !backend.showAllContacts }
     Shortcut { sequences: ["Ctrl+K", "Ctrl+T"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.focusSearch() }
     Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: addContactDialog.open() }
     Shortcut { sequence: "Ctrl+J"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: joinRoomDialog.open() }
@@ -298,6 +299,12 @@ ApplicationWindow {
 
                 ContactPane {
                     id: contactPane
+                    onGroupRequested: (jid, name, group) => {
+                        groupDialog.jid = jid
+                        groupDialog.name = name
+                        groupField.text = group
+                        groupDialog.open()
+                    }
                     onAliasRequested: (jid, alias, rosterName) => {
                         aliasDialog.jid = jid
                         aliasDialog.rosterName = rosterName
@@ -420,6 +427,43 @@ ApplicationWindow {
                 color: win.ui.muted
                 font.pixelSize: 13
                 wrapMode: Text.Wrap
+            }
+        }
+
+        // A contact's roster group, kept on the server like in Gajim.
+        AppDialog {
+            id: groupDialog
+            property string jid
+            property string name
+            title: qsTr("Move %1 to a group").arg(name)
+            subtitle: qsTr("The group is kept on your server, so your other devices see it too.")
+            acceptText: qsTr("Move")
+            onOpened: {
+                groupField.forceActiveFocus()
+                groupField.selectAll()
+            }
+            onAccepted: backend.setContactGroup(jid, groupField.text)
+
+            AppTextField {
+                id: groupField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Group name (empty for none)")
+                onAccepted: groupDialog.accept()
+            }
+            // The groups there are, one click away.
+            Flow {
+                Layout.fillWidth: true
+                spacing: 6
+                Repeater {
+                    model: groupDialog.visible ? backend.contacts.allGroups() : []
+                    delegate: AppButton {
+                        required property string modelData
+                        implicitHeight: 30
+                        flat: groupField.text !== modelData
+                        text: modelData
+                        onClicked: groupField.text = modelData
+                    }
+                }
             }
         }
 

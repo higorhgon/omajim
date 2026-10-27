@@ -1220,6 +1220,49 @@ private slots:
         QCOMPARE(again.contacts()->rowCount(), 1);
     }
 
+    void browsingListsTheRosterByGroup() {
+        ContactModel model;
+        model.upsert("zoe@example.org", "Zoe");
+        model.upsert("adam@example.org", "Adam");
+        model.upsert("bea@example.org", "Bea");
+        model.upsertRoom("team@rooms.example.org", "Team");
+        model.setGroups("zoe@example.org", {"Work"});
+        model.setGroups("bea@example.org", {"Family"});
+        model.setActivity("adam@example.org", QDateTime::currentDateTimeUtc(), "hi", false);
+
+        // Not browsing: only the open conversation.
+        QCOMPARE(model.rowCount(), 1);
+
+        // Browsing: rooms, then the groups in order, then people without one.
+        model.setBrowsing(true);
+        QStringList order;
+        for (int row = 0; row < model.rowCount(); ++row)
+            order << model.jidAt(row);
+        QCOMPARE(order, (QStringList{"team@rooms.example.org", "bea@example.org", "zoe@example.org", "adam@example.org"}));
+        QCOMPARE(model.data(model.index(0), ContactModel::GroupRole).toString(), QString("#rooms"));
+        QCOMPARE(model.data(model.index(3), ContactModel::GroupRole).toString(), QString());
+
+        // A group's name finds its people.
+        model.setFilter("work");
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.jidAt(0), QString("zoe@example.org"));
+        QCOMPARE(model.allGroups(), (QStringList{"Family", "Work"}));
+    }
+
+    void theSidebarModeIsRemembered() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        {
+            Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+            QVERIFY(!backend.showAllContacts());
+            backend.setShowAllContacts(true);
+            QVERIFY(backend.contacts()->browsing());
+        }
+        Backend again(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        QVERIFY(again.showAllContacts());
+        QVERIFY(again.contacts()->browsing());
+    }
+
     void contactsCountUnread() {
         ContactModel model;
         model.upsert("bob@example.org", "Bob");
