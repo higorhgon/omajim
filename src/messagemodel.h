@@ -25,6 +25,7 @@ public:
         DeliveredRole,
         SenderRole,
         UrlRole,
+        EditedRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);
@@ -39,6 +40,7 @@ public:
     void setProgress(qint64 id, double progress);
     void markDelivered(const QString &xmppId);
     void setLink(qint64 id, const QString &url, const QString &xmppId);
+    void applyCorrection(qint64 id, const QString &body);
     // What the model knows of a line, for lines on screen; empty otherwise.
     QString url(qint64 id) const;
     QString filePath(qint64 id) const;

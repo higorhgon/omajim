@@ -202,6 +202,24 @@ Item {
                         color: win.textColor
                         // Enter sends; Shift+Enter starts a new line.
                         onTextChanged: backend.setComposing(text.length > 0)
+                        // Up in an empty field brings back our last line to correct.
+                        Keys.onUpPressed: event => {
+                            const last = text === "" ? backend.startEditingLast() : ""
+                            if (last !== "") {
+                                text = last
+                                cursorPosition = length
+                            } else {
+                                event.accepted = false
+                            }
+                        }
+                        Keys.onEscapePressed: event => {
+                            if (backend.editing) {
+                                backend.cancelEditing()
+                                clear()
+                            } else {
+                                event.accepted = false
+                            }
+                        }
                         Keys.onReturnPressed: event => {
                             if (event.modifiers & Qt.ShiftModifier)
                                 event.accepted = false
@@ -214,7 +232,8 @@ Item {
                             x: composer.leftPadding
                             y: composer.topPadding
                             visible: composer.text === "" && !composer.preeditText
-                            text: backend.connectionState === "online"
+                            text: backend.editing ? qsTr("Correcting your last message (Esc cancels)")
+                                  : backend.connectionState === "online"
                                   ? qsTr("Message %1").arg(backend.currentChatName)
                                   : qsTr("You're offline")
                             color: win.mutedColor

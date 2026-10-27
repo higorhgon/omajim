@@ -505,6 +505,52 @@ private slots:
         QCOMPARE(entries.at(1).state, QString("failed"));
     }
 
+    void correctionsReplaceTheirLine() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+
+        auto receive = [&](const QString &from, const QString &id, const QString &body, const QString &replaces = {}) {
+            QXmppMessage message(from, "alice@example.org", body);
+            message.setType(QXmppMessage::Chat);
+            message.setId(id);
+            message.setReplaceId(replaces);
+            emit backend.client()->messageReceived(message);
+        };
+        receive("bob@example.org/phone", "m1", "see you at 10");
+        receive("bob@example.org/phone", "m2", "see you at 11", "m1");
+        // A second correction may point at the first one.
+        receive("bob@example.org/phone", "m3", "see you at 11:30", "m2");
+
+        auto *messages = backend.messages();
+        QCOMPARE(messages->rowCount(), 1);
+        QCOMPARE(messages->data(messages->index(0), MessageModel::BodyRole).toString(), QString("see you at 11:30"));
+        QVERIFY(messages->data(messages->index(0), MessageModel::EditedRole).toBool());
+
+        // Nobody can rewrite someone else's line: our carbon "correcting"
+        // Bob's message stays a line of its own.
+        QXmppMessage forged("alice@example.org/laptop", "bob@example.org", "hijacked");
+        forged.setType(QXmppMessage::Chat);
+        forged.setId("m4");
+        forged.setReplaceId("m1");
+        emit backend.client()->messageReceived(forged);
+        QCOMPARE(messages->data(messages->index(0), MessageModel::BodyRole).toString(), QString("see you at 11:30"));
+        QCOMPARE(messages->rowCount(), 2);
+
+        // That carbon is our last line now, so Up offers it for correcting.
+        QCOMPARE(backend.startEditingLast(), QString("hijacked"));
+        QVERIFY(backend.editing());
+        backend.cancelEditing();
+        QVERIFY(!backend.editing());
+
+        // Bob's line last again: nothing of ours to correct.
+        receive("bob@example.org/phone", "m5", "ok");
+        QVERIFY(backend.startEditingLast().isEmpty());
+    }
+
     void historyMarksInterruptedTransfersAsFailed() {
         QTemporaryDir dir;
         History history;

@@ -23,6 +23,7 @@ Item {
     required property bool delivered
     required property string sender
     required property string url
+    required property bool edited
 
     width: ListView.view.width
     height: bubble.height
@@ -181,6 +182,14 @@ Item {
                     }
                     color: win.mutedColor
                     font.pixelSize: 11
+                }
+
+                Label {
+                    visible: line.edited
+                    text: qsTr("(edited)")
+                    color: win.mutedColor
+                    font.pixelSize: 11
+                    font.italic: true
                 }
 
                 // The other side's client confirmed it arrived (XEP-0184).

@@ -27,6 +27,10 @@ struct HistoryEntry {
     QString sender;
     // A file shared through the server (XEP-0363/0066): where it can be fetched.
     QString url;
+    // Corrected after it was sent (XEP-0308), and the id of the newest
+    // correction, which later corrections may point to instead.
+    bool edited = false;
+    QString correctionId;
 };
 
 // Conversations kept in SQLite, one database per account.
@@ -46,6 +50,12 @@ public:
     bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {}) const;
     void updateFile(qint64 id, const QString &state, const QString &filePath);
     bool markDelivered(const QString &peer, const QString &xmppId);
+    // The line a correction points to, by its own id or its last
+    // correction's; id 0 when there's none.
+    HistoryEntry findCorrectable(const QString &peer, const QString &xmppId) const;
+    void applyCorrection(qint64 id, const QString &body, const QString &correctionId);
+    // Our newest text line in a conversation, to correct; id 0 when none.
+    HistoryEntry lastOwnText(const QString &peer) const;
     // An uploaded file gets its link, and the id of the message carrying
     // it, once the upload is done.
     void setLink(qint64 id, const QString &url, const QString &xmppId);

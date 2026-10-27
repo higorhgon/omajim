@@ -726,6 +726,8 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
         if (stanzaId.by.isEmpty() || QXmppUtils::jidToBareJid(stanzaId.by).toLower() == m_jid)
             entry.archiveId = stanzaId.id;
     entry.stamp = message.stamp().isValid() ? message.stamp().toUTC() : QDateTime::currentDateTimeUtc();
+    if (!message.replaceId().isEmpty() && applyCorrection(entry, message.replaceId()))
+        return true;
     if (m_history.contains(entry.peer, entry.xmppId, entry.archiveId))
         return false;
     return addEntry(entry, delivery) > 0;
@@ -797,6 +799,8 @@ void Backend::openChat(const QString &jid) {
         sendChatState(QXmppMessage::Active);
     m_pauseTimer->stop();
     m_sentState = 0;
+    if (bare != m_currentChat)
+        cancelEditing();
     m_currentChat = bare;
     m_messages.reset(m_history.recent(bare, HistoryLimit));
     if (m_windowActive)
@@ -825,6 +829,8 @@ bool Backend::sendMessage(const QString &text) {
         setError(tr("You're offline, so the message wasn't sent."));
         return false;
     }
+    if (m_editingId != 0)
+        return sendCorrection(body);
     if (m_rooms.contains(m_currentChat)) {
         auto room = m_muc->findRoom(m_currentChat);
         if (!room || !room->joined().value()) {
@@ -1371,6 +1377,8 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
         if (QXmppUtils::jidToBareJid(stanzaId.by).toLower() == roomJid)
             entry.archiveId = stanzaId.id;
     entry.stamp = message.stamp().isValid() ? message.stamp().toUTC() : QDateTime::currentDateTimeUtc();
+    if (!message.replaceId().isEmpty() && applyCorrection(entry, message.replaceId()))
+        return;
     if (m_history.contains(roomJid, entry.xmppId, entry.archiveId))
         return;
     addEntry(entry, delivery);
@@ -1455,4 +1463,77 @@ void Backend::declineInvitation(int index) {
         decline.setTo(invitation.value("from").toString());
         m_muc->declineInvitation(invitation.value("room").toString(), decline);
     }
+}
+
+bool Backend::applyCorrection(const HistoryEntry &correction, const QString &replaceId) {
+    if (correction.kind != "text")
+        return false;
+    const HistoryEntry original = m_history.findCorrectable(correction.peer, replaceId);
+    // Only whoever wrote a line may change it.
+    if (original.id == 0 || original.outgoing != correction.outgoing || original.sender != correction.sender)
+        return false;
+    m_history.applyCorrection(original.id, correction.body, correction.xmppId);
+    if (original.peer == m_currentChat)
+        m_messages.applyCorrection(original.id, correction.body);
+    return true;
+}
+
+QString Backend::startEditingLast() {
+    const HistoryEntry last = m_history.lastOwnText(m_currentChat);
+    if (last.id == 0)
+        return {};
+    m_editingId = last.id;
+    emit editingChanged();
+    return last.body;
+}
+
+void Backend::cancelEditing() {
+    if (m_editingId == 0)
+        return;
+    m_editingId = 0;
+    emit editingChanged();
+}
+
+bool Backend::sendCorrection(const QString &body) {
+    const HistoryEntry original = m_history.lastOwnText(m_currentChat);
+    const qint64 editing = m_editingId;
+    cancelEditing();
+    // Something else was said meanwhile; the edit no longer fits the last line.
+    if (original.id != editing) {
+        setError(tr("The message changed meanwhile, so the correction wasn't sent."));
+        return false;
+    }
+    if (body == original.body)
+        return true;
+
+    QXmppMessage message({}, m_currentChat, body);
+    const QString id = QXmppUtils::generateStanzaUuid();
+    message.setId(id);
+    // Always the first line's id, as XEP-0308 asks.
+    message.setReplaceId(original.xmppId);
+    const QString name = currentChatName();
+    auto report = [this, name](const QString &error) {
+        setError(tr("The correction to %1 wasn't sent: %2").arg(name, error));
+    };
+    if (m_rooms.contains(m_currentChat)) {
+        auto room = m_muc->findRoom(m_currentChat);
+        if (!room || !room->joined().value()) {
+            setError(tr("You aren't in %1 right now, so the message wasn't sent.").arg(name));
+            return false;
+        }
+        message.setOriginId(id);
+        room->sendMessage(message).then(this, [report](QXmpp::Result<> &&result) {
+            if (auto *error = std::get_if<QXmppError>(&result))
+                report(error->description);
+        });
+    } else {
+        message.setType(QXmppMessage::Chat);
+        m_client->send(std::move(message)).then(this, [report](QXmpp::SendResult &&result) {
+            if (auto *error = std::get_if<QXmppError>(&result))
+                report(error->description);
+        });
+    }
+    m_history.applyCorrection(original.id, body, id);
+    m_messages.applyCorrection(original.id, body);
+    return true;
 }

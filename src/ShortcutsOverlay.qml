@@ -17,6 +17,7 @@ Rectangle {
         ["Alt+↑ / Alt+↓", qsTr("Previous or next conversation")],
         ["Enter", qsTr("Send the message")],
         ["Shift+Enter", qsTr("New line in the message")],
+        ["↑", qsTr("Correct your last message")],
         ["Ctrl+O", qsTr("Send a file through the server")],
         ["Ctrl+Shift+O", qsTr("Send a file directly")],
         ["Ctrl+N", qsTr("Add a contact")],

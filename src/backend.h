@@ -61,6 +61,7 @@ class Backend : public QObject {
     Q_PROPERTY(QStringList currentRoomParticipants READ currentRoomParticipants NOTIFY participantsChanged)
     Q_PROPERTY(QVariantList invitations READ invitations NOTIFY invitationsChanged)
     Q_PROPERTY(bool serverUploadAvailable READ serverUploadAvailable NOTIFY uploadSupportChanged)
+    Q_PROPERTY(bool editing READ editing NOTIFY editingChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -92,6 +93,7 @@ public:
     QStringList currentRoomParticipants() const;
     QVariantList invitations() const { return m_invitations; }
     bool serverUploadAvailable() const;
+    bool editing() const { return m_editingId != 0; }
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
@@ -109,6 +111,10 @@ public:
     Q_INVOKABLE void openChat(const QString &jid);
     Q_INVOKABLE void closeChat();
     Q_INVOKABLE bool sendMessage(const QString &text);
+    // Up in an empty message field: our last line comes back to be
+    // corrected (XEP-0308), and the next send replaces it.
+    Q_INVOKABLE QString startEditingLast();
+    Q_INVOKABLE void cancelEditing();
     // The message field has text (or was just cleared); the contact sees
     // "typing" while it does.
     Q_INVOKABLE void setComposing(bool composing);
@@ -151,6 +157,7 @@ signals:
     void participantsChanged();
     void invitationsChanged();
     void uploadSupportChanged();
+    void editingChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
 
@@ -206,6 +213,9 @@ private:
     // Sends the link of an uploaded file and returns the message's id.
     QString sendFileLink(const QString &peer, const QUrl &url);
     void applyOutOfBand(HistoryEntry &entry, const QXmppMessage &message) const;
+    // Applies a correction to the line it replaces, if its author wrote it.
+    bool applyCorrection(const HistoryEntry &correction, const QString &replaceId);
+    bool sendCorrection(const QString &body);
     bool trustsCertificateOf(const QList<QSslError> &errors) const;
     void finishTransfer(qint64 id);
     QList<QSslCertificate> trustedCertificates() const;
@@ -236,6 +246,7 @@ private:
     QHash<qint64, std::shared_ptr<QXmppHttpUpload>> m_uploadJobs;
     QHash<qint64, QNetworkReply *> m_downloads;
     QString m_pickMethod = QStringLiteral("server");
+    qint64 m_editingId = 0;
     bool m_syncing = false;
     int m_archivedUnread = 0;
     bool m_reloadCurrentChat = false;

@@ -7,6 +7,32 @@
 #include <QSqlQuery>
 #include <QUuid>
 
+// Every column a HistoryEntry carries, in the order read() takes them.
+static const QString Columns = QStringLiteral(
+    "id, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id, archive_id, delivered, sender, url,"
+    " edited, correction_id");
+
+static HistoryEntry read(const QSqlQuery &query, const QString &peer) {
+    HistoryEntry entry;
+    entry.id = query.value(0).toLongLong();
+    entry.peer = peer;
+    entry.outgoing = query.value(1).toInt() != 0;
+    entry.kind = query.value(2).toString();
+    entry.body = query.value(3).toString();
+    entry.stamp = QDateTime::fromMSecsSinceEpoch(query.value(4).toLongLong(), QTimeZone::UTC);
+    entry.filePath = query.value(5).toString();
+    entry.fileSize = query.value(6).toLongLong();
+    entry.state = query.value(7).toString();
+    entry.xmppId = query.value(8).toString();
+    entry.archiveId = query.value(9).toString();
+    entry.delivered = query.value(10).toInt() != 0;
+    entry.sender = query.value(11).toString();
+    entry.url = query.value(12).toString();
+    entry.edited = query.value(13).toInt() != 0;
+    entry.correctionId = query.value(14).toString();
+    return entry;
+}
+
 History::History() : m_connection("history-" + QUuid::createUuid().toString(QUuid::WithoutBraces)) {}
 
 History::~History() {
@@ -43,7 +69,9 @@ bool History::open(const QString &path) {
                                " archive_id TEXT,"
                                " delivered INTEGER NOT NULL DEFAULT 0,"
                                " sender TEXT,"
-                               " url TEXT)") &&
+                               " url TEXT,"
+                               " edited INTEGER NOT NULL DEFAULT 0,"
+                               " correction_id TEXT)") &&
                     query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)");
     if (!ok) {
         m_error = query.lastError().text();
@@ -59,7 +87,9 @@ bool History::open(const QString &path) {
     const QList<std::pair<QString, QString>> added{{"archive_id", "TEXT"},
                                                    {"delivered", "INTEGER NOT NULL DEFAULT 0"},
                                                    {"sender", "TEXT"},
-                                                   {"url", "TEXT"}};
+                                                   {"url", "TEXT"},
+                                                   {"edited", "INTEGER NOT NULL DEFAULT 0"},
+                                                   {"correction_id", "TEXT"}};
     for (const auto &[name, type] : added) {
         if (!columns.contains(name) && !query.exec(QStringLiteral("ALTER TABLE messages ADD COLUMN %1 %2").arg(name, type))) {
             m_error = query.lastError().text();
@@ -111,28 +141,14 @@ QList<HistoryEntry> History::recent(const QString &peer, int limit) const {
         return entries;
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
-    query.prepare("SELECT id, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id, archive_id,"
-                  " delivered, sender, url FROM messages WHERE peer = ? ORDER BY stamp DESC, id DESC LIMIT ?");
+    query.prepare(QStringLiteral("SELECT %1 FROM messages WHERE peer = ? ORDER BY stamp DESC, id DESC LIMIT ?")
+                      .arg(Columns));
     query.addBindValue(peer);
     query.addBindValue(limit);
     if (!query.exec())
         return entries;
     while (query.next()) {
-        HistoryEntry entry;
-        entry.id = query.value(0).toLongLong();
-        entry.peer = peer;
-        entry.outgoing = query.value(1).toInt() != 0;
-        entry.kind = query.value(2).toString();
-        entry.body = query.value(3).toString();
-        entry.stamp = QDateTime::fromMSecsSinceEpoch(query.value(4).toLongLong(), QTimeZone::UTC);
-        entry.filePath = query.value(5).toString();
-        entry.fileSize = query.value(6).toLongLong();
-        entry.state = query.value(7).toString();
-        entry.xmppId = query.value(8).toString();
-        entry.archiveId = query.value(9).toString();
-        entry.delivered = query.value(10).toInt() != 0;
-        entry.sender = query.value(11).toString();
-        entry.url = query.value(12).toString();
+        HistoryEntry entry = read(query, peer);
         entries.prepend(entry);
     }
     return entries;
@@ -180,6 +196,43 @@ void History::setLink(qint64 id, const QString &url, const QString &xmppId) {
     query.addBindValue(xmppId);
     query.addBindValue(id);
     query.exec();
+}
+
+HistoryEntry History::findCorrectable(const QString &peer, const QString &xmppId) const {
+    if (!isOpen() || xmppId.isEmpty())
+        return {};
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare(QStringLiteral("SELECT %1 FROM messages WHERE peer = ? AND kind = 'text'"
+                                 " AND (xmpp_id = ? OR correction_id = ?) ORDER BY stamp DESC LIMIT 1").arg(Columns));
+    query.addBindValue(peer);
+    query.addBindValue(xmppId);
+    query.addBindValue(xmppId);
+    return query.exec() && query.next() ? read(query, peer) : HistoryEntry{};
+}
+
+void History::applyCorrection(qint64 id, const QString &body, const QString &correctionId) {
+    if (!isOpen())
+        return;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("UPDATE messages SET body = ?, edited = 1, correction_id = ? WHERE id = ?");
+    query.addBindValue(body);
+    query.addBindValue(correctionId);
+    query.addBindValue(id);
+    query.exec();
+}
+
+HistoryEntry History::lastOwnText(const QString &peer) const {
+    if (!isOpen())
+        return {};
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare(QStringLiteral("SELECT %1 FROM messages WHERE peer = ? ORDER BY stamp DESC, id DESC LIMIT 1").arg(Columns));
+    query.addBindValue(peer);
+    if (!query.exec() || !query.next())
+        return {};
+    // Only the very last line of the conversation, and only if it's ours:
+    // correcting something further up would rewrite the past.
+    HistoryEntry entry = read(query, peer);
+    return entry.outgoing && entry.kind == "text" && !entry.xmppId.isEmpty() ? entry : HistoryEntry{};
 }
 
 QDateTime History::lastStamp(const QString &peer) const {

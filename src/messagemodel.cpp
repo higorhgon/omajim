@@ -25,6 +25,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case DeliveredRole: return entry.delivered;
     case SenderRole: return entry.sender;
     case UrlRole: return entry.url;
+    case EditedRole: return entry.edited;
     }
     return {};
 }
@@ -34,7 +35,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {StampRole, "stamp"}, {KindRole, "kind"}, {FilePathRole, "filePath"},
             {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
-            {UrlRole, "url"}};
+            {UrlRole, "url"}, {EditedRole, "edited"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -86,6 +87,15 @@ void MessageModel::setLink(qint64 id, const QString &url, const QString &xmppId)
     m_entries[row].url = url;
     m_entries[row].xmppId = xmppId;
     emit dataChanged(index(row), index(row), {UrlRole});
+}
+
+void MessageModel::applyCorrection(qint64 id, const QString &body) {
+    const int row = rowOf(id);
+    if (row < 0)
+        return;
+    m_entries[row].body = body;
+    m_entries[row].edited = true;
+    emit dataChanged(index(row), index(row), {BodyRole, EditedRole});
 }
 
 QString MessageModel::url(qint64 id) const {
