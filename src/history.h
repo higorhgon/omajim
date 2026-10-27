@@ -21,6 +21,8 @@ struct HistoryEntry {
     // The id the server's archive gave it (XEP-0359), to recognize the same
     // message when it comes back from the archive.
     QString archiveId;
+    // An outgoing message the other side confirmed (XEP-0184).
+    bool delivered = false;
 };
 
 // Conversations kept in SQLite, one database per account.
@@ -39,6 +41,7 @@ public:
     QList<HistoryEntry> recent(const QString &peer, int limit) const;
     bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {}) const;
     void updateFile(qint64 id, const QString &state, const QString &filePath);
+    bool markDelivered(const QString &peer, const QString &xmppId);
 
     // A transfer can't continue after the app quits, so anything still
     // offered or running from the last session is marked as failed.

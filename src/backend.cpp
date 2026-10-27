@@ -15,6 +15,7 @@
 #include <QXmppConfiguration.h>
 #include <QXmppMamManager.h>
 #include <QXmppMessage.h>
+#include <QXmppMessageReceiptManager.h>
 #include <QXmppPresence.h>
 #include <QXmppRosterManager.h>
 #include <QXmppSocks.h>
@@ -60,6 +61,37 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     if (!m_vcards)
         m_vcards = m_client->addNewExtension<QXmppVCardManager>();
     connect(m_client.get(), &QXmppClient::presenceReceived, this, &Backend::handleAvatarHash);
+
+    auto *receipts = m_client->addNewExtension<QXmppMessageReceiptManager>();
+    connect(receipts, &QXmppMessageReceiptManager::messageDelivered, this, [this](const QString &jid, const QString &id) {
+        const QString peer = QXmppUtils::jidToBareJid(jid).toLower();
+        if (m_history.markDelivered(peer, id) && peer == m_currentChat)
+            m_messages.markDelivered(id);
+    });
+
+    // Some clients never send "paused", so a typing notice fades on its own.
+    m_typingExpiry = new QTimer(this);
+    m_typingExpiry->setInterval(5000);
+    connect(m_typingExpiry, &QTimer::timeout, this, [this] {
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        bool changed = false;
+        for (auto it = m_typing.begin(); it != m_typing.end();) {
+            if (it.value() < now) {
+                it = m_typing.erase(it);
+                changed = true;
+            } else {
+                ++it;
+            }
+        }
+        if (m_typing.isEmpty())
+            m_typingExpiry->stop();
+        if (changed)
+            emit typingChanged();
+    });
+    m_pauseTimer = new QTimer(this);
+    m_pauseTimer->setSingleShot(true);
+    m_pauseTimer->setInterval(5000);
+    connect(m_pauseTimer, &QTimer::timeout, this, [this] { sendChatState(QXmppMessage::Paused); });
     m_transfers = m_client->addNewExtension<QXmppTransferManager>();
     if (auto *socks = m_transfers->findChild<QXmppSocksServer *>()) {
         socks->close();
@@ -545,13 +577,18 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
             setError(tr("A message to %1 didn't arrive.").arg(QXmppUtils::jidToBareJid(message.from())));
         return false;
     }
-    if (message.type() == QXmppMessage::GroupChat || message.body().isEmpty())
+    if (message.type() == QXmppMessage::GroupChat)
+        return false;
+
+    const QString from = QXmppUtils::jidToBareJid(message.from()).toLower();
+    if (delivery == Delivery::Live && from != m_jid && message.state() != QXmppMessage::None)
+        handleChatState(from, message.state());
+    if (message.body().isEmpty())
         return false;
 
     HistoryEntry entry;
     // A carbon of a message sent from another of our devices comes "from"
     // us; it belongs to the conversation with whoever it went to.
-    const QString from = QXmppUtils::jidToBareJid(message.from()).toLower();
     entry.outgoing = from == m_jid;
     entry.peer = entry.outgoing ? QXmppUtils::jidToBareJid(message.to()).toLower() : from;
     if (entry.peer.isEmpty() || entry.peer == m_jid)
@@ -631,11 +668,16 @@ void Backend::openChat(const QString &jid) {
     const QString bare = normalizedJid(jid);
     if (bare.isEmpty())
         return;
+    if (bare != m_currentChat && (m_sentState == QXmppMessage::Composing || m_sentState == QXmppMessage::Paused))
+        sendChatState(QXmppMessage::Active);
+    m_pauseTimer->stop();
+    m_sentState = 0;
     m_currentChat = bare;
     m_messages.reset(m_history.recent(bare, HistoryLimit));
     if (m_windowActive)
         m_contacts.clearUnread(bare);
     emit currentChatChanged();
+    emit typingChanged();
 }
 
 void Backend::closeChat() {
@@ -644,6 +686,7 @@ void Backend::closeChat() {
     m_currentChat.clear();
     m_messages.reset({});
     emit currentChatChanged();
+    emit typingChanged();
 }
 
 bool Backend::sendMessage(const QString &text) {
@@ -657,6 +700,11 @@ bool Backend::sendMessage(const QString &text) {
 
     QXmppMessage message({}, m_currentChat, body);
     message.setType(QXmppMessage::Chat);
+    message.setReceiptRequested(true);
+    if (m_chatStatePeers.contains(m_currentChat))
+        message.setState(QXmppMessage::Active);
+    m_sentState = QXmppMessage::Active;
+    m_pauseTimer->stop();
     HistoryEntry entry;
     entry.peer = m_currentChat;
     entry.outgoing = true;
@@ -669,6 +717,43 @@ bool Backend::sendMessage(const QString &text) {
     });
     addEntry(entry);
     return true;
+}
+
+void Backend::handleChatState(const QString &peer, int state) {
+    m_chatStatePeers.insert(peer);
+    const bool typing = state == QXmppMessage::Composing;
+    if (typing) {
+        m_typing.insert(peer, QDateTime::currentDateTimeUtc().addSecs(30));
+        if (!m_typingExpiry->isActive())
+            m_typingExpiry->start();
+    } else if (!m_typing.remove(peer)) {
+        return;
+    }
+    if (peer == m_currentChat)
+        emit typingChanged();
+}
+
+void Backend::setComposing(bool composing) {
+    if (composing) {
+        // One "composing" per burst of typing, then "paused" once it stops.
+        if (m_sentState != QXmppMessage::Composing)
+            sendChatState(QXmppMessage::Composing);
+        m_pauseTimer->start();
+    } else {
+        m_pauseTimer->stop();
+        if (m_sentState == QXmppMessage::Composing || m_sentState == QXmppMessage::Paused)
+            sendChatState(QXmppMessage::Active);
+    }
+}
+
+void Backend::sendChatState(int state) {
+    m_sentState = state;
+    if (m_currentChat.isEmpty() || !m_chatStatePeers.contains(m_currentChat) || !m_client->isAuthenticated())
+        return;
+    QXmppMessage message({}, m_currentChat);
+    message.setType(QXmppMessage::Chat);
+    message.setState(QXmppMessage::State(state));
+    m_client->send(std::move(message));
 }
 
 void Backend::chooseFileToSend() {

@@ -22,6 +22,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case FileSizeRole: return Files::formatSize(entry.fileSize);
     case StateRole: return entry.state;
     case ProgressRole: return m_progress.value(entry.id, entry.state == "done" ? 1.0 : 0.0);
+    case DeliveredRole: return entry.delivered;
     }
     return {};
 }
@@ -29,7 +30,8 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
 QHash<int, QByteArray> MessageModel::roleNames() const {
     return {{IdRole, "messageId"}, {BodyRole, "body"}, {OutgoingRole, "outgoing"},
             {StampRole, "stamp"}, {KindRole, "kind"}, {FilePathRole, "filePath"},
-            {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"}};
+            {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
+            {DeliveredRole, "delivered"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -62,6 +64,16 @@ void MessageModel::setProgress(qint64 id, double progress) {
     const int row = rowOf(id);
     if (row >= 0)
         emit dataChanged(index(row), index(row), {ProgressRole});
+}
+
+void MessageModel::markDelivered(const QString &xmppId) {
+    for (int row = m_entries.size() - 1; row >= 0; --row) {
+        if (m_entries.at(row).outgoing && m_entries.at(row).xmppId == xmppId) {
+            m_entries[row].delivered = true;
+            emit dataChanged(index(row), index(row), {DeliveredRole});
+            return;
+        }
+    }
 }
 
 int MessageModel::rowOf(qint64 id) const {

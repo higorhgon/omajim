@@ -14,6 +14,10 @@ janela: seus contatos à esquerda e a conversa à direita.
   mensagens mais recentes.
 - Avatares dos contatos (vCard, XEP-0054/0153), guardados em cache e
   baixados de novo só quando o contato troca de foto.
+- Recibos de entrega (XEP-0184): um ✓ ao lado do horário quando o outro
+  lado confirma que recebeu. E "digitando…" (XEP-0085) no cabeçalho da
+  conversa; o Omajim só avisa que você está digitando para quem também
+  manda esse aviso.
 - Envio e recebimento de arquivos por SI (XEP-0096), compatível com o Pidgin,
   por conexão direta (SOCKS5) ou pelo servidor (IBB). Arraste um arquivo para
   a conversa para enviá-lo. Os arquivos recebidos vão para a pasta de

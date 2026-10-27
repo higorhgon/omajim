@@ -31,6 +31,7 @@
   "Ctrl+K searches your contacts. F1 lists every shortcut.": "Ctrl+K busca seus contatos. F1 mostra todos os atalhos.",
   "Decline": "Recusar",
   "Declined": "Recusado",
+  "Delivered": "Entregue",
   "Dismiss": "Fechar",
   "Drop to send to %1": "Solte para enviar para %1",
   "Failed": "Falhou",
@@ -95,5 +96,6 @@
   "You're offline, so the contact can't be added.": "Você está offline, então o contato não pode ser adicionado.",
   "You're offline, so the message wasn't sent.": "Você está offline, então a mensagem não foi enviada.",
   "secret-tool is missing, so the password can't be kept in the keyring. Install the libsecret package.": "O secret-tool não está instalado, então a senha não pode ficar no chaveiro. Instale o pacote libsecret.",
-  "secret-tool stopped unexpectedly.": "O secret-tool parou inesperadamente."
+  "secret-tool stopped unexpectedly.": "O secret-tool parou inesperadamente.",
+  "typing…": "digitando…"
 }

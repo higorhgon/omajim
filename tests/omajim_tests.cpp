@@ -7,6 +7,8 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QXmlStreamWriter>
+#include <QXmppClient.h>
+#include <QXmppMessage.h>
 #include <QXmppResultSet.h>
 
 #include <QBuffer>
@@ -246,6 +248,64 @@ private slots:
         QCOMPARE(AvatarStore::normalizedHash(raw), hex);
         QCOMPARE(AvatarStore::normalizedHash(raw.toHex().toUpper()), hex);
         QVERIFY(AvatarStore::normalizedHash("short").isEmpty());
+    }
+
+    void deliveryReceiptsMarkOnlyOurMessages() {
+        QTemporaryDir dir;
+        History history;
+        QVERIFY(history.open(dir.filePath("history.sqlite")));
+        HistoryEntry sent;
+        sent.peer = "bob@example.org";
+        sent.outgoing = true;
+        sent.body = "hi";
+        sent.xmppId = "m1";
+        history.add(sent);
+        HistoryEntry received = sent;
+        received.outgoing = false;
+        received.xmppId = "m2";
+        history.add(received);
+
+        QVERIFY(history.markDelivered("bob@example.org", "m1"));
+        QVERIFY(!history.markDelivered("bob@example.org", "m2"));
+        QVERIFY(!history.markDelivered("carol@example.org", "m1"));
+        QVERIFY(history.recent("bob@example.org", 2).first().delivered);
+
+        MessageModel model;
+        model.reset(history.recent("bob@example.org", 2));
+        model.markDelivered("m2");
+        QVERIFY(!model.data(model.index(1), MessageModel::DeliveredRole).toBool());
+    }
+
+    void typingShowsForTheOpenChat() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+        QSignalSpy typing(&backend, &Backend::typingChanged);
+
+        auto inject = [&](QXmppMessage::State state, const QString &body = {}) {
+            QXmppMessage message("bob@example.org/phone", "alice@example.org", body);
+            message.setType(QXmppMessage::Chat);
+            message.setState(state);
+            message.setId(QString::number(typing.count()) + body);
+            emit backend.client()->messageReceived(message);
+        };
+        inject(QXmppMessage::Composing);
+        QVERIFY(backend.currentChatTyping());
+        // Typing notices are no messages.
+        QCOMPARE(backend.messages()->rowCount(), 0);
+
+        inject(QXmppMessage::Active, "done");
+        QVERIFY(!backend.currentChatTyping());
+        QCOMPARE(backend.messages()->rowCount(), 1);
+
+        inject(QXmppMessage::Composing);
+        backend.openChat("carol@example.org");
+        QVERIFY(!backend.currentChatTyping());
+        backend.openChat("bob@example.org");
+        QVERIFY(backend.currentChatTyping());
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

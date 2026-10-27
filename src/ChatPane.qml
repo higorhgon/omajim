@@ -67,10 +67,11 @@ Item {
             }
             Label {
                 Layout.fillWidth: true
-                text: backend.currentChatStatusText !== ""
+                text: backend.currentChatTyping ? qsTr("typing…")
+                      : backend.currentChatStatusText !== ""
                       ? "%1 — %2".arg(win.presenceLabel(backend.currentChatPresence)).arg(backend.currentChatStatusText)
                       : win.presenceLabel(backend.currentChatPresence)
-                color: win.mutedColor
+                color: backend.currentChatTyping ? theme.accent : win.mutedColor
                 elide: Text.ElideRight
             }
         }
@@ -140,6 +141,7 @@ Item {
                         background: null
                         color: win.textColor
                         // Enter sends; Shift+Enter starts a new line.
+                        onTextChanged: backend.setComposing(text.length > 0)
                         Keys.onReturnPressed: event => {
                             if (event.modifiers & Qt.ShiftModifier)
                                 event.accepted = false

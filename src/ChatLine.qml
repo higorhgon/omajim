@@ -20,6 +20,7 @@ Item {
     required property string fileSize
     required property string transferState
     required property double progress
+    required property bool delivered
 
     width: ListView.view.width
     height: bubble.height
@@ -129,18 +130,34 @@ Item {
                 }
             }
 
-            Label {
+            RowLayout {
                 Layout.alignment: line.outgoing ? Qt.AlignRight : Qt.AlignLeft
-                // Today's lines show the time only; older ones the date too.
-                // Reading translator.language re-renders on a language switch.
-                text: {
-                    translator.language
-                    const today = new Date().toDateString() === line.stamp.toDateString()
-                    return today ? line.stamp.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
-                                 : line.stamp.toLocaleString(Qt.locale(), Locale.ShortFormat)
+                spacing: 4
+
+                Label {
+                    // Today's lines show the time only; older ones the date too.
+                    // Reading translator.language re-renders on a language switch.
+                    text: {
+                        translator.language
+                        const today = new Date().toDateString() === line.stamp.toDateString()
+                        return today ? line.stamp.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
+                                     : line.stamp.toLocaleString(Qt.locale(), Locale.ShortFormat)
+                    }
+                    color: win.mutedColor
+                    font.pixelSize: 11
                 }
-                color: win.mutedColor
-                font.pixelSize: 11
+
+                // The other side's client confirmed it arrived (XEP-0184).
+                Label {
+                    visible: line.outgoing && line.kind === "text" && line.delivered
+                    text: "✓"
+                    color: theme.accent
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                    ToolTip.visible: deliveredHover.hovered
+                    ToolTip.text: qsTr("Delivered")
+                    HoverHandler { id: deliveredHover }
+                }
             }
         }
     }

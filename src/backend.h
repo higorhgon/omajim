@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QSettings>
 #include <QSslCertificate>
+#include <QTimer>
 #include <QStringList>
 #include <memory>
 
@@ -45,6 +46,7 @@ class Backend : public QObject {
     Q_PROPERTY(QString currentChatPresence READ currentChatPresence NOTIFY currentChatChanged)
     Q_PROPERTY(QString currentChatStatusText READ currentChatStatusText NOTIFY currentChatChanged)
     Q_PROPERTY(QString currentChatAvatar READ currentChatAvatar NOTIFY currentChatChanged)
+    Q_PROPERTY(bool currentChatTyping READ currentChatTyping NOTIFY typingChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -71,10 +73,12 @@ public:
     QString currentChatPresence() const;
     QString currentChatStatusText() const;
     QString currentChatAvatar() const;
+    bool currentChatTyping() const { return m_typing.contains(m_currentChat); }
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
     quint16 directTransferPort() const;
+    QXmppClient *client() const { return m_client.get(); }
     MessageModel *messages() { return &m_messages; }
 
     Q_INVOKABLE void signIn(const QString &jid, const QString &password, const QString &host, bool remember);
@@ -87,6 +91,9 @@ public:
     Q_INVOKABLE void openChat(const QString &jid);
     Q_INVOKABLE void closeChat();
     Q_INVOKABLE bool sendMessage(const QString &text);
+    // The message field has text (or was just cleared); the contact sees
+    // "typing" while it does.
+    Q_INVOKABLE void setComposing(bool composing);
 
     Q_INVOKABLE void chooseFileToSend();
     Q_INVOKABLE void sendFile(const QString &path);
@@ -112,6 +119,7 @@ signals:
     void subscriptionRequestsChanged();
     void currentChatChanged();
     void windowActiveChanged();
+    void typingChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
 
@@ -136,6 +144,8 @@ private:
     bool ingest(const QXmppMessage &message, Delivery delivery);
     void syncArchive(bool firstPage);
     void finishArchiveSync();
+    void handleChatState(const QString &peer, int state);
+    void sendChatState(int state);
     void refreshPresence(const QString &bareJid);
     void syncRoster();
     void showContact(const QString &jid);
@@ -165,6 +175,14 @@ private:
     bool m_syncing = false;
     int m_archivedUnread = 0;
     bool m_reloadCurrentChat = false;
+
+    // Chat states (XEP-0085): who is typing to us, until when, and who sends
+    // states at all, since the spec asks to send them only to those.
+    QHash<QString, QDateTime> m_typing;
+    QSet<QString> m_chatStatePeers;
+    QTimer *m_typingExpiry = nullptr;
+    QTimer *m_pauseTimer = nullptr;
+    int m_sentState = 0;
 
     History m_history;
     ContactModel m_contacts;

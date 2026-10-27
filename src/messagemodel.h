@@ -22,6 +22,7 @@ public:
         FileSizeRole,
         StateRole,
         ProgressRole,
+        DeliveredRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);
@@ -34,6 +35,7 @@ public:
     void append(const HistoryEntry &entry);
     void updateFile(qint64 id, const QString &state, const QString &filePath);
     void setProgress(qint64 id, double progress);
+    void markDelivered(const QString &xmppId);
 
 signals:
     void countChanged();
