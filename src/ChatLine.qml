@@ -20,6 +20,7 @@ Item {
     required property string sender
     required property string url
     required property bool edited
+    required property string preview
 
     readonly property var ui: theme.colors
 
@@ -92,11 +93,14 @@ Item {
                 }
             }
 
+            // Escaped and linkified in C++; a link opens in the browser.
             TextEdit {
+                id: bodyText
                 Layout.fillWidth: true
                 visible: line.kind === "text"
-                text: line.body
-                textFormat: TextEdit.PlainText
+                text: backend.formatMessage(line.body, line.ui.accent)
+                textFormat: TextEdit.RichText
+                onLinkActivated: link => backend.openLink(link)
                 readOnly: true
                 selectByMouse: true
                 wrapMode: TextEdit.Wrap
@@ -104,6 +108,32 @@ Item {
                 selectionColor: line.ui.selection
                 selectedTextColor: line.ui.selectionText
                 font.pixelSize: 14
+
+                HoverHandler {
+                    cursorShape: bodyText.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor
+                }
+            }
+
+            // A picture shared as a file shows itself; a click opens it.
+            Image {
+                id: picture
+                visible: line.preview !== "" && status === Image.Ready
+                Layout.preferredWidth: Math.min(implicitWidth, bubble.width - 28)
+                Layout.preferredHeight: implicitWidth > 0 ? Layout.preferredWidth * implicitHeight / implicitWidth : 0
+                Layout.maximumHeight: 260
+                source: line.preview
+                sourceSize.width: 600
+                fillMode: Image.PreserveAspectFit
+                horizontalAlignment: Image.AlignLeft
+                asynchronous: true
+                smooth: true
+                mipmap: true
+
+                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    onTapped: backend.openFile(line.transferState === "done" && line.filePath !== ""
+                                               ? line.filePath : decodeURIComponent(line.preview.replace("file://", "")))
+                }
             }
 
             RowLayout {

@@ -129,6 +129,9 @@ public:
     Q_INVOKABLE void refuseFile(qint64 messageId);
     Q_INVOKABLE void cancelTransfer(qint64 messageId);
     Q_INVOKABLE void openFile(const QString &path);
+    // A message as rich text with clickable links, and opening one of them.
+    Q_INVOKABLE QString formatMessage(const QString &body, const QString &linkColor) const;
+    Q_INVOKABLE void openLink(const QString &url);
 
     Q_INVOKABLE bool addContact(const QString &jid, const QString &name);
     Q_INVOKABLE void removeContact(const QString &jid);
@@ -219,6 +222,10 @@ private:
     bool applyCorrection(const HistoryEntry &correction, const QString &replaceId);
     bool sendCorrection(const QString &body);
     bool trustsCertificateOf(const QList<QSslError> &errors) const;
+    // Shows a picture for an image file line: the file itself when it's on
+    // disk, or a copy fetched into the preview cache from a known contact.
+    void ensurePreview(const HistoryEntry &entry);
+    QString previewPath(const QString &url) const;
     void finishTransfer(qint64 id);
     QList<QSslCertificate> trustedCertificates() const;
 
@@ -247,6 +254,10 @@ private:
     QXmppHttpUploadManager *m_uploads = nullptr;
     QHash<qint64, std::shared_ptr<QXmppHttpUpload>> m_uploadJobs;
     QHash<qint64, QNetworkReply *> m_downloads;
+    QHash<QString, QNetworkReply *> m_previewDownloads;
+    // Contacts in the roster, cached or from the server: whose links are
+    // fetched for previews.
+    QSet<QString> m_knownContacts;
     QString m_pickMethod = QStringLiteral("server");
     qint64 m_editingId = 0;
     bool m_syncing = false;

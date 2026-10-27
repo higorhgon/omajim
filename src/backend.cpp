@@ -43,6 +43,7 @@
 #include "files.h"
 #include "notifier.h"
 #include "rosterstore.h"
+#include "textformat.h"
 #include "secretstore.h"
 
 static const int HistoryLimit = 300;
@@ -76,6 +77,9 @@ static const int ArchivePageSize = 100;
 
 // Lines of history to ask a room for the first time we join it.
 static const int RoomHistoryStanzas = 50;
+
+// Pictures larger than this aren't fetched just to preview them.
+static const qint64 PreviewLimit = 10 * 1024 * 1024;
 
 Backend::Backend(const QString &configDirectory, const QString &dataDirectory, FilePicker *filePicker,
                  SecretStore *secrets, Notifier *notifier, QObject *parent)
@@ -293,6 +297,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     connect(m_roster, &QXmppRosterManager::itemAdded, this, &Backend::showContact);
     connect(m_roster, &QXmppRosterManager::itemChanged, this, &Backend::showContact);
     connect(m_roster, &QXmppRosterManager::itemRemoved, this, [this](const QString &jid) {
+        m_knownContacts.remove(jid);
         m_contacts.remove(jid);
         if (jid == m_currentChat)
             closeChat();
@@ -633,7 +638,9 @@ void Backend::openHistory() {
     // Last session's contacts show right away, offline until the server
     // says otherwise, instead of an empty list while connecting.
     const auto cached = m_history.roster();
+    m_knownContacts.clear();
     for (const RosterRow &row : cached) {
+        m_knownContacts.insert(row.jid);
         m_contacts.upsert(row.jid, row.name);
         m_contacts.setAvatar(row.jid, m_avatars->pathFor(row.jid));
     }
@@ -664,6 +671,7 @@ void Backend::syncRoster() {
 }
 
 void Backend::showContact(const QString &jid) {
+    m_knownContacts.insert(jid);
     m_contacts.upsert(jid, m_roster->getRosterEntry(jid).name());
     if (m_avatars)
         m_contacts.setAvatar(jid, m_avatars->pathFor(jid));
@@ -753,8 +761,10 @@ qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
     if (entry.peer == m_currentChat) {
         // Archived lines can be older than what's on screen, so the chat
         // reloads in order once the sync is over.
-        if (delivery == Delivery::Live)
+        if (delivery == Delivery::Live) {
             m_messages.append(entry);
+            ensurePreview(entry);
+        }
         else
             m_reloadCurrentChat = true;
     }
@@ -894,6 +904,8 @@ void Backend::openChat(const QString &jid) {
         cancelEditing();
     m_currentChat = bare;
     m_messages.reset(m_history.recent(bare, HistoryLimit));
+    for (const HistoryEntry &entry : m_messages.entries())
+        ensurePreview(entry);
     if (m_windowActive)
         m_contacts.clearUnread(bare);
     if (m_rooms.contains(bare))
@@ -1341,6 +1353,8 @@ void Backend::finishTransfer(qint64 id) {
 void Backend::updateTransfer(qint64 id, const QString &state, const QString &path) {
     m_history.updateFile(id, state, path);
     m_messages.updateFile(id, state, path);
+    if (state == "done" && TextFormat::isImageName(path))
+        m_messages.setPreview(id, path);
 }
 
 bool Backend::addContact(const QString &jid, const QString &name) {
@@ -1627,4 +1641,66 @@ bool Backend::sendCorrection(const QString &body) {
     m_history.applyCorrection(original.id, body, id);
     m_messages.applyCorrection(original.id, body);
     return true;
+}
+
+QString Backend::formatMessage(const QString &body, const QString &linkColor) const {
+    return TextFormat::toHtml(body, linkColor);
+}
+
+void Backend::openLink(const QString &url) {
+    if (TextFormat::isOpenableLink(url))
+        QDesktopServices::openUrl(QUrl(url));
+}
+
+QString Backend::previewPath(const QString &url) const {
+    const QString hash = QString::fromLatin1(QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Sha1).toHex());
+    const QString suffix = QFileInfo(QUrl(url).fileName()).suffix().toLower();
+    return QDir(m_dataDirectory).filePath("accounts/" + m_jid + "/previews/" + hash + "." + suffix);
+}
+
+void Backend::ensurePreview(const HistoryEntry &entry) {
+    if (entry.kind != "file" || !TextFormat::isImageName(entry.body))
+        return;
+    if (!entry.filePath.isEmpty() && entry.state == "done" && QFileInfo::exists(entry.filePath)) {
+        m_messages.setPreview(entry.id, entry.filePath);
+        return;
+    }
+    if (entry.url.isEmpty())
+        return;
+    const QString path = previewPath(entry.url);
+    if (QFileInfo::exists(path)) {
+        m_messages.setPreview(entry.id, path);
+        return;
+    }
+    // Fetching a link tells its server our address, so only for people in
+    // the roster and rooms we're in, never for strangers.
+    const bool known = m_rooms.contains(entry.peer) || m_knownContacts.contains(entry.peer) || entry.outgoing;
+    if (!known || m_previewDownloads.contains(entry.url) || !QDir().mkpath(QFileInfo(path).absolutePath()))
+        return;
+
+    auto *file = new QSaveFile(path);
+    if (!file->open(QIODevice::WriteOnly)) {
+        delete file;
+        return;
+    }
+    QNetworkReply *reply = m_network->get(QNetworkRequest(QUrl(entry.url)));
+    file->setParent(reply);
+    m_previewDownloads.insert(entry.url, reply);
+    const qint64 id = entry.id;
+    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64 total) {
+        if (received > PreviewLimit || total > PreviewLimit)
+            reply->abort();
+    });
+    connect(reply, &QNetworkReply::readyRead, file, [reply, file] { file->write(reply->readAll()); });
+    connect(reply, &QNetworkReply::finished, this, [this, reply, file, id, url = entry.url, path] {
+        m_previewDownloads.remove(url);
+        file->write(reply->readAll());
+        // A preview that doesn't come is no error worth showing: the file
+        // can still be downloaded by hand.
+        if (reply->error() == QNetworkReply::NoError && file->commit())
+            m_messages.setPreview(id, path);
+        else
+            file->cancelWriting();
+        reply->deleteLater();
+    });
 }

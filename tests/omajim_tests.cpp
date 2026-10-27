@@ -14,6 +14,7 @@
 #include <QXmppPepBookmarkManager.h>
 #include <QXmppResultSet.h>
 #include <QXmppRosterIq.h>
+#include <QXmppRosterManager.h>
 #include <QXmppTask.h>
 
 #include <QBuffer>
@@ -31,6 +32,7 @@
 #include "messagemodel.h"
 #include "rosterstore.h"
 #include "secretstore.h"
+#include "textformat.h"
 #include "theme.h"
 #include "translator.h"
 #include "tray.h"
@@ -627,6 +629,74 @@ private slots:
         QCOMPARE(backend.connectionState(), QString("offline"));
         QCOMPARE(backend.contacts()->rowCount(), 1);
         QCOMPARE(backend.contacts()->data(backend.contacts()->index(0), ContactModel::NameRole).toString(), QString("Bob"));
+    }
+
+    void messagesGetSafeClickableLinks() {
+        const QString html = TextFormat::toHtml("see https://example.org/a?b=1&c=2, or www.omarchy.org.\n<b>hi</b>", "#123456");
+        QVERIFY(html.contains("<a href=\"https://example.org/a?b=1&amp;c=2\" style=\"color:#123456\">"));
+        // The comma and the full stop end the sentence, not the link.
+        QVERIFY(html.contains(">https://example.org/a?b=1&amp;c=2</a>, or"));
+        QVERIFY(html.contains("<a href=\"https://www.omarchy.org\""));
+        QVERIFY(html.contains("&lt;b&gt;hi&lt;/b&gt;"));
+        QVERIFY(html.contains("<br>"));
+        QVERIFY(!TextFormat::toHtml("javascript:alert(1)", "#000").contains("<a"));
+
+        QVERIFY(TextFormat::isOpenableLink("https://example.org"));
+        QVERIFY(TextFormat::isOpenableLink("xmpp:bob@example.org"));
+        QVERIFY(!TextFormat::isOpenableLink("file:///etc/passwd"));
+        QVERIFY(!TextFormat::isOpenableLink("javascript:alert(1)"));
+    }
+
+    void imagesFromKnownContactsGetPreviews() {
+        QTemporaryDir dir;
+        QTcpServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost));
+        QImage image(40, 30, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        image.save(&buffer, "PNG");
+        int requests = 0;
+        connect(&server, &QTcpServer::newConnection, &server, [&] {
+            QTcpSocket *socket = server.nextPendingConnection();
+            connect(socket, &QTcpSocket::readyRead, socket, [socket, png, &requests] {
+                socket->readAll();
+                ++requests;
+                socket->write("HTTP/1.1 200 OK\r\nContent-Length: " + QByteArray::number(png.size()) +
+                              "\r\nConnection: close\r\n\r\n" + png);
+                socket->disconnectFromHost();
+            });
+        });
+
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        // Bob is in the roster; Mallory isn't.
+        backend.contacts()->upsert("bob@example.org", "Bob");
+        emit backend.client()->findExtension<QXmppRosterManager>()->itemAdded("bob@example.org");
+
+        auto share = [&](const QString &from, const QString &id, const QString &name) {
+            const QString link = QStringLiteral("http://127.0.0.1:%1/%2").arg(server.serverPort()).arg(name);
+            QXmppMessage message(from + "/phone", "alice@example.org", link);
+            message.setType(QXmppMessage::Chat);
+            message.setId(id);
+            message.setOutOfBandUrl(link);
+            emit backend.client()->messageReceived(message);
+        };
+        backend.openChat("bob@example.org");
+        share("bob@example.org", "i1", "photo.png");
+        auto *messages = backend.messages();
+        QTRY_VERIFY(!messages->data(messages->index(0), MessageModel::PreviewRole).toString().isEmpty());
+        QCOMPARE(QImage(QUrl(messages->data(messages->index(0), MessageModel::PreviewRole).toString()).toLocalFile()).size(),
+                 QSize(40, 30));
+
+        backend.openChat("mallory@example.org");
+        share("mallory@example.org", "i2", "tracker.png");
+        QTest::qWait(300);
+        QCOMPARE(requests, 1);
+        QVERIFY(messages->data(messages->index(0), MessageModel::PreviewRole).toString().isEmpty());
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

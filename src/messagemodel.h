@@ -26,6 +26,7 @@ public:
         SenderRole,
         UrlRole,
         EditedRole,
+        PreviewRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);
@@ -41,6 +42,10 @@ public:
     void markDelivered(const QString &xmppId);
     void setLink(qint64 id, const QString &url, const QString &xmppId);
     void applyCorrection(qint64 id, const QString &body);
+    // A picture to show for a file line, as a local path; not kept in the
+    // history, since it's rebuilt from the files on disk.
+    void setPreview(qint64 id, const QString &path);
+    const QList<HistoryEntry> &entries() const { return m_entries; }
     // What the model knows of a line, for lines on screen; empty otherwise.
     QString url(qint64 id) const;
     QString filePath(qint64 id) const;
@@ -53,4 +58,5 @@ private:
 
     QList<HistoryEntry> m_entries;
     QHash<qint64, double> m_progress;
+    QHash<qint64, QString> m_previews;
 };

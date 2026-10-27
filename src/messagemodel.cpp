@@ -2,6 +2,8 @@
 
 #include "files.h"
 
+#include <QUrl>
+
 MessageModel::MessageModel(QObject *parent) : QAbstractListModel(parent) {}
 
 int MessageModel::rowCount(const QModelIndex &parent) const {
@@ -26,6 +28,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case SenderRole: return entry.sender;
     case UrlRole: return entry.url;
     case EditedRole: return entry.edited;
+    case PreviewRole: return m_previews.contains(entry.id) ? QUrl::fromLocalFile(m_previews.value(entry.id)).toString() : QString();
     }
     return {};
 }
@@ -35,7 +38,8 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {StampRole, "stamp"}, {KindRole, "kind"}, {FilePathRole, "filePath"},
             {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
-            {UrlRole, "url"}, {EditedRole, "edited"}};
+            {UrlRole, "url"}, {EditedRole, "edited"},
+            {PreviewRole, "preview"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -96,6 +100,13 @@ void MessageModel::applyCorrection(qint64 id, const QString &body) {
     m_entries[row].body = body;
     m_entries[row].edited = true;
     emit dataChanged(index(row), index(row), {BodyRole, EditedRole});
+}
+
+void MessageModel::setPreview(qint64 id, const QString &path) {
+    m_previews.insert(id, path);
+    const int row = rowOf(id);
+    if (row >= 0)
+        emit dataChanged(index(row), index(row), {PreviewRole});
 }
 
 QString MessageModel::url(qint64 id) const {

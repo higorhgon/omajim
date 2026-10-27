@@ -8,6 +8,12 @@ janela: seus contatos à esquerda e a conversa à direita.
 
 - Conversas 1:1 com histórico local (SQLite), notificações na área de
   trabalho e cópia das mensagens enviadas de outros dispositivos (carbons).
+- A lista de contatos fica guardada e aparece na hora ao abrir, antes de
+  conectar; o servidor só manda o que mudou (roster versioning).
+- Links clicáveis nas mensagens, e prévia das imagens: as que você envia ou
+  baixa, e as que chegam pelo servidor de contatos e salas conhecidos, até
+  10 MB. Imagens de quem não está nos contatos não são baixadas sozinhas,
+  para não revelar o seu endereço.
 - Histórico do servidor (MAM, XEP-0313): ao conectar, busca o que chegou
   enquanto o Omajim estava fechado ou passou por outro dispositivo, e avisa
   numa só notificação. Na primeira conexão de uma conta, traz só as 100
