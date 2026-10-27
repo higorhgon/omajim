@@ -104,6 +104,13 @@ sudo ufw allow from 192.168.0.0/24 to any port 28011 proto tcp
 Se outro programa estiver usando a 28011, o Omajim escuta numa porta livre
 qualquer, e aí a regra acima não vale.
 
+Antes de cada envio direto, o Omajim lê as regras do `ufw` (sem precisar de
+root) e, se a porta estiver bloqueada para a sua rede, não a oferece: manda
+pelo proxy de bytestreams do servidor, que ele descobre ao conectar, ou,
+sem proxy, pelo próprio XMPP (IBB), mais lento mas que sempre passa. O
+cartão do arquivo mostra o caminho usado (conexão direta, proxy ou IBB), e
+uma notificação avisa quando um arquivo direto termina de chegar.
+
 ## Desenvolvimento
 
 Precisa de `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qxmpp` e

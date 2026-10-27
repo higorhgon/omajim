@@ -29,6 +29,7 @@
 #include "contactmodel.h"
 #include "filepicker.h"
 #include "files.h"
+#include "firewall.h"
 #include "gajimimport.h"
 #include "history.h"
 #include "messagemodel.h"
@@ -776,6 +777,45 @@ private slots:
         QCOMPARE(GajimImport::import(source, "alice@example.org", history).imported, 0);
         QVERIFY(original.open(QIODevice::ReadOnly));
         QCOMPARE(QCryptographicHash::hash(original.readAll(), QCryptographicHash::Sha256), before);
+    }
+
+    void ufwRulesDecideTheDirectPort() {
+        QTemporaryDir dir;
+        const QString conf = dir.filePath("ufw.conf"), defaults = dir.filePath("default"), rules = dir.filePath("user.rules");
+        Firewall firewall(conf, defaults, rules);
+        const QStringList lan{"192.168.0.5"};
+
+        // No ufw at all: nothing in the way.
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(false));
+
+        write(conf, "ENABLED=no\n");
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(false));
+
+        write(conf, "ENABLED=yes\n");
+        write(defaults, "DEFAULT_INPUT_POLICY=\"DROP\"\n");
+        // The rules file can't be read: say so rather than guess.
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::nullopt);
+
+        write(rules, "*filter\n### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in\n");
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(true));
+
+        // The rule the README suggests: the local network may connect.
+        write(rules, "### tuple ### allow tcp 28011 0.0.0.0/0 any 192.168.0.0/24 in comment=omajim\n");
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(false));
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", {"10.1.2.3"}), std::optional<bool>(true));
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "udp", lan), std::optional<bool>(true));
+
+        // The first rule that fits wins, ranges and logging variants count.
+        write(rules, "### tuple ### deny tcp 28011 0.0.0.0/0 any 0.0.0.0/0 in\n"
+                     "### tuple ### allow tcp 28011 0.0.0.0/0 any 0.0.0.0/0 in\n");
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(true));
+        write(rules, "### tuple ### allow_log any 28000:28100 0.0.0.0/0 any 0.0.0.0/0 in\n");
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(false));
+
+        // An open default lets everything in.
+        write(rules, "");
+        write(defaults, "DEFAULT_INPUT_POLICY=\"ACCEPT\"\n");
+        QCOMPARE(firewall.isIncomingPortBlocked(28011, "tcp", lan), std::optional<bool>(false));
     }
 
     void historyMarksInterruptedTransfersAsFailed() {

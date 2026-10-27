@@ -178,6 +178,9 @@ private:
         QString finalPath;
         QString partPath;
         bool canceledHere = false;
+        // How the bytes travel, shown on the file's card: direct, proxy,
+        // ibb, or socks for incoming, with -ufw when ufw forced the choice.
+        QString route;
     };
 
     void connectToServer();
@@ -224,6 +227,8 @@ private:
     qint64 addEntry(HistoryEntry &entry, Delivery delivery = Delivery::Live);
     void updateTransfer(qint64 id, const QString &state, const QString &path);
     void watchTransfer(qint64 id, QXmppTransferJob *job);
+    // Finds the server's SOCKS5 proxy (XEP-0065) for direct transfers.
+    void discoverProxy();
     void sendFileDirect(const QFileInfo &info);
     void uploadFile(const QFileInfo &info);
     // Sends the link of an uploaded file and returns the message's id.
@@ -270,6 +275,7 @@ private:
     // fetched for previews.
     QSet<QString> m_knownContacts;
     QString m_pickMethod = QStringLiteral("server");
+    QString m_proxy;
     qint64 m_editingId = 0;
     bool m_syncing = false;
     int m_archivedUnread = 0;

@@ -21,6 +21,7 @@ Item {
     required property string url
     required property bool edited
     required property string preview
+    required property string route
 
     readonly property var ui: theme.colors
 
@@ -41,6 +42,17 @@ Item {
         return qsTr("Failed")
     }
     readonly property bool busy: ["active", "uploading", "downloading"].indexOf(transferState) >= 0
+    // The way a direct transfer goes, as the Python Omajim showed it.
+    readonly property string routeLabel: {
+        switch (route) {
+        case "direct": return qsTr("direct connection")
+        case "socks": return qsTr("SOCKS5 connection")
+        case "proxy-ufw": return qsTr("through the server's proxy, port blocked by ufw")
+        case "ibb": return qsTr("through the server (IBB)")
+        case "ibb-ufw": return qsTr("through the server (IBB), port blocked by ufw")
+        }
+        return ""
+    }
 
     Text {
         id: senderMeasure
@@ -170,7 +182,10 @@ Item {
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: line.fileSize !== "" ? "%1 · %2".arg(line.fileSize).arg(line.stateLabel) : line.stateLabel
+                        text: [line.fileSize, line.stateLabel,
+                               ["offered", "active", "done"].indexOf(line.transferState) >= 0 ? line.routeLabel : ""]
+                              .filter(part => part !== "").join(" · ")
+                        wrapMode: Text.Wrap
                         color: line.transferState === "failed" ? line.ui.error : line.ui.muted
                         font.pixelSize: 12
                     }

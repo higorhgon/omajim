@@ -14,6 +14,7 @@ HEADERS += \
     src/contactmodel.h \
     src/filepicker.h \
     src/files.h \
+    src/firewall.h \
     src/gajimimport.h \
     src/history.h \
     src/instance.h \
@@ -33,6 +34,7 @@ SOURCES += \
     src/backend.cpp \
     src/contactmodel.cpp \
     src/files.cpp \
+    src/firewall.cpp \
     src/gajimimport.cpp \
     src/history.cpp \
     src/instance.cpp \

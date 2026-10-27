@@ -28,6 +28,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case SenderRole: return entry.sender;
     case UrlRole: return entry.url;
     case EditedRole: return entry.edited;
+    case RouteRole: return m_routes.value(entry.id);
     case PreviewRole: return m_previews.contains(entry.id) ? QUrl::fromLocalFile(m_previews.value(entry.id)).toString() : QString();
     }
     return {};
@@ -39,7 +40,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {FileSizeRole, "fileSize"}, {StateRole, "transferState"}, {ProgressRole, "progress"},
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
             {UrlRole, "url"}, {EditedRole, "edited"},
-            {PreviewRole, "preview"}};
+            {PreviewRole, "preview"}, {RouteRole, "route"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -107,6 +108,13 @@ void MessageModel::setPreview(qint64 id, const QString &path) {
     const int row = rowOf(id);
     if (row >= 0)
         emit dataChanged(index(row), index(row), {PreviewRole});
+}
+
+void MessageModel::setRoute(qint64 id, const QString &route) {
+    m_routes.insert(id, route);
+    const int row = rowOf(id);
+    if (row >= 0)
+        emit dataChanged(index(row), index(row), {RouteRole});
 }
 
 QString MessageModel::url(qint64 id) const {

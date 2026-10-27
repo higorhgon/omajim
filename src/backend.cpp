@@ -21,6 +21,8 @@
 #include <QXmppClient.h>
 #include <QXmppConfiguration.h>
 #include <QXmppMamManager.h>
+#include <QXmppDiscoveryIq.h>
+#include <QXmppDiscoveryManager.h>
 #include <QXmppHttpUploadManager.h>
 #include <QXmppLogger.h>
 #include <QXmppMessage.h>
@@ -41,6 +43,7 @@
 
 #include "filepicker.h"
 #include "files.h"
+#include "firewall.h"
 #include "gajimimport.h"
 #include "notifier.h"
 #include "rosterstore.h"
@@ -255,6 +258,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             // Whatever arrived while we were away, or went through another
             // of the account's devices.
             syncArchive(m_settings.value("archive/" + m_jid + "/last").toString().isEmpty());
+            discoverProxy();
             // The bookmarks bring their rooms back too, but a server without
             // bookmarks still has the rooms joined in this session.
             for (auto it = m_rooms.cbegin(); it != m_rooms.cend(); ++it)
@@ -1071,6 +1075,24 @@ void Backend::sendFileDirect(const QFileInfo &info) {
                      .arg(currentChatName()));
         return;
     }
+    // The contact connects to us on our port, unless ufw drops it: then the
+    // server's proxy carries the file, or, without one, the XMPP stream
+    // itself (IBB), slow but sure to pass.
+    const auto blocked = Firewall().isIncomingPortBlocked(directTransferPort(), "tcp", Firewall::localAddresses());
+    QString route = "direct";
+    m_transfers->setProxy(m_proxy);
+    m_transfers->setProxyOnly(false);
+    m_transfers->setSupportedMethods(QXmppTransferJob::AnyMethod);
+    if (blocked.value_or(false)) {
+        if (!m_proxy.isEmpty()) {
+            m_transfers->setProxyOnly(true);
+            route = "proxy-ufw";
+        } else {
+            m_transfers->setSupportedMethods(QXmppTransferJob::InBandMethod);
+            route = "ibb-ufw";
+        }
+    }
+    trace(QStringLiteral("si: sending %1 (%2)").arg(info.fileName(), route));
     QXmppTransferJob *job = m_transfers->sendFile(m_currentChat + "/" + resource, info.absoluteFilePath());
     if (!job) {
         setError(tr("The transfer of %1 couldn't start.").arg(info.fileName()));
@@ -1089,7 +1111,8 @@ void Backend::sendFileDirect(const QFileInfo &info) {
         job->abort();
         return;
     }
-    m_jobs.insert(entry.id, {job, entry.peer, entry.filePath, {}, false});
+    m_jobs.insert(entry.id, {job, entry.peer, entry.filePath, {}, false, route});
+    m_messages.setRoute(entry.id, route);
     watchTransfer(entry.id, job);
 }
 
@@ -1297,9 +1320,21 @@ void Backend::openFile(const QString &path) {
 }
 
 void Backend::watchTransfer(qint64 id, QXmppTransferJob *job) {
-    connect(job, &QXmppTransferJob::stateChanged, this, [this, id](QXmppTransferJob::State state) {
-        if (state == QXmppTransferJob::TransferState)
-            updateTransfer(id, "active", m_jobs.value(id).finalPath);
+    connect(job, &QXmppTransferJob::stateChanged, this, [this, id, job](QXmppTransferJob::State state) {
+        if (state != QXmppTransferJob::TransferState)
+            return;
+        // Now the method is settled: what the other side picked of what we offered.
+        auto it = m_jobs.find(id);
+        if (it != m_jobs.end()) {
+            const bool ufw = it->route.endsWith("-ufw");
+            if (job->method() == QXmppTransferJob::InBandMethod)
+                it->route = ufw ? "ibb-ufw" : "ibb";
+            else if (job->direction() == QXmppTransferJob::IncomingDirection)
+                it->route = "socks";
+            m_messages.setRoute(id, it->route);
+            trace(QStringLiteral("si: transferring by %1").arg(it->route));
+        }
+        updateTransfer(id, "active", m_jobs.value(id).finalPath);
     });
     connect(job, &QXmppTransferJob::progress, this, [this, id](qint64 done, qint64 total) {
         if (total > 0)
@@ -1327,6 +1362,12 @@ void Backend::finishTransfer(qint64 id) {
                 state = "failed";
                 setError(tr("%1 arrived but couldn't be renamed from %2.").arg(path, it->partPath));
                 path = it->partPath;
+            } else if (m_notifier && m_status != "dnd") {
+                m_notifier->notify("file:" + path, tr("File received"),
+                                   tr("%1 from %2 is in %3.")
+                                       .arg(QFileInfo(path).fileName(),
+                                            ContactModel::displayName(it->peer, m_contacts.contact(it->peer).name),
+                                            QFileInfo(path).absolutePath()));
             }
         }
     } else {
@@ -1772,4 +1813,29 @@ void Backend::closeConversation(const QString &jid) {
     m_contacts.setOpen(bare, false);
     if (bare == m_currentChat)
         closeChat();
+}
+
+void Backend::discoverProxy() {
+    auto *disco = m_client->findExtension<QXmppDiscoveryManager>();
+    if (!disco)
+        return;
+    const QString account = m_jid;
+    disco->items(QXmppUtils::jidToDomain(m_jid)).then(this, [this, disco, account](QXmpp::Result<QList<QXmppDiscoItem>> &&result) {
+        if (account != m_jid || !std::holds_alternative<QList<QXmppDiscoItem>>(result))
+            return;
+        for (const QXmppDiscoItem &item : std::get<QList<QXmppDiscoItem>>(result)) {
+            disco->info(item.jid()).then(this, [this, account, jid = item.jid()](QXmpp::Result<QXmppDiscoInfo> &&info) {
+                if (account != m_jid || !m_proxy.isEmpty() || !std::holds_alternative<QXmppDiscoInfo>(info))
+                    return;
+                for (const QXmppDiscoIdentity &identity : std::get<QXmppDiscoInfo>(info).identities()) {
+                    if (identity.category() == "proxy" && identity.type() == "bytestreams") {
+                        m_proxy = jid;
+                        m_transfers->setProxy(jid);
+                        trace("si: proxy " + jid);
+                        return;
+                    }
+                }
+            });
+        }
+    });
 }
