@@ -1,0 +1,76 @@
+# Omajim
+
+![Omajim mostrando uma conversa com mensagens e arquivos](docs/screenshot.png)
+
+Cliente XMPP para o [Omarchy](https://omarchy.org), feito em C++ e Qt Quick
+sobre a biblioteca [QXmpp](https://github.com/qxmpp-project/qxmpp). Uma
+janela: seus contatos à esquerda e a conversa à direita.
+
+- Conversas 1:1 com histórico local (SQLite), notificações na área de
+  trabalho e cópia das mensagens enviadas de outros dispositivos (carbons).
+- Envio e recebimento de arquivos por SI (XEP-0096), compatível com o Pidgin,
+  por conexão direta (SOCKS5) ou pelo servidor (IBB). Arraste um arquivo para
+  a conversa para enviá-lo. Os arquivos recebidos vão para a pasta de
+  Downloads, chegam como `.part` e só ganham o nome final quando estão
+  completos. Um arquivo que já existe nunca é substituído.
+- A senha fica no chaveiro da sessão (Secret Service, via `secret-tool`),
+  nunca num arquivo de configuração.
+- Segue a cor de destaque do tema do Omarchy, o arredondamento das janelas do
+  Hyprland e o idioma escolhido em Setup > Language, tudo ao vivo.
+- Certificados autoassinados: o Omajim mostra a impressão digital SHA-256 e
+  só se autentica depois que você confia no certificado.
+
+Esta é a reescrita do Omajim. O cliente anterior, em Python e GTK e baseado
+no Gajim, continua na branch `main`.
+
+## Atalhos
+
+| Tecla | Ação |
+| --- | --- |
+| Ctrl+K | Buscar contatos |
+| Alt+↑ / Alt+↓ (ou Ctrl+Tab) | Conversa anterior ou seguinte |
+| Enter | Enviar a mensagem |
+| Shift+Enter | Nova linha na mensagem |
+| Ctrl+O | Enviar um arquivo |
+| Ctrl+N | Adicionar um contato |
+| Ctrl+W | Fechar a conversa |
+| F1 ou Ctrl+/ | Mostrar os atalhos |
+| Ctrl+Q | Sair |
+
+Num app de chat, teclas sozinhas como `?` e `Q` cairiam no campo de
+mensagem, por isso todos os atalhos usam um modificador ou uma tecla de
+função.
+
+## Firewall para o envio direto
+
+No envio direto, quem recebe se conecta no computador de quem envia, na
+porta TCP 28011 (a mesma do Omajim em Python). Com o `ufw` ativo, como no
+Omarchy, essa porta vem bloqueada e a transferência falha com uma mensagem na
+janela. Libere a porta na máquina que envia, de preferência só para a rede
+local (troque a faixa pela da sua rede):
+
+```sh
+sudo ufw allow from 192.168.0.0/24 to any port 28011 proto tcp
+```
+
+Se outro programa estiver usando a 28011, o Omajim escuta numa porta livre
+qualquer, e aí a regra acima não vale.
+
+## Desenvolvimento
+
+Precisa de `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qxmpp` e
+`libsecret`.
+
+```sh
+bin/build          # compila em build/omajim
+bin/test           # roda os testes offscreen
+bin/install        # gera e instala o pacote (substitui o omajim-git)
+```
+
+Para compilar sem instalar o `qxmpp`, aponte `QXMPP_ROOT` para o pacote
+extraído (o diretório que contém `usr/`) e rode com `LD_LIBRARY_PATH`
+apontando para `$QXMPP_ROOT/usr/lib`.
+
+Os dados ficam em `~/.config/omajim/omajim.conf` e
+`~/.local/share/omajim/accounts/<conta>/history.sqlite`, separados dos
+arquivos do Omajim em Python.

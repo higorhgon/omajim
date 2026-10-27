@@ -1,0 +1,14 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="AccentButton.qml">AccentButton.qml</file>
+        <file alias="SignInView.qml">SignInView.qml</file>
+        <file alias="ContactPane.qml">ContactPane.qml</file>
+        <file alias="ChatPane.qml">ChatPane.qml</file>
+        <file alias="ChatLine.qml">ChatLine.qml</file>
+        <file alias="PresenceDot.qml">PresenceDot.qml</file>
+        <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>
+        <file alias="i18n/en.json">i18n/en.json</file>
+        <file alias="i18n/pt-BR.json">i18n/pt-BR.json</file>
+    </qresource>
+</RCC>

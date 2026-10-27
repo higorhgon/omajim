@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Omajim
+Comment=Chat with your XMPP contacts and send them files
+Comment[pt_BR]=Converse com seus contatos XMPP e envie arquivos para eles
+Exec=omajim
+Icon=omajim
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=xmpp;jabber;chat;
+StartupWMClass=omajim
