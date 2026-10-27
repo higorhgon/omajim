@@ -107,7 +107,7 @@ Item {
     Text {
         id: senderMeasure
         visible: false
-        text: line.outgoing ? "" : line.sender
+        text: line.sender
         font.pixelSize: 12
         font.bold: true
     }
@@ -147,9 +147,10 @@ Item {
             anchors.rightMargin: 14
             spacing: 4
 
-            // In a group chat, who wrote it, in a color that stays theirs.
+            // In a group chat, who wrote it, in a color that stays theirs;
+            // our own nickname too, as Gajim shows it.
             Label {
-                visible: !line.outgoing && line.sender !== ""
+                visible: line.sender !== ""
                 text: line.sender
                 font.pixelSize: 12
                 font.bold: true
