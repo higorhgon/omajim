@@ -302,6 +302,7 @@ signals:
     void ownNicknameChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
+    void currentChatReselected();
     void accountsChanged();
     void enabledChanged();
     void savePasswordChanged();

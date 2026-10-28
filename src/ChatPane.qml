@@ -62,7 +62,7 @@ Rectangle {
         const row = backend.revealMessage(searchHits[searchIndex])
         if (row < 0)
             return
-        messages.positionViewAtIndex(row, ListView.Center)
+        messages.showRow(row)
         Qt.callLater(() => {
             const item = messages.itemAtIndex(row)
             const found = item ? item.findText(searchField.text) : null
@@ -94,8 +94,10 @@ Rectangle {
     }
 
     function send() {
-        if (backend.sendMessage(composer.text))
-            composer.clear()
+        if (backend.sendComposed(composerFormat.runs(composer.textDocument))) {
+            setComposerText("")
+            messages.toEnd()
+        }
     }
 
     // The message field is rich text: what goes in from outside goes in as
@@ -367,6 +369,7 @@ Rectangle {
 
         ListView {
             id: messages
+            objectName: "messages"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -485,6 +488,7 @@ Rectangle {
                                                  Math.min(messages.contentY + messages.scrollSpeed,
                                                           messages.originY + messages.contentHeight - messages.height + messages.bottomMargin))
                     messages.extendSelection(messages.lastPointer)
+                    messages.followEnd = messages.distanceToEnd < 24
                 }
             }
             // Another conversation starts with nothing selected.
@@ -493,13 +497,108 @@ Rectangle {
                 target: backend
                 function onCurrentChatChanged() { messages.clearTextSelection() }
             }
-            ScrollBar.vertical: ScrollBar {}
+            ScrollBar.vertical: ScrollBar {
+                id: messagesBar
+                onPressedChanged: if (!pressed) messages.followEnd = messages.distanceToEnd < 24
+            }
             delegate: ChatLine {}
 
-            onCountChanged: Qt.callLater(positionViewAtEnd)
+            // The conversation stays at its end, as lines come and as they
+            // settle into their height (a line laid out after it's placed
+            // would otherwise leave the end a little below), until the
+            // user scrolls up; back at the end, it follows again.
+            property bool followEnd: true
+            // Lines that came while scrolled up, for the button down.
+            property int countWhenLeft: 0
+            readonly property real distanceToEnd: originY + contentHeight + bottomMargin - contentY - height
+            function toEnd() {
+                followEnd = true
+                // positionViewAtEnd() leaves out the bottom margin, a bit
+                // short of the end; then the rest of the way.
+                positionViewAtEnd()
+                contentY = Math.max(originY - topMargin, originY + contentHeight + bottomMargin - height)
+            }
+            function showRow(row) {
+                followEnd = false
+                positionViewAtIndex(row, ListView.Center)
+            }
+            onFollowEndChanged: if (!followEnd) countWhenLeft = count
+            // The wheel scrolls without "movement ended": up leaves the end,
+            // down to it follows again. Only watched; the list scrolls.
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.NoButton
+                onWheel: wheel => {
+                    wheel.accepted = false
+                    if (wheel.angleDelta.y > 0 || wheel.pixelDelta.y > 0)
+                        messages.followEnd = false
+                    else
+                        Qt.callLater(() => messages.followEnd = messages.distanceToEnd < 24)
+                }
+            }
+            onMovementEnded: followEnd = distanceToEnd < 24
+            onCountChanged: if (followEnd) Qt.callLater(toEnd)
+            onContentHeightChanged: if (followEnd) Qt.callLater(toEnd)
+            onHeightChanged: if (followEnd) Qt.callLater(toEnd)
             Connections {
                 target: backend
-                function onCurrentChatChanged() { Qt.callLater(messages.positionViewAtEnd) }
+                function onCurrentChatChanged() { Qt.callLater(messages.toEnd) }
+                function onCurrentChatReselected() { messages.toEnd() }
+            }
+
+            // Back to the end, as ZapFast has it, with how many lines came
+            // meanwhile.
+            AppButton {
+                id: toEndButton
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                // Its right edge with the bubbles' (ChatLine's 20).
+                anchors.rightMargin: 20
+                anchors.bottomMargin: 12
+                width: 40
+                height: 40
+                padding: 0
+                visible: messages.count > 0 && messages.distanceToEnd > messages.height / 3
+                Accessible.name: qsTr("Go to the newest message")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Go to the newest message")
+                background: Rectangle {
+                    radius: theme.radius
+                    color: toEndButton.hovered ? Qt.tint(pane.ui.panel, pane.ui.hover) : pane.ui.panel
+                    border.color: pane.ui.border
+                }
+                contentItem: Item {
+                    AppIcon {
+                        anchors.centerIn: parent
+                        width: 20
+                        height: 20
+                        name: "chevron-down"
+                        color: pane.ui.foreground
+                    }
+                }
+                onClicked: messages.toEnd()
+
+                Rectangle {
+                    readonly property int fresh: messages.count - messages.countWhenLeft
+                    visible: !messages.followEnd && fresh > 0
+                    anchors.horizontalCenter: parent.right
+                    anchors.verticalCenter: parent.top
+                    anchors.horizontalCenterOffset: -6
+                    anchors.verticalCenterOffset: 6
+                    width: Math.max(18, freshLabel.implicitWidth + 8)
+                    height: 18
+                    radius: 9
+                    color: theme.colors.accent
+                    Label {
+                        id: freshLabel
+                        anchors.centerIn: parent
+                        text: parent.fresh
+                        color: theme.colors.accentText
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                    }
+                }
             }
 
             Label {

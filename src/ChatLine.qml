@@ -129,8 +129,13 @@ Item {
         id: bubble
         x: line.outgoing ? line.width - width - 20 : 20
         // Sized from the text laid out on one line, so short messages get a
-        // snug bubble and long ones wrap at the maximum width.
+        // snug bubble and long ones wrap at the maximum width. Until the
+        // measure is laid out (Text only does it once the line is complete)
+        // the widest: born narrow, a long link would wrap into a line many
+        // times its height, and the list, placing it at the end, would keep
+        // recreating it as it shrinks, without end.
         width: Math.min(line.width * 0.72, line.kind === "file" ? 420
+                        : measure.implicitWidth <= 0 ? line.width * 0.72
                         : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2,
                                    line.reply && line.reply.id ? 220 : 64, reactionRow.implicitWidth,
                                    Math.ceil(stampRow.implicitWidth) + 2) + 28)
@@ -208,7 +213,7 @@ Item {
                     onTapped: {
                         const row = backend.messages.rowOfMessage(line.reply.id)
                         if (row >= 0)
-                            line.ListView.view.positionViewAtIndex(row, ListView.Center)
+                            line.ListView.view.showRow(row)
                     }
                 }
             }

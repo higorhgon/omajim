@@ -1459,6 +1459,13 @@ void Backend::openChat(const QString &jid) {
     const QString bare = normalizedJid(jid);
     if (bare.isEmpty())
         return;
+    // The one open already stays as it is, scrolled to its end.
+    if (bare == m_currentChat) {
+        if (m_windowActive)
+            m_contacts.clearUnread(bare);
+        emit currentChatReselected();
+        return;
+    }
     if (bare != m_currentChat && (m_sentState == QXmppMessage::Composing || m_sentState == QXmppMessage::Paused))
         sendChatState(QXmppMessage::Active);
     m_pauseTimer->stop();
