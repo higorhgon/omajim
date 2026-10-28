@@ -5,7 +5,8 @@ O que ainda falta para a versão C++/Qt substituir o Omajim em Python
 servidor, correções, links e prévias, importação do histórico do Gajim, SI com
 proxy e ufw, apelidos locais, busca aproximada e Ctrl+T, seleção de mensagens,
 identificação como Omajim, formatação, reações e respostas, ausência
-automática, grupos de contatos, Ctrl+F e colar arquivos.
+automática, grupos de contatos, Ctrl+F, colar arquivos, seletor de emoji e
+seleção de texto e de mensagens como no ZapFast.
 
 ## Planejado
 
@@ -20,6 +21,25 @@ Nesta ordem:
 3. **OMEMO** (XEP-0384), por último: a equipe ainda não usa. O QXmpp tem
    `QXmppOmemoManager`, que depende do QCA e de guardar as chaves.
 
+## A implementar
+
+Pedidos para o uso do dia a dia, sem ordem definida:
+
+- Ocultar o menu lateral
+- Botão de responder em cada mensagem (as respostas já funcionam; falta o
+  botão)
+- Janela de preferências (hoje os ajustes ficam em `omajim.conf`)
+- Encaminhar uma mensagem para outra conversa
+- Opção de a janela ganhar foco ao receber uma mensagem
+- Clicar na notificação abre o Omajim, já na conversa da mensagem recebida
+
+Vindo do Pidgin:
+
+- Figurinhas por texto: trocar códigos como `:)` por uma imagem, como os
+  temas de smileys do Pidgin
+- Botões de formatação no campo de mensagem (negrito, itálico etc.). O app já
+  mostra a formatação recebida (XEP-0393); falta ajudar a escrever
+
 ## Ainda não portado do Gajim
 
 Coisas que o Gajim tem e o Omajim (Qt) não. Não sabemos se a equipe usa cada
@@ -32,9 +52,7 @@ uma; confirmar antes de portar.
 - Trocar a senha da conta
 - Bloquear contatos (XEP-0191)
 - Apagar e moderar mensagens (XEP-0424/0425)
-- Janela de preferências (hoje os ajustes ficam em `omajim.conf`)
 - Corretor ortográfico no campo de mensagem
-- Seletor de emoji
 - Comandos ad-hoc (XEP-0050) e descoberta de serviços
 - Criar uma conta nova no servidor (XEP-0077)
 
