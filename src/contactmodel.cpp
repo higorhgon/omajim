@@ -266,12 +266,37 @@ int ContactModel::fuzzyScore(const QString &needle, const QString &haystack) {
 }
 
 void ContactModel::rebuild() {
+    const QStringList rows = ordered(m_filter, m_browsing);
+    if (rows == m_rows) {
+        for (const QString &jid : rows)
+            refreshRow(jid);
+        return;
+    }
+    const bool countChanges = rows.size() != m_rows.size();
+    beginResetModel();
+    m_rows = rows;
+    endResetModel();
+    if (countChanges)
+        emit countChanged();
+}
+
+QVariantList ContactModel::destinations(const QString &text) const {
+    QVariantList list;
+    for (const QString &jid : ordered(text, false)) {
+        const Contact &contact = *m_contacts.constFind(jid);
+        list << QVariantMap{{"jid", jid}, {"name", nameOf(jid)}, {"presence", contact.presence},
+                            {"avatar", contact.avatar}, {"isRoom", contact.isRoom}};
+    }
+    return list;
+}
+
+QStringList ContactModel::ordered(const QString &filter, bool browsing) const {
     QStringList rows;
     QHash<QString, int> scores;
-    const QString needle = m_filter.trimmed();
+    const QString needle = filter.trimmed();
     for (const Contact &contact : std::as_const(m_contacts)) {
         if (needle.isEmpty()) {
-            if (contact.open || m_browsing)
+            if (contact.open || browsing)
                 rows << contact.jid;
             continue;
         }
@@ -290,14 +315,14 @@ void ContactModel::rebuild() {
     QCollator collator;
     collator.setCaseSensitivity(Qt::CaseInsensitive);
     collator.setNumericMode(true);
-    if (needle.isEmpty() && m_browsing) {
+    if (needle.isEmpty() && browsing) {
         // The whole roster in sections: rooms, the groups in order, then
         // people without one; within each, who's around first.
         auto section = [](const Contact &c) {
             return c.isRoom ? QStringLiteral("0") : c.groups.isEmpty() ? QStringLiteral("2") : "1" + c.groups.first();
         };
         std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
-            const Contact &ca = m_contacts[a], &cb = m_contacts[b];
+            const Contact &ca = *m_contacts.constFind(a), &cb = *m_contacts.constFind(b);
             const int bySection = collator.compare(section(ca), section(cb));
             if (bySection != 0)
                 return bySection < 0;
@@ -309,13 +334,13 @@ void ContactModel::rebuild() {
     } else if (needle.isEmpty()) {
         // Open conversations: the latest activity first, as in Gajim.
         std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
-            const Contact &ca = m_contacts[a], &cb = m_contacts[b];
+            const Contact &ca = *m_contacts.constFind(a), &cb = *m_contacts.constFind(b);
             if (ca.lastActivity != cb.lastActivity)
                 return ca.lastActivity > cb.lastActivity;
             return collator.compare(nameOf(ca.jid), nameOf(cb.jid)) < 0;
         });
     } else std::sort(rows.begin(), rows.end(), [&](const QString &a, const QString &b) {
-        const Contact &ca = m_contacts[a], &cb = m_contacts[b];
+        const Contact &ca = *m_contacts.constFind(a), &cb = *m_contacts.constFind(b);
         // The closest match first; among equals, people who are around.
         if (scores.value(a) != scores.value(b))
             return scores.value(a) > scores.value(b);
@@ -325,18 +350,7 @@ void ContactModel::rebuild() {
         const int order = collator.compare(nameOf(ca.jid), nameOf(cb.jid));
         return order != 0 ? order < 0 : a < b;
     });
-
-    if (rows == m_rows) {
-        for (const QString &jid : rows)
-            refreshRow(jid);
-        return;
-    }
-    const bool countChanges = rows.size() != m_rows.size();
-    beginResetModel();
-    m_rows = rows;
-    endResetModel();
-    if (countChanges)
-        emit countChanged();
+    return rows;
 }
 
 void ContactModel::refreshRow(const QString &jid) {

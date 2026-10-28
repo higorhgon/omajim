@@ -595,6 +595,29 @@ private slots:
         QVERIFY(backend.startEditingLast().isEmpty());
     }
 
+    void destinationsFollowTheSidebarOrder() {
+        ContactModel model;
+        model.upsert("zoe@example.org", "Zoe");
+        model.upsert("adam@example.org", "Adam");
+        model.upsert("bea@example.org", "Bea");
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        model.setActivity("adam@example.org", now.addSecs(-60), "older", false);
+        model.setActivity("zoe@example.org", now, "newer", true);
+        auto jids = [](const QVariantList &list) {
+            QStringList out;
+            for (const QVariant &item : list)
+                out << item.toMap().value("jid").toString();
+            return out;
+        };
+        // Nothing typed: the open conversations, newest first.
+        QCOMPARE(jids(model.destinations("")), (QStringList{"zoe@example.org", "adam@example.org"}));
+        // Typed: anyone, the sidebar's own search untouched.
+        QCOMPARE(jids(model.destinations("bea")), QStringList{"bea@example.org"});
+        QCOMPARE(model.filter(), QString());
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.destinations("adam").first().toMap().value("name").toString(), QString("Adam"));
+    }
+
     void rosterIsKeptBetweenRuns() {
         QTemporaryDir dir;
         History history;

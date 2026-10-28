@@ -1989,6 +1989,49 @@ void Backend::copySelectedMessages() {
         QGuiApplication::clipboard()->setText(text);
 }
 
+void Backend::forwardSelected(const QString &jid) {
+    const QList<HistoryEntry> entries = m_messages.selectedEntries();
+    if (entries.isEmpty() || jid.isEmpty())
+        return;
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so nothing was forwarded."));
+        return;
+    }
+    m_messages.clearSelection();
+    openChat(jid);
+    cancelEditing();
+    cancelReply();
+    const bool room = m_rooms.contains(jid);
+    bool missing = false;
+    for (const HistoryEntry &original : entries) {
+        if (original.kind == "text") {
+            sendMessage(original.body);
+        } else if (!original.url.isEmpty()) {
+            // Already on the server: the link is enough.
+            HistoryEntry entry;
+            entry.peer = jid;
+            entry.outgoing = true;
+            entry.kind = "file";
+            entry.body = original.body;
+            entry.fileSize = original.fileSize;
+            entry.url = original.url;
+            entry.state = "done";
+            if (original.state == "done")
+                entry.filePath = original.filePath;
+            if (room)
+                entry.sender = roomNickname(jid);
+            entry.xmppId = sendFileLink(jid, QUrl(original.url));
+            addEntry(entry);
+        } else if (original.state == "done" && QFileInfo(original.filePath).isReadable()) {
+            sendFile(original.filePath, serverUploadAvailable() || room ? "server" : "direct");
+        } else {
+            missing = true;
+        }
+    }
+    if (missing)
+        setError(tr("Some files weren't forwarded: they're neither on the server nor on this computer."));
+}
+
 QString Backend::targetId(const HistoryEntry &entry) const {
     if (m_rooms.contains(entry.peer) && !entry.archiveId.isEmpty())
         return entry.archiveId;

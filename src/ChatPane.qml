@@ -515,6 +515,12 @@ Rectangle {
                 onClicked: backend.messages.clearSelection()
             }
             AppButton {
+                flat: true
+                implicitHeight: 32
+                text: qsTr("Forward")
+                onClicked: forwardDialog.open()
+            }
+            AppButton {
                 primary: true
                 font.bold: false
                 implicitHeight: 32
@@ -674,6 +680,93 @@ Rectangle {
 
     EmojiPicker {
         id: emojiPicker
+    }
+
+    // Where to forward the picked messages, as ZapFast asks: the recent
+    // conversations, or any contact or room by name.
+    AppDialog {
+        id: forwardDialog
+        property var destinations: []
+
+        title: qsTr("Forward %n messages", "", backend.messages.selectedCount)
+        subtitle: qsTr("They go as new messages, and the conversation opens.")
+        acceptText: qsTr("Forward")
+        acceptEnabled: destinationList.currentIndex >= 0
+        onAboutToShow: {
+            forwardSearch.text = ""
+            destinations = backend.contacts.destinations("")
+            destinationList.currentIndex = destinations.length > 0 ? 0 : -1
+            forwardSearch.forceActiveFocus()
+        }
+        onClosed: composer.forceActiveFocus()
+        onAccepted: backend.forwardSelected(destinations[destinationList.currentIndex].jid)
+
+        AppTextField {
+            id: forwardSearch
+            Layout.fillWidth: true
+            placeholderText: qsTr("Search contacts")
+            onTextChanged: {
+                forwardDialog.destinations = backend.contacts.destinations(text)
+                destinationList.currentIndex = forwardDialog.destinations.length > 0 ? 0 : -1
+            }
+            Keys.onReturnPressed: forwardDialog.accept()
+            Keys.onEnterPressed: forwardDialog.accept()
+            Keys.onDownPressed: destinationList.incrementCurrentIndex()
+            Keys.onUpPressed: destinationList.decrementCurrentIndex()
+        }
+        ListView {
+            id: destinationList
+            Layout.fillWidth: true
+            Layout.preferredHeight: 280
+            clip: true
+            model: forwardDialog.destinations
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
+            delegate: Rectangle {
+                id: destination
+                required property var modelData
+                required property int index
+                width: ListView.view.width
+                height: 44
+                radius: Math.min(4, theme.radius)
+                color: ListView.isCurrentItem ? pane.ui.hover : "transparent"
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    spacing: 10
+                    ContactAvatar {
+                        implicitWidth: 28
+                        implicitHeight: 28
+                        jid: destination.modelData.jid
+                        name: destination.modelData.name
+                        source: destination.modelData.avatar
+                        presence: destination.modelData.presence
+                        isRoom: destination.modelData.isRoom
+                        ringColor: destination.ListView.isCurrentItem ? pane.ui.hover : pane.ui.panel
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: destination.modelData.name
+                        color: pane.ui.foreground
+                        elide: Text.ElideRight
+                    }
+                }
+                TapHandler {
+                    onTapped: destinationList.currentIndex = destination.index
+                    onDoubleTapped: {
+                        destinationList.currentIndex = destination.index
+                        forwardDialog.accept()
+                    }
+                }
+            }
+            Label {
+                anchors.centerIn: parent
+                visible: forwardDialog.destinations.length === 0
+                text: qsTr("No contact matches “%1”.").arg(forwardSearch.text)
+                color: pane.ui.muted
+            }
+        }
     }
 
     AppDialog {

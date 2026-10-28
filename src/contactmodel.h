@@ -83,6 +83,10 @@ public:
     Contact contact(const QString &jid) const { return m_contacts.value(jid); }
 
     Q_INVOKABLE QString jidAt(int row) const;
+    // Where to send something, apart from the sidebar's own search: the
+    // open conversations, or what matches the text, in the sidebar's order,
+    // as {jid, name, presence, avatar, isRoom}.
+    Q_INVOKABLE QVariantList destinations(const QString &text) const;
     Q_INVOKABLE int rowOf(const QString &jid) const;
 
     static QString displayName(const QString &jid, const QString &name);
@@ -98,6 +102,9 @@ signals:
 
 private:
     void rebuild();
+    // The rows for a search, or for none: the open conversations, or with
+    // browsing every contact and room.
+    QStringList ordered(const QString &filter, bool browsing) const;
     void refreshRow(const QString &jid);
 
     QHash<QString, Contact> m_contacts;

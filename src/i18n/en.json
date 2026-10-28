@@ -19,6 +19,10 @@
     "one": "%n person",
     "other": "%n people"
   },
+  "Forward %n messages": {
+    "one": "Forward %n message",
+    "other": "Forward %n messages"
+  },
   "Send %n files to %1?": {
     "one": "Send %n file to %1?",
     "other": "Send %n files to %1?"

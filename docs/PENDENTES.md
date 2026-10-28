@@ -27,7 +27,6 @@ Pedidos para o uso do dia a dia, sem ordem definida:
 
 - Ocultar o menu lateral
 - Janela de preferências (hoje os ajustes ficam em `omajim.conf`)
-- Encaminhar uma mensagem para outra conversa
 - Opção de a janela ganhar foco ao receber uma mensagem
 - Clicar na notificação abre o Omajim, já na conversa da mensagem recebida
 

@@ -128,6 +128,10 @@ public:
     // Up in an empty message field: our last line comes back to be
     // corrected (XEP-0308), and the next send replaces it.
     Q_INVOKABLE QString startEditingLast();
+    // Sends the picked messages again to another conversation, and opens
+    // it: texts as they are, files by their link on the server, or from
+    // this computer when they have none.
+    Q_INVOKABLE void forwardSelected(const QString &jid);
     Q_INVOKABLE void cancelEditing();
     // Answering a line (XEP-0461): the next message quotes it.
     Q_INVOKABLE void startReply(qint64 messageId);
