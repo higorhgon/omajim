@@ -358,8 +358,19 @@ Rectangle {
                 textEnd = null
                 textSelectionChanged()
             }
-            // The pointer, in this view's coordinates, moved while selecting.
-            function extendTextSelection(point) {
+            // Shift+drag: the message it began on, picking every message
+            // from there to the pointer; -1 when not picking.
+            property var pickFrom: -1
+            function startPicking(messageId) {
+                pickFrom = messageId
+            }
+            function stopPicking() {
+                pickFrom = -1
+            }
+
+            // The pointer, in this view's coordinates, moved while selecting
+            // text or picking messages.
+            function extendSelection(point) {
                 lastPointer = point
                 // Near the top or bottom edge the conversation scrolls along.
                 scrollSpeed = point.y < 32 ? -Math.min(24, (32 - point.y) / 2 + 4)
@@ -367,7 +378,14 @@ Rectangle {
                 const y = Math.max(1, Math.min(height - 2, point.y))
                 // Between two bubbles, the one just below counts.
                 const item = itemAt(point.x + contentX, y + contentY) || itemAt(point.x + contentX, y + contentY + spacing)
-                if (!item || item.textPosition === undefined || textStart === null)
+                if (!item || item.textPosition === undefined)
+                    return
+                if (pickFrom >= 0) {
+                    backend.messages.dragRange(pickFrom, item.messageId)
+                    selectionAnchor = item.messageId
+                    return
+                }
+                if (textStart === null)
                     return
                 const local = mapToItem(item, point.x, y)
                 textEnd = {row: item.index, pos: item.textPosition(local.x, local.y)}
@@ -399,7 +417,7 @@ Rectangle {
                     messages.contentY = Math.max(messages.originY - messages.topMargin,
                                                  Math.min(messages.contentY + messages.scrollSpeed,
                                                           messages.originY + messages.contentHeight - messages.height + messages.bottomMargin))
-                    messages.extendTextSelection(messages.lastPointer)
+                    messages.extendSelection(messages.lastPointer)
                 }
             }
             // Another conversation starts with nothing selected.
@@ -472,7 +490,7 @@ Rectangle {
             spacing: 10
             Label {
                 Layout.fillWidth: true
-                text: qsTr("%n messages selected · Shift+click adds or removes", "", backend.messages.selectedCount)
+                text: qsTr("%n messages selected · Shift+click or drag adds or removes", "", backend.messages.selectedCount)
                 color: pane.ui.muted
                 font.pixelSize: 13
                 elide: Text.ElideRight

@@ -65,6 +65,10 @@ public:
     // Selects every line from one message to another, in either order.
     Q_INVOKABLE void selectRange(qint64 from, qint64 to);
     Q_INVOKABLE void toggleSelected(qint64 id);
+    // Shift+drag across messages: the selection as it was when the drag
+    // began, plus every line from where it began to where the pointer is.
+    Q_INVOKABLE void holdSelection();
+    Q_INVOKABLE void dragRange(qint64 from, qint64 to);
     Q_INVOKABLE void clearSelection();
     QList<HistoryEntry> selectedEntries() const;
     const QList<HistoryEntry> &entries() const { return m_entries; }
@@ -84,6 +88,7 @@ private:
     QHash<qint64, QString> m_previews;
     QHash<qint64, QString> m_routes;
     QSet<qint64> m_selected;
+    QSet<qint64> m_held;
     QHash<qint64, QVariantMap> m_replies;
     QHash<qint64, QVariantList> m_reactions;
 };

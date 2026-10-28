@@ -927,6 +927,17 @@ private slots:
         QVERIFY(lines.at(1).endsWith("] Bob: third"));
 
         // Another conversation starts with nothing selected.
+        // Shift+drag from the second line: the third stays picked, and going
+        // back over a line takes it out again.
+        messages->toggleSelected(id(0));
+        messages->holdSelection();
+        messages->dragRange(id(1), id(0));
+        QCOMPARE(messages->selectedCount(), 3);
+        messages->dragRange(id(1), id(1));
+        QCOMPARE(messages->selectedCount(), 2);
+        QVERIFY(!messages->data(messages->index(0), MessageModel::SelectedRole).toBool());
+        QVERIFY(messages->data(messages->index(2), MessageModel::SelectedRole).toBool());
+
         backend.openChat("carol@example.org");
         QCOMPARE(messages->selectedCount(), 0);
     }

@@ -166,6 +166,26 @@ void MessageModel::toggleSelected(qint64 id) {
     emit selectionChanged();
 }
 
+void MessageModel::holdSelection() {
+    m_held = m_selected;
+}
+
+void MessageModel::dragRange(qint64 from, qint64 to) {
+    int first = rowOf(from), last = rowOf(to);
+    if (first < 0 || last < 0)
+        return;
+    if (first > last)
+        std::swap(first, last);
+    QSet<qint64> selected = m_held;
+    for (int row = first; row <= last; ++row)
+        selected.insert(m_entries.at(row).id);
+    if (selected == m_selected)
+        return;
+    m_selected = selected;
+    emit dataChanged(index(0), index(m_entries.size() - 1), {SelectedRole});
+    emit selectionChanged();
+}
+
 void MessageModel::clearSelection() {
     if (m_selected.isEmpty())
         return;

@@ -34,10 +34,10 @@
     "one": "%n mensagem de %1 em %2.",
     "other": "%n mensagens de %1 em %2."
   },
-  "%n messages selected · Shift+click adds or removes": {
-    "many": "%n de mensagens selecionadas · Shift+clique adiciona ou tira",
-    "one": "%n mensagem selecionada · Shift+clique adiciona ou tira",
-    "other": "%n mensagens selecionadas · Shift+clique adiciona ou tira"
+  "%n messages selected · Shift+click or drag adds or removes": {
+    "many": "%n de mensagens selecionadas · Shift+clique ou arrastar adiciona ou tira",
+    "one": "%n mensagem selecionada · Shift+clique ou arrastar adiciona ou tira",
+    "other": "%n mensagens selecionadas · Shift+clique ou arrastar adiciona ou tira"
   },
   "%n new messages while you were away": {
     "many": "%n de mensagens novas enquanto você estava fora",

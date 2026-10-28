@@ -139,6 +139,13 @@ Item {
         border.color: line.selected ? line.ui.accent : line.outgoing ? Qt.alpha(line.ui.accent, 0.4) : "transparent"
         border.width: line.selected ? 2 : 1
 
+        // The whole bubble of a text selects its text, as in ZapFast: the
+        // text cursor shows wherever a drag would start a selection. Links,
+        // quotes, and reactions keep their own pointer.
+        HoverHandler {
+            cursorShape: line.kind === "text" ? Qt.IBeamCursor : Qt.ArrowCursor
+        }
+
         ColumnLayout {
             id: content
             anchors.fill: parent
@@ -164,6 +171,7 @@ Item {
 
             // The line this one answers; a click scrolls to it.
             Rectangle {
+                id: quote
                 Layout.fillWidth: true
                 visible: !!(line.reply && line.reply.id)
                 implicitHeight: quoteColumn.implicitHeight + 12
@@ -479,9 +487,6 @@ Item {
         }
     }
 
-    // Shift+click picks whole messages: from the last one clicked to this,
-    // or, on one already picked, just leaves it out. A plain click goes on
-    // to the text and buttons underneath and starts a new range.
     // Where a point of this line falls in its text: a character position,
     // the start above the text and the end below it. Lines without text
     // count as wholly inside a selection that runs across them.
@@ -550,39 +555,55 @@ Item {
             }
             const view = line.ListView.view
             // Shift+click picks whole messages: from the last one clicked to
-            // this, or, on one already picked, just leaves it out.
-            if (mouse.modifiers & Qt.ShiftModifier) {
-                if (line.selected)
-                    backend.messages.toggleSelected(line.messageId)
-                else
+            // this, or, on one already picked, just leaves it out (on
+            // release, as a drag from it keeps it). Dragging on picks every
+            // message the pointer passes, as in ZapFast.
+            picking = (mouse.modifiers & Qt.ShiftModifier) !== 0
+            if (picking) {
+                view.clearTextSelection()
+                wasSelected = line.selected
+                if (!line.selected)
                     backend.messages.selectRange(view.selectionAnchor >= 0 ? view.selectionAnchor : line.messageId,
                                                  line.messageId)
                 view.selectionAnchor = line.messageId
                 mouse.accepted = true
                 return
             }
+        // Shift held at the press: this drag picks whole messages, not text.
+        property bool picking: false
+        property bool wasSelected: false
+
+        // Over a part of the bubble with a click of its own.
+        function onControl(x, y) {
+            if (line.kind !== "text")
+                return true
+            const over = item => item.visible && item.contains(mapToItem(item, x, y))
+            return over(quote) || over(reactionRow)
+        }
             view.selectionAnchor = line.messageId
             backend.messages.clearSelection()
-            // On the text: the start of a selection that may run on into
-            // other messages, as in ZapFast.
-            const inText = line.kind === "text" && bodyText.contains(mapToItem(bodyText, mouse.x, mouse.y))
-            if (!inText) {
+            if (onControl(mouse.x, mouse.y)) {
                 // Buttons, files, quotes: theirs to handle.
                 view.clearTextSelection()
+            pressedAt = Qt.point(mouse.x, mouse.y)
+            dragged = false
                 mouse.accepted = false
                 return
             }
-            pressedAt = Qt.point(mouse.x, mouse.y)
-            dragged = false
+            // Anywhere else on a text's bubble: the start of a selection that
+            // may run on into other messages, as in ZapFast. Beside or around
+            // the text it starts at the nearest character.
             const atLine = mapToItem(line, mouse.x, mouse.y)
             view.startTextSelection(line.index, line.textPosition(atLine.x, atLine.y))
         }
         onPositionChanged: mouse => {
+                backend.messages.holdSelection()
+                view.startPicking(line.messageId)
             if (!pressed || mouse.buttons !== Qt.LeftButton)
                 return
             dragged = dragged || Math.abs(mouse.x - pressedAt.x) + Math.abs(mouse.y - pressedAt.y) > 4
             if (dragged)
-                line.ListView.view.extendTextSelection(mapToItem(line.ListView.view, mouse.x, mouse.y))
+                line.ListView.view.extendSelection(mapToItem(line.ListView.view, mouse.x, mouse.y))
         }
         onReleased: mouse => {
             const view = line.ListView.view
@@ -607,6 +628,12 @@ Item {
     }
 
     // Right-click: answer, react, copy.
+            view.stopPicking()
+            if (picking) {
+                if (!dragged && wasSelected)
+                    backend.messages.toggleSelected(line.messageId)
+                return
+            }
     AppMenu {
         id: lineMenu
         readonly property var quick: ["👍", "❤️", "😂", "😮", "😢", "🙏"]
