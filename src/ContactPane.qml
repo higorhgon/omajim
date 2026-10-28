@@ -152,7 +152,7 @@ Rectangle {
                             anchors.centerIn: parent
                             text: segment.modelData.label
                             font.pixelSize: 13
-                            font.bold: segment.active
+                            font.weight: segment.active ? Font.DemiBold : Font.Normal
                             color: segment.active ? pane.ui.selectionText : pane.ui.muted
                         }
                         HoverHandler { id: segmentHover; cursorShape: Qt.PointingHandCursor }
@@ -308,7 +308,7 @@ Rectangle {
                                 text: row.name
                                 color: row.ink
                                 elide: Text.ElideRight
-                                font.weight: row.unread > 0 ? Font.Bold : Font.Normal
+                                font.weight: row.unread > 0 ? Font.DemiBold : Font.Normal
                             }
                             // When the newest line was written: the time
                             // today, the date before.
@@ -354,7 +354,7 @@ Rectangle {
                             text: translator.language, row.unread.toLocaleString(Qt.locale(), 'f', 0)
                             color: pane.ui.accentText
                             font.pixelSize: 11
-                            font.bold: true
+                            font.weight: Font.DemiBold
                         }
                     }
                 }

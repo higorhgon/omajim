@@ -39,7 +39,7 @@ Item {
                     text: qsTr("Sign in")
                     color: view.ui.foreground
                     font.pixelSize: 20
-                    font.bold: true
+                    font.weight: Font.DemiBold
                 }
                 Label {
                     Layout.fillWidth: true

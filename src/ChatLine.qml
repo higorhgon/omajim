@@ -110,7 +110,7 @@ Item {
         visible: false
         text: line.sender
         font.pixelSize: 12
-        font.bold: true
+        font.weight: Font.DemiBold
     }
 
     // Measured as it will show, styling included: code is wider than the
@@ -154,7 +154,7 @@ Item {
                 visible: line.sender !== ""
                 text: line.sender
                 font.pixelSize: 12
-                font.bold: true
+                font.weight: Font.DemiBold
                 color: {
                     let hash = 0
                     for (let i = 0; i < line.sender.length; ++i)
@@ -189,7 +189,7 @@ Item {
                         text: line.reply ? line.reply.name || "" : ""
                         color: line.ui.accent
                         font.pixelSize: 12
-                        font.bold: true
+                        font.weight: Font.DemiBold
                         elide: Text.ElideRight
                     }
                     Label {
@@ -285,9 +285,11 @@ Item {
                         Repeater {
                             model: line.fileActions
                             delegate: IconButton {
+                                id: pictureAction
                                 required property var modelData
                                 implicitWidth: 34
                                 implicitHeight: 34
+                                pointerOver: line.pointerOver(pictureAction)
                                 iconName: modelData.icon
                                 description: modelData.label
                                 ink: "white"
@@ -377,14 +379,18 @@ Item {
                         visible: !line.outgoing && line.transferState === "offered"
                         spacing: 8
                         AppButton {
+                            id: acceptButton
                             primary: true
                             implicitHeight: 32
+                            pointerOver: line.pointerOver(acceptButton)
                             text: qsTr("Accept")
                             onClicked: backend.acceptFile(line.messageId)
                         }
                         AppButton {
+                            id: declineButton
                             flat: true
                             implicitHeight: 32
+                            pointerOver: line.pointerOver(declineButton)
                             text: qsTr("Decline")
                             onClicked: backend.refuseFile(line.messageId)
                         }
@@ -394,8 +400,10 @@ Item {
                 Repeater {
                     model: line.fileActions
                     delegate: IconButton {
+                        id: fileAction
                         required property var modelData
                         Layout.alignment: Qt.AlignVCenter
+                        pointerOver: line.pointerOver(fileAction)
                         iconName: modelData.icon
                         description: modelData.label
                         framed: true
@@ -418,8 +426,9 @@ Item {
                         required property var modelData
                         implicitWidth: chipLabel.implicitWidth + 16
                         implicitHeight: 24
-                        radius: 12
-                        color: modelData.mine ? Qt.alpha(line.ui.accent, 0.25) : line.ui.background
+                        radius: Math.min(4, theme.radius)
+                        readonly property bool lit: line.pointerOver(chip)
+                        color: modelData.mine ? Qt.alpha(line.ui.accent, lit ? 0.4 : 0.25) : lit ? line.ui.hover : line.ui.background
                         border.color: modelData.mine ? line.ui.accent : line.ui.border
                         Label {
                             id: chipLabel
@@ -428,8 +437,7 @@ Item {
                             color: line.ui.foreground
                             font.pixelSize: 12
                         }
-                        HoverHandler { id: chipHover }
-                        ToolTip.visible: chipHover.hovered
+                        ToolTip.visible: lit
                         ToolTip.text: chip.modelData.who
                         TapHandler { onTapped: backend.toggleReaction(line.messageId, chip.modelData.emoji) }
                     }
@@ -439,8 +447,9 @@ Item {
                     id: addChip
                     implicitWidth: 34
                     implicitHeight: 24
-                    radius: 12
-                    color: addHover.hovered ? line.ui.hover : line.ui.background
+                    radius: Math.min(4, theme.radius)
+                    readonly property bool lit: line.pointerOver(addChip)
+                    color: lit ? line.ui.hover : line.ui.background
                     border.color: line.ui.border
                     AppIcon {
                         anchors.centerIn: parent
@@ -449,8 +458,7 @@ Item {
                         name: "smile-plus"
                         color: line.ui.muted
                     }
-                    HoverHandler { id: addHover }
-                    ToolTip.visible: addHover.hovered
+                    ToolTip.visible: lit
                     ToolTip.text: qsTr("Add a reaction")
                     TapHandler { onTapped: line.ListView.view.pickReaction(addChip, line.messageId) }
                 }
@@ -491,14 +499,14 @@ Item {
                 }
                 // The other side's client confirmed it arrived (XEP-0184).
                 AppIcon {
+                    id: deliveredMark
                     visible: line.outgoing && line.delivered
                     implicitWidth: 13
                     implicitHeight: 13
                     name: "check"
                     color: line.ui.accent
-                    ToolTip.visible: deliveredHover.hovered
+                    ToolTip.visible: line.pointerOver(deliveredMark)
                     ToolTip.text: qsTr("Delivered")
-                    HoverHandler { id: deliveredHover }
                 }
             }
         }
@@ -543,6 +551,16 @@ Item {
                 onClicked: backend.startReply(line.messageId)
             }
         }
+    }
+
+    // Whether the pointer is over a part of the bubble. The click area over
+    // the bubble keeps hover from reaching what's under it, so its buttons
+    // and chips light up from this instead.
+    function pointerOver(item) {
+        if (!lineHover.hovered || !item.visible)
+            return false
+        const point = hoverZone.mapToItem(item, lineHover.point.position.x, lineHover.point.position.y)
+        return item.contains(point)
     }
 
     // Where a point of this line falls in its text: a character position,

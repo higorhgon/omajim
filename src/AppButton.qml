@@ -8,13 +8,17 @@ Button {
 
     property bool primary: false
     property bool destructive: false
+    // The pointer is over it, said by whoever covers it with a click area
+    // that keeps hover from reaching it (a message's bubble).
+    property bool pointerOver: false
     readonly property var ui: theme.colors
+    readonly property bool lit: hovered || pointerOver || down
 
     implicitHeight: 38
     leftPadding: 16
     rightPadding: 16
     font.pixelSize: 14
-    font.bold: primary
+    font.weight: primary ? Font.DemiBold : Font.Normal
 
     contentItem: Text {
         text: control.text
@@ -32,8 +36,8 @@ Button {
         implicitWidth: 84
         radius: Math.min(4, theme.radius)
         color: control.primary ? (!control.enabled ? control.ui.border
-                                  : control.hovered || control.down ? control.ui.accentHover : control.ui.accent)
-             : control.hovered || control.down ? control.ui.hover
+                                  : control.lit ? control.ui.accentHover : control.ui.accent)
+             : control.lit ? control.ui.hover
              : control.flat ? "transparent" : control.ui.button
         border.color: control.visualFocus ? (control.primary ? control.ui.foreground : control.ui.accent) : "transparent"
     }

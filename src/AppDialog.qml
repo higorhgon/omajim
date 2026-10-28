@@ -54,7 +54,7 @@ Popup {
                 text: dialog.title
                 color: dialog.ui.foreground
                 font.pixelSize: 20
-                font.bold: true
+                font.weight: Font.DemiBold
                 wrapMode: Text.Wrap
             }
             Label {

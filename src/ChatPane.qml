@@ -161,7 +161,7 @@ Rectangle {
             text: qsTr("Pick a conversation")
             color: pane.ui.foreground
             font.pixelSize: 16
-            font.bold: true
+            font.weight: Font.DemiBold
         }
         Label {
             Layout.alignment: Qt.AlignHCenter
@@ -200,7 +200,7 @@ Rectangle {
                     text: backend.currentChatName
                     color: pane.ui.foreground
                     font.pixelSize: 15
-                    font.bold: true
+                    font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
                 // A room shows its subject, or whether we're in it; a person
@@ -571,7 +571,7 @@ Rectangle {
             }
             AppButton {
                 primary: true
-                font.bold: false
+                font.weight: Font.Normal
                 implicitHeight: 32
                 text: qsTr("Copy")
                 onClicked: {
@@ -605,7 +605,7 @@ Rectangle {
                     iconName: "paperclip"
                     description: qsTr("Send a file")
                     checked: sendMenu.visible
-                    onClicked: sendMenu.visible ? sendMenu.close() : sendMenu.popup(attachButton, 0, -sendMenu.implicitHeight - 4)
+                    onClicked: sendMenu.toggle(attachButton, 0, -sendMenu.implicitHeight - 4)
 
                     AppMenu {
                         id: sendMenu

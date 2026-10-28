@@ -61,7 +61,7 @@ Popup {
         Label {
             text: qsTr("Keyboard shortcuts")
             font.pixelSize: 16
-            font.bold: true
+            font.weight: Font.DemiBold
             color: overlay.ui.foreground
         }
         GridLayout {

@@ -16,15 +16,18 @@ ToolButton {
     property bool framed: false
     // The framed fill; translucent over a picture.
     property color frameColor: ui.button
+    // The pointer is over it, said by whoever covers it with a click area
+    // that keeps hover from reaching it (a message's bubble).
+    property bool pointerOver: false
     readonly property var ui: theme.colors
-    readonly property bool lit: hovered || down || checked
+    readonly property bool lit: hovered || pointerOver || down || checked
 
     implicitWidth: 36
     implicitHeight: 36
     padding: 0
     focusPolicy: Qt.TabFocus
     Accessible.name: description
-    ToolTip.visible: hovered && description !== ""
+    ToolTip.visible: (hovered || pointerOver) && description !== ""
     ToolTip.delay: 400
     ToolTip.text: description
 

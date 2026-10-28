@@ -8,6 +8,19 @@ Menu {
 
     property bool hasChecks: false
     readonly property var ui: theme.colors
+    // A press on the button that opened it closes it first; the click that
+    // follows mustn't open it again.
+    property double closedAt: 0
+
+    // Opens it at (x, y) over the button, or closes it if open.
+    function toggle(button, x, y) {
+        if (visible)
+            close()
+        else if (Date.now() - closedAt > 300)
+            popup(button, x, y)
+    }
+
+    onClosed: closedAt = Date.now()
 
     padding: 6
     margins: 8

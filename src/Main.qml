@@ -198,7 +198,7 @@ ApplicationWindow {
                 iconName: "more"
                 description: qsTr("More")
                 checked: moreMenu.visible
-                onClicked: moreMenu.visible ? moreMenu.close() : moreMenu.popup(moreButton, 0, moreButton.height + 4)
+                onClicked: moreMenu.toggle(moreButton, 0, moreButton.height + 4)
 
                 AppMenu {
                     id: moreMenu
