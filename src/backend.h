@@ -52,6 +52,8 @@ class Backend : public QObject {
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY signedInChanged)
     Q_PROPERTY(QString jid READ jid NOTIFY signedInChanged)
     Q_PROPERTY(QString host READ host NOTIFY signedInChanged)
+    Q_PROPERTY(bool enabled READ enabled NOTIFY enabledChanged)
+    Q_PROPERTY(bool savePassword READ savePassword WRITE setSavePassword NOTIFY savePasswordChanged)
     Q_PROPERTY(int awayMinutes READ awayMinutes WRITE setAwayMinutes NOTIFY idleTimesChanged)
     Q_PROPERTY(int xaMinutes READ xaMinutes WRITE setXaMinutes NOTIFY idleTimesChanged)
     Q_PROPERTY(bool notifications READ notifications WRITE setNotifications NOTIFY notificationsChanged)
@@ -103,6 +105,17 @@ public:
     bool signedIn() const { return m_signedIn; }
     QString jid() const { return m_jid; }
     QString host() const;
+    // The account this one is for, set before start(); a new one stays
+    // empty until someone signs in.
+    void setAccount(const QString &jid);
+    // Off, the account stays in the list, offline, its history readable.
+    bool enabled() const { return m_enabled; }
+    void setEnabled(bool enabled);
+    // Kept in the keyring; if not, asked for on every start, and again
+    // after the account is turned off and on.
+    bool savePassword() const;
+    void setSavePassword(bool save);
+    Q_INVOKABLE void setHost(const QString &host);
     int awayMinutes() const;
     void setAwayMinutes(int minutes);
     int xaMinutes() const;
@@ -289,6 +302,9 @@ signals:
     void ownNicknameChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
+    void accountsChanged();
+    void enabledChanged();
+    void savePasswordChanged();
     void idleTimesChanged();
     void notificationsChanged();
     void textSmileysChanged();
@@ -314,9 +330,12 @@ private:
     // An empty server follows the domain's SRV records.
     void connectTo(const QString &server, int port);
     void openHistory();
+    void leaveAccount();
     void adoptGajim();
     void importGajimHistory(const QString &jid, History &history);
     void fetchHistoryPage(const QString &account, const QDateTime &start, const QDateTime &end, const QString &after);
+    void notify(const QString &key, const QString &title, const QString &body);
+    void pickFile(const QString &method, const QString &title);
     void setError(const QString &text);
     void setSignedIn(bool signedIn);
     // How a message reached us: as it was sent, or later from the server's
@@ -461,6 +480,9 @@ private:
     bool m_starting = false;
     bool m_resolving = false;
     bool m_signedIn = false;
+    bool m_enabled = true;
+    // This account asked the shared file picker for something.
+    bool m_picking = false;
     bool m_silentSync = false;
     bool m_forwarding = false;
     bool m_historySyncing = false;

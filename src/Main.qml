@@ -1,3 +1,4 @@
+import QtQml
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -9,7 +10,7 @@ ApplicationWindow {
     minimumWidth: 720
     minimumHeight: 480
     visible: true
-    title: backend.contacts.totalUnread > 0 ? "(%1) Omajim".arg(backend.contacts.totalUnread) : "Omajim"
+    title: accounts.totalUnread > 0 ? "(%1) Omajim".arg(accounts.totalUnread) : "Omajim"
 
     // The whole window takes the Omarchy theme's palette, as Hype does.
     readonly property var ui: theme.colors
@@ -80,8 +81,9 @@ ApplicationWindow {
         Qt.exit(0)
     }
 
+    // A notification clicked, of whichever account (it comes up first).
     Connections {
-        target: backend
+        target: accounts
         function onRaiseRequested() {
             win.show()
             win.raise()
@@ -97,6 +99,16 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+K"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: backend.showAllContacts = !backend.showAllContacts }
     Shortcut { sequences: ["Ctrl+K", "Ctrl+T"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.focusSearch() }
     Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.setCollapsed(!contactPane.collapsed) }
+    // Ctrl+1, Ctrl+2…: the accounts, in the order of their menu.
+    Instantiator {
+        model: Math.min(9, accounts.list.length)
+        delegate: Shortcut {
+            required property int index
+            sequence: "Ctrl+" + (index + 1)
+            context: Qt.ApplicationShortcut
+            onActivated: accounts.selectIndex(index)
+        }
+    }
     Shortcut { sequence: "Ctrl+,"; context: Qt.ApplicationShortcut; onActivated: preferencesDialog.open() }
     Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: addContactDialog.open() }
     Shortcut { sequence: "Ctrl+J"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: joinRoomDialog.open() }
@@ -148,28 +160,195 @@ ApplicationWindow {
             TapHandler { onTapped: shortcutsOverlay.open() }
         }
 
-        // Who you are and how you're connected, in the middle like Hype's
-        // deck title and status.
-        Column {
-            id: summary
-            visible: backend.signedIn
+        // The account on screen, in the middle like Hype's deck title; a
+        // click lists them all, each connected on its own. Our status is at
+        // the foot of the sidebar.
+        ItemDelegate {
+            id: accountButton
+            visible: accounts.list.length > 0
             readonly property real room: Math.max(0, topBar.width - 2 * (Math.max(actions.width, logo.width) + win.inset + 20))
             anchors.centerIn: parent
-            spacing: 2
-            Label {
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(implicitWidth, summary.room)
-                elide: Text.ElideRight
-                text: backend.jid
-                color: win.ui.foreground
+            width: Math.min(implicitWidth, room)
+            height: 36
+            leftPadding: 12
+            rightPadding: 8
+            // The style's own vertical padding would push the row off center.
+            topPadding: 0
+            bottomPadding: 0
+            focusPolicy: Qt.NoFocus
+            Accessible.name: qsTr("Accounts")
+            // Below, its right edge with the button's.
+            onClicked: accountMenu.toggle(accountButton, accountButton.width - accountMenu.implicitWidth,
+                                          accountButton.height + 4)
+            background: Rectangle {
+                radius: theme.radius
+                color: accountButton.hovered || accountMenu.visible ? win.ui.hover : "transparent"
             }
-            Row {
-                anchors.horizontalCenter: parent.horizontalCenter
+            contentItem: RowLayout {
                 spacing: 6
                 Label {
-                    text: win.presenceLabel(win.ownPresence)
-                    font.pixelSize: 12
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    elide: Text.ElideRight
+                    text: backend.jid !== "" ? backend.jid : qsTr("New account")
+                    color: win.ui.foreground
+                }
+                // Messages waiting on the other accounts.
+                Rectangle {
+                    readonly property int others: accounts.totalUnread - backend.contacts.totalUnread
+                    visible: others > 0
+                    Layout.alignment: Qt.AlignVCenter
+                    implicitWidth: Math.max(18, othersLabel.implicitWidth + 8)
+                    implicitHeight: 18
+                    radius: 9
+                    color: win.ui.accent
+                    Label {
+                        id: othersLabel
+                        anchors.centerIn: parent
+                        text: parent.others
+                        color: win.ui.accentText
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                    }
+                }
+                AppIcon {
+                    Layout.alignment: Qt.AlignVCenter
+                    implicitWidth: 16
+                    implicitHeight: 16
+                    name: "chevron-down"
                     color: win.ui.muted
+                }
+            }
+
+            // A popup, not a Menu: a Menu re-adds the lines of a changed
+            // list at its end, below "Add another account".
+            Popup {
+                id: accountMenu
+                property double closedAt: 0
+                // As AppMenu's: the press that closed it doesn't reopen it.
+                function toggle(button, x, y) {
+                    if (visible)
+                        close()
+                    else if (Date.now() - closedAt > 300) {
+                        accountMenu.x = x
+                        accountMenu.y = y
+                        open()
+                    }
+                }
+                onClosed: closedAt = Date.now()
+                padding: 6
+                margins: 8
+                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                background: Rectangle {
+                    color: win.ui.panel
+                    border.color: win.ui.border
+                    radius: theme.radius
+                }
+                contentItem: ColumnLayout {
+                spacing: 0
+                Repeater {
+                    model: accounts.list
+                    // The address and its shortcut; a click shows the
+                    // account. The rest is in Manage accounts.
+                    ItemDelegate {
+                        id: accountItem
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        implicitHeight: 32
+                        leftPadding: 12
+                        rightPadding: 12
+                        topPadding: 0
+                        bottomPadding: 0
+                        focusPolicy: Qt.NoFocus
+                        implicitWidth: leftPadding + accountRow.implicitWidth + rightPadding
+                        onClicked: {
+                            accountMenu.close()
+                            accounts.select(modelData.jid)
+                        }
+                        background: Rectangle {
+                            radius: Math.min(4, theme.radius)
+                            color: accountItem.modelData.current ? Qt.alpha(win.ui.accent, 0.15)
+                                 : accountItem.hovered ? win.ui.hover : "transparent"
+                        }
+                        contentItem: RowLayout {
+                            id: accountRow
+                            spacing: 28
+                            Label {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                text: accountItem.modelData.jid
+                                color: accountItem.modelData.enabled ? win.ui.foreground : win.ui.muted
+                                font.pixelSize: 13
+                                font.weight: accountItem.modelData.current ? Font.DemiBold : Font.Normal
+                            }
+                            Label {
+                                visible: accountItem.index < 9
+                                Layout.alignment: Qt.AlignVCenter
+                                text: "Ctrl+" + (accountItem.index + 1)
+                                color: win.ui.muted
+                                font.pixelSize: 12
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 5
+                    Layout.bottomMargin: 5
+                    Layout.leftMargin: 6
+                    Layout.rightMargin: 6
+                    implicitHeight: 1
+                    color: win.ui.border
+                }
+                ItemDelegate {
+                    id: manageItem
+                    Layout.fillWidth: true
+                    implicitHeight: 32
+                    leftPadding: 12
+                    topPadding: 0
+                    bottomPadding: 0
+                    focusPolicy: Qt.NoFocus
+                    onClicked: {
+                        accountMenu.close()
+                        accountsDialog.open()
+                    }
+                    background: Rectangle {
+                        radius: Math.min(4, theme.radius)
+                        color: manageItem.hovered ? win.ui.hover : "transparent"
+                    }
+                    contentItem: Label {
+                        text: qsTr("Manage accounts…")
+                        color: win.ui.foreground
+                        font.pixelSize: 13
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+                ItemDelegate {
+                    id: addItem
+                    Layout.fillWidth: true
+                    implicitHeight: 32
+                    leftPadding: 12
+                    topPadding: 0
+                    bottomPadding: 0
+                    focusPolicy: Qt.NoFocus
+                    enabled: !accounts.adding
+                    onClicked: {
+                        accountMenu.close()
+                        accounts.addAccount()
+                    }
+                    background: Rectangle {
+                        radius: Math.min(4, theme.radius)
+                        color: addItem.hovered && addItem.enabled ? win.ui.hover : "transparent"
+                    }
+                    contentItem: Label {
+                        text: qsTr("Add another account…")
+                        color: win.ui.foreground
+                        opacity: addItem.enabled ? 1 : 0.4
+                        font.pixelSize: 13
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
                 }
             }
         }
@@ -205,7 +384,6 @@ ApplicationWindow {
                     AppMenuItem { text: qsTr("Preferences…"); hint: "Ctrl+,"; onTriggered: preferencesDialog.open() }
                     AppMenuItem { text: qsTr("Keyboard shortcuts"); hint: "?"; onTriggered: shortcutsOverlay.open() }
                     AppMenuSeparator {}
-                    AppMenuItem { text: qsTr("Sign out"); onTriggered: backend.signOut() }
                     AppMenuItem { text: qsTr("Quit"); hint: "Ctrl+Q"; destructive: true; onTriggered: win.quit() }
                 }
             }
@@ -333,6 +511,10 @@ ApplicationWindow {
 
         PreferencesDialog {
             id: preferencesDialog
+        }
+
+        AccountsDialog {
+            id: accountsDialog
         }
 
         AppDialog {

@@ -7,6 +7,7 @@ include(../qxmpp.pri)
 INCLUDEPATH += ../src
 
 HEADERS += \
+    ../src/accounts.h \
     ../src/avatarstore.h \
     ../src/backend.h \
     ../src/composer.h \
@@ -30,6 +31,7 @@ HEADERS += \
 
 SOURCES += \
     omajim_tests.cpp \
+    ../src/accounts.cpp \
     ../src/avatarstore.cpp \
     ../src/backend.cpp \
     ../src/composer.cpp \

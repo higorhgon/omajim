@@ -14,6 +14,7 @@
 #include <QStandardPaths>
 #include <QUrl>
 
+#include "accounts.h"
 #include "backend.h"
 #include "composer.h"
 #include "emojicatalog.h"
@@ -83,8 +84,13 @@ int main(int argc, char *argv[]) {
     Notifier notifier;
     const QString config = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omajim";
     const QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/omajim";
-    Backend backend(config, data, &filePicker, &secrets, &notifier);
-    Tray tray(&backend);
+    // Every account, each connected on its own; the window shows one.
+    Accounts accounts(config, data, &filePicker, &secrets, &notifier);
+    // On the first run, what Gajim (or the Python Omajim) has comes over.
+    accounts.start(GajimImport::settingsCandidates(), GajimImport::candidates());
+    Tray tray(accounts.current());
+    QObject::connect(&accounts, &Accounts::currentChanged, &tray, [&] { tray.setBackend(accounts.current()); });
+    QObject::connect(&tray, &Tray::statusRequested, &accounts, &Accounts::setStatus);
     EmojiCatalog emojis(QDir(config).filePath("omajim.conf"));
     Composer composer;
 
@@ -97,7 +103,12 @@ int main(int argc, char *argv[]) {
     QObject::connect(&translator, &Translator::changed, &tray, &Tray::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
-    engine.rootContext()->setContextProperty("backend", &backend);
+    engine.rootContext()->setContextProperty("accounts", &accounts);
+    // "backend" is the account on screen; switching accounts swaps it, and
+    // every binding to it follows.
+    engine.rootContext()->setContextProperty("backend", accounts.current());
+    QObject::connect(&accounts, &Accounts::currentChanged, &engine,
+                     [&] { engine.rootContext()->setContextProperty("backend", accounts.current()); });
     engine.rootContext()->setContextProperty("tray", &tray);
     engine.rootContext()->setContextProperty("emojis", &emojis);
     engine.rootContext()->setContextProperty("composerFormat", &composer);
@@ -123,13 +134,16 @@ int main(int argc, char *argv[]) {
     QObject::connect(&tray, &Tray::quitRequested, &app, [] { QCoreApplication::exit(0); });
 
     // Away after a while without using the computer, as Gajim does; 0 turns
-    // a step off.
-    QSettings settings(QDir(config).filePath("omajim.conf"), QSettings::IniFormat);
-    const int awayMinutes = settings.value("idle/awayMinutes", 5).toInt();
-    const int xaMinutes = settings.value("idle/xaMinutes", 15).toInt();
-    IdleMonitor idle({awayMinutes * 60000, xaMinutes * 60000});
-    QObject::connect(&idle, &IdleMonitor::levelChanged, &backend, &Backend::setIdleLevel);
-
-    backend.start();
+    // a step off. Watched anew when the preferences change the times.
+    std::unique_ptr<IdleMonitor> idle;
+    auto watchIdle = [&idle, &accounts] {
+        // Changing them is using the computer: an automatic away ends.
+        accounts.setIdleLevel(0);
+        Backend *backend = accounts.current();
+        idle = std::make_unique<IdleMonitor>(QList<int>{backend->awayMinutes() * 60000, backend->xaMinutes() * 60000});
+        QObject::connect(idle.get(), &IdleMonitor::levelChanged, &accounts, &Accounts::setIdleLevel);
+    };
+    watchIdle();
+    QObject::connect(&accounts, &Accounts::idleTimesChanged, &accounts, watchIdle);
     return app.exec();
 }

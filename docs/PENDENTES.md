@@ -5,16 +5,24 @@ O que ainda falta para a versão C++/Qt substituir o Omajim em Python
 servidor, correções, links e prévias, importação do histórico do Gajim, SI com
 proxy e ufw, apelidos locais, busca aproximada e Ctrl+T, seleção de mensagens,
 identificação como Omajim, formatação, reações e respostas, ausência
-automática, grupos de contatos, Ctrl+F, colar arquivos, seletor de emoji e
-seleção de texto e de mensagens como no ZapFast.
+automática, grupos de contatos, Ctrl+F, colar arquivos, seletor de emoji,
+editar qualquer mensagem da última hora, e seleção de texto e de mensagens,
+botões de responder e reagir, encaminhar e ocultar o menu lateral como no
+ZapFast, e os emoticons do Pidgin (os de texto viram emoji; as figurinhas
+personalizadas vão e vêm como no Pidgin, por XEP-0231), a janela de
+preferências e a troca entre contas. Na primeira vez, o que o Gajim tem vem
+junto: contas, senha, preferências e histórico. Formatação como a do Pidgin
+(negrito, itálico, sublinhado, tachado, código, cores de texto e de fundo),
+enviada e recebida por XHTML-IM, com os marcadores do Gajim no texto.
 
 ## Planejado
 
 Nesta ordem:
 
-1. **Várias contas.** Hoje o app usa uma conta por vez. Falta conectar várias
-   ao mesmo tempo, com histórico, roster e senha separados por conta, e mostrar
-   no app a conta de cada conversa.
+1. **Várias contas ao mesmo tempo:** feito. Cada conta conecta por conta
+   própria, com histórico, roster e senha separados; o menu do endereço troca
+   a conta mostrada (Ctrl+1, Ctrl+2…), ativa ou desativa cada uma e sai dela.
+   Falta mostrar, numa lista só, as conversas de todas as contas.
 2. **Chamadas de voz e vídeo** (Jingle, XEP-0166/0167). O QXmpp tem
    `QXmppCallManager`, mas a parte de áudio e vídeo (GStreamer) ainda precisa
    ser ligada a ele.

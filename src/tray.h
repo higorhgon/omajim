@@ -62,6 +62,7 @@ public:
 
     // Labels and the checked status changed; hosts fetch the layout again.
     void refresh();
+    void setBackend(Backend *backend) { m_backend = backend; refresh(); }
 
 public slots:
     Q_SCRIPTABLE uint GetLayout(int parentId, int recursionDepth, const QStringList &propertyNames, DBusMenuLayoutItem &layout);
@@ -76,6 +77,8 @@ signals:
     Q_SCRIPTABLE void LayoutUpdated(uint revision, int parent);
     void toggleWindowRequested();
     void quitRequested();
+    // A status picked here, for every account.
+    void statusRequested(const QString &status);
 
 private:
     DBusMenuLayoutItem build() const;
@@ -124,6 +127,8 @@ public:
     QString state() const;
     // The language changed, so the menu labels did too.
     void retranslate() { m_menu.refresh(); }
+    // The account the window shows, which the icon follows.
+    void setBackend(Backend *backend);
 
 public slots:
     Q_SCRIPTABLE void Activate(int x, int y);
@@ -139,13 +144,15 @@ signals:
     void availableChanged();
     void toggleWindowRequested();
     void quitRequested();
+    void statusRequested(const QString &status);
 
 private:
     void registerWithWatcher();
     void setAvailable(bool available);
     void refresh();
 
-    Backend *m_backend;
+    Backend *m_backend = nullptr;
+    QList<QMetaObject::Connection> m_watching;
     TrayMenu m_menu;
     QString m_serviceName;
     QString m_lastState;

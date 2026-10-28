@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
+        <file alias="AccountsDialog.qml">AccountsDialog.qml</file>
         <file alias="AppButton.qml">AppButton.qml</file>
         <file alias="AppCheckBox.qml">AppCheckBox.qml</file>
         <file alias="AppDialog.qml">AppDialog.qml</file>

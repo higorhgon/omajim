@@ -145,6 +145,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
         m_client->setLogger(logger);
     }
     m_jid = m_settings.value("account/jid").toString();
+    m_enabled = !m_settings.value("disabled/" + m_jid).toBool();
     m_contacts.setBrowsing(m_settings.value("ui/showAllContacts", false).toBool());
     m_sidebarCollapsed = m_settings.value("ui/sidebarCollapsed", false).toBool();
     m_status = m_settings.value("account/status", "online").toString();
@@ -309,6 +310,12 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
         }
         if (state == QXmppClient::ConnectedState) {
             dismissError();
+            // An account is kept once it signs in, not at a mistyped try.
+            const QStringList kept = m_settings.value("accounts/list").toStringList();
+            if (!kept.contains(m_jid)) {
+                m_settings.setValue("accounts/list", kept + QStringList{m_jid});
+                emit accountsChanged();
+            }
             // Whatever arrived while we were away, or went through another
             // of the account's devices.
             syncArchive(m_settings.value("archive/" + m_jid + "/last").toString().isEmpty());
@@ -393,11 +400,25 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     });
 
     if (m_filePicker) {
+        // The picker is every account's: only the one that asked answers.
         connect(m_filePicker, &FilePicker::picked, this, [this](const QString &path) {
-            if (!path.isEmpty())
+            if (!m_picking)
+                return;
+            m_picking = false;
+            if (path.isEmpty())
+                return;
+            if (m_pickMethod == "avatar")
+                setAvatar(path);
+            else if (m_pickMethod == "smiley")
+                emit smileyPicturePicked(path);
+            else
                 sendFile(path, m_pickMethod);
         });
-        connect(m_filePicker, &FilePicker::failed, this, &Backend::setError);
+        connect(m_filePicker, &FilePicker::failed, this, [this](const QString &error) {
+            if (m_picking || !m_saveSource.isEmpty())
+                setError(error);
+            m_picking = false;
+        });
         connect(m_filePicker, &FilePicker::savePicked, this, [this](const QString &target) {
             const QString source = m_saveSource;
             m_saveSource.clear();
@@ -419,8 +440,14 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
         });
     }
     if (m_notifier) {
-        connect(m_notifier, &Notifier::activated, this, [this](const QString &jid) {
-            openChat(jid);
+        // Each account's notifications start with its address.
+        connect(m_notifier, &Notifier::activated, this, [this](const QString &key) {
+            const QString prefix = m_jid + "\n";
+            if (m_jid.isEmpty() || !key.startsWith(prefix))
+                return;
+            const QString what = key.mid(prefix.size());
+            if (what.contains('@') && !what.contains(':'))
+                openChat(what);
             emit raiseRequested();
         });
     }
@@ -436,6 +463,16 @@ void Backend::start() {
     adoptGajim();
     if (m_jid.isEmpty() || !m_secrets)
         return;
+    // Without a saved password: asked for in the window; an account that's
+    // off just shows its conversations.
+    if (!savePassword()) {
+        if (!m_enabled) {
+            openHistory();
+            setSignedIn(true);
+        }
+        emit signedInChanged();
+        return;
+    }
     m_starting = true;
     emit signedInChanged();
     trace("keyring: looking up the password");
@@ -479,7 +516,8 @@ quint16 Backend::directTransferPort() const {
 }
 
 QString Backend::host() const {
-    return m_settings.value("account/host").toString();
+    return m_settings.value("hosts/" + m_jid).toString();
+}
 
 int Backend::awayMinutes() const {
     return m_settings.value("idle/awayMinutes", 5).toInt();
@@ -618,17 +656,15 @@ void Backend::signIn(const QString &jid, const QString &password, const QString 
         return;
     }
 
-    if (bare != m_jid) {
-        m_contacts.clear();
-        m_rooms.clear();
-        m_invitations.clear();
-        emit invitationsChanged();
-        closeChat();
-    }
+    // Another account: the one in use goes offline and out of the window.
+    if (bare != m_jid)
+        leaveAccount();
     m_jid = bare;
     m_password = password;
     m_settings.setValue("account/jid", bare);
-    m_settings.setValue("account/host", host.trimmed());
+    m_settings.setValue("savePassword/" + bare, remember);
+    emit savePasswordChanged();
+    m_settings.setValue("hosts/" + bare, host.trimmed());
     if (m_status == "offline")
         setStatus("online");
 
@@ -650,25 +686,120 @@ void Backend::signIn(const QString &jid, const QString &password, const QString 
 }
 
 void Backend::signOut() {
-    m_client->disconnectFromServer();
     if (m_secrets)
         m_secrets->clear(m_jid, [this](const QString &error) {
             if (!error.isEmpty())
                 setError(error);
         });
+    leaveAccount();
+    setSignedIn(false);
+    // The account leaves the list; the window goes on with another.
+    QStringList list = m_settings.value("accounts/list").toStringList();
+    list.removeAll(m_jid);
+    m_settings.setValue("accounts/list", list);
+    m_settings.remove("disabled/" + m_jid);
+    emit accountsChanged();
+}
+
+void Backend::leaveAccount() {
+    // Leave cleanly, so contacts see us offline right away.
+    m_client->disconnectFromServer();
     m_password.clear();
     m_contacts.clear();
+    m_knownContacts.clear();
     m_rooms.clear();
+    m_joiningRooms.clear();
     m_requests.clear();
     m_invitations.clear();
+    m_typing.clear();
+    m_chatStatePeers.clear();
+    m_fetchingAvatars.clear();
+    m_proxy.clear();
+    m_syncing = false;
     m_silentSync = false;
     m_historySyncing = false;
     m_historySyncCount = 0;
     emit historySyncChanged();
+    m_archivedUnread = 0;
+    m_reloadCurrentChat = false;
+    cancelEditing();
+    cancelReply();
     emit subscriptionRequestsChanged();
     emit invitationsChanged();
+    emit typingChanged();
     closeChat();
-    setSignedIn(false);
+}
+
+void Backend::setAccount(const QString &jid) {
+    if (m_signedIn)
+        return;
+    m_jid = normalizedJid(jid);
+    m_enabled = !m_settings.value("disabled/" + m_jid).toBool();
+}
+
+void Backend::setEnabled(bool enabled) {
+    if (enabled == m_enabled)
+        return;
+    m_enabled = enabled;
+    m_settings.setValue("disabled/" + m_jid, !enabled);
+    emit enabledChanged();
+    if (!enabled) {
+        m_client->disconnectFromServer();
+        // A password not kept doesn't outlast the account being off.
+        if (!savePassword())
+            m_password.clear();
+    } else if (m_password.isEmpty()) {
+        // Back on without its password: the window asks for it.
+        setSignedIn(false);
+    } else if (m_signedIn) {
+        connectToServer();
+    }
+}
+
+bool Backend::savePassword() const {
+    return m_settings.value("savePassword/" + m_jid, true).toBool();
+}
+
+void Backend::setSavePassword(bool save) {
+    if (save == savePassword() || m_jid.isEmpty())
+        return;
+    m_settings.setValue("savePassword/" + m_jid, save);
+    emit savePasswordChanged();
+    if (!m_secrets)
+        return;
+    auto done = [this](const QString &error) {
+        if (!error.isEmpty())
+            setError(error);
+    };
+    if (!save)
+        m_secrets->clear(m_jid, done);
+    else if (!m_password.isEmpty())
+        m_secrets->store(m_jid, m_password, done);
+}
+
+void Backend::setHost(const QString &host) {
+    if (m_jid.isEmpty() || host.trimmed() == this->host())
+        return;
+    m_settings.setValue("hosts/" + m_jid, host.trimmed());
+    emit signedInChanged();
+    // Connected or on the way: again, to the new server.
+    if (m_client->state() != QXmppClient::DisconnectedState) {
+        m_client->disconnectFromServer();
+        connectToServer();
+    }
+}
+
+void Backend::notify(const QString &key, const QString &title, const QString &body) {
+    if (m_notifier)
+        m_notifier->notify(m_jid + "\n" + key, title, body);
+}
+
+void Backend::pickFile(const QString &method, const QString &title) {
+    if (!m_filePicker)
+        return;
+    m_pickMethod = method;
+    m_picking = true;
+    m_filePicker->openFile(title);
 }
 
 void Backend::setStatus(const QString &status) {
@@ -729,7 +860,7 @@ QList<QSslCertificate> Backend::trustedCertificates() const {
 }
 
 void Backend::connectToServer() {
-    if (m_jid.isEmpty() || m_password.isEmpty() || m_status == "offline" || m_resolving)
+    if (m_jid.isEmpty() || m_password.isEmpty() || m_status == "offline" || m_resolving || !m_enabled)
         return;
     const QString server = host();
     if (!server.isEmpty()) {
@@ -842,6 +973,7 @@ void Backend::setSignedIn(bool signedIn) {
         return;
     m_signedIn = signedIn;
     emit signedInChanged();
+    emit accountsChanged();
 }
 
 void Backend::syncRoster() {
@@ -1123,10 +1255,10 @@ qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
             // A busy group chat would notify all day; only being named, or
             // a private message, is worth it.
             if (!m_rooms.contains(entry.peer))
-                m_notifier->notify(entry.peer, name, body);
+                notify(entry.peer, name, body);
             else if (entry.body.contains(roomNickname(entry.peer), Qt::CaseInsensitive) ||
                      entry.sender.endsWith(tr("(private)")))
-                m_notifier->notify(entry.peer, tr("%1 in %2").arg(entry.sender, name), body);
+                notify(entry.peer, tr("%1 in %2").arg(entry.sender, name), body);
         }
     }
     return entry.id;
@@ -1499,8 +1631,7 @@ bool Backend::serverUploadAvailable() const {
 void Backend::chooseFileToSend(const QString &method) {
     if (m_currentChat.isEmpty() || !m_filePicker)
         return;
-    m_pickMethod = method;
-    m_filePicker->openFile(tr("Send a file to %1").arg(currentChatName()));
+    pickFile(method, tr("Send a file to %1").arg(currentChatName()));
 }
 
 void Backend::sendFile(const QString &path, const QString &method) {
@@ -1820,7 +1951,7 @@ void Backend::finishTransfer(qint64 id) {
                 setError(tr("%1 arrived but couldn't be renamed from %2.").arg(path, it->partPath));
                 path = it->partPath;
             } else if (m_notifier && m_status != "dnd") {
-                m_notifier->notify("file:" + path, tr("File received"),
+                notify("file:" + path, tr("File received"),
                                    tr("%1 from %2 is in %3.")
                                        .arg(QFileInfo(path).fileName(),
                                             m_contacts.nameOf(it->peer),
@@ -2068,7 +2199,7 @@ void Backend::addInvitation(const QString &room, const QString &from, const QStr
                                  {"password", password}, {"mediated", mediated}};
     emit invitationsChanged();
     if (m_notifier && m_status != "dnd")
-        m_notifier->notify("invite:" + jid, tr("Group chat invitation"),
+        notify("invite:" + jid, tr("Group chat invitation"),
                            tr("%1 invites you to %2").arg(m_contacts.nameOf(inviter), jid));
 }
 

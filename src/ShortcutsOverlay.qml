@@ -26,6 +26,8 @@ Popup {
         { title: qsTr("Conversations"), keys: [
             ["Ctrl+K / Ctrl+T", qsTr("Search contacts")],
             ["Ctrl+Shift+K", qsTr("Conversations or all contacts")],
+            ["Ctrl+B", qsTr("Hide or show the sidebar")],
+            ["Ctrl+1 … Ctrl+9", qsTr("Switch to an account")],
             ["Alt+↑ / Alt+↓", qsTr("Previous or next conversation")],
             ["Ctrl+W", qsTr("Close the conversation")],
             ["Ctrl+F", qsTr("Search this conversation")],

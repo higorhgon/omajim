@@ -3,7 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Signing in, as a card in the middle of the window, laid out like Hype's
-// dialogs: a title, a muted line, the fields, and the accent action.
+// dialogs: a title, a muted line, the fields, and the accent action. Also
+// for adding another account, which starts empty and can be called off.
 Item {
     id: view
 
@@ -14,9 +15,31 @@ Item {
             return
         backend.signIn(jidField.text, passwordField.text, serverField.text, rememberBox.checked)
         passwordField.text = ""
+        // As the account had it; a new one keeps it.
+        rememberBox.checked = backend.jid === "" || backend.savePassword
     }
 
-    onVisibleChanged: if (visible) (jidField.text === "" ? jidField : passwordField).forceActiveFocus()
+    // The account in use, or nothing for a new one.
+    function fill() {
+        jidField.text = backend.jid
+        serverField.text = backend.host
+        passwordField.text = ""
+        if (jidField.text === "")
+            jidField.forceActiveFocus()
+        else
+            passwordField.forceActiveFocus()
+    }
+
+    onVisibleChanged: if (visible) fill()
+    Connections {
+        target: backend
+        function onSignedInChanged() { if (view.visible) view.fill() }
+    }
+    Connections {
+        target: accounts
+        function onAddingChanged() { if (view.visible) view.fill() }
+        function onCurrentChanged() { if (view.visible) view.fill() }
+    }
 
     Rectangle {
         anchors.centerIn: parent
@@ -36,14 +59,15 @@ Item {
                 Layout.fillWidth: true
                 spacing: 6
                 Label {
-                    text: qsTr("Sign in")
+                    text: accounts.adding ? qsTr("Add an account") : qsTr("Sign in")
                     color: view.ui.foreground
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("Sign in to your XMPP account.")
+                    text: accounts.adding ? qsTr("Sign in to another XMPP account. To switch accounts, click your address at the top of the window.")
+                                                : qsTr("Sign in to your XMPP account.")
                     color: view.ui.muted
                     font.pixelSize: 14
                     wrapMode: Text.Wrap
@@ -56,7 +80,6 @@ Item {
                 AppTextField {
                     id: jidField
                     Layout.fillWidth: true
-                    text: backend.jid
                     placeholderText: qsTr("Address (name@server)")
                     inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
                     onAccepted: passwordField.forceActiveFocus()
@@ -71,7 +94,6 @@ Item {
                 AppTextField {
                     id: serverField
                     Layout.fillWidth: true
-                    text: backend.host
                     placeholderText: qsTr("Server (optional, host:port)")
                     inputMethodHints: Qt.ImhNoAutoUppercase
                     onAccepted: view.submit()
@@ -87,6 +109,11 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
+                AppButton {
+                    visible: accounts.adding
+                    text: qsTr("Cancel")
+                    onClicked: accounts.cancelAdding()
+                }
                 AppButton {
                     id: signInButton
                     primary: true

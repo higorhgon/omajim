@@ -195,7 +195,7 @@ bool TrayMenu::trigger(int id) {
     } else if (id == QuitId) {
         emit quitRequested();
     } else if (id >= FirstStatusId && id < FirstStatusId + Statuses.size()) {
-        m_backend->setStatus(Statuses.at(id - FirstStatusId));
+        emit statusRequested(Statuses.at(id - FirstStatusId));
     } else {
         return false;
     }
@@ -204,23 +204,12 @@ bool TrayMenu::trigger(int id) {
 
 Tray::Tray(Backend *backend, QObject *parent, bool exportOnBus)
     : QObject(parent),
-      m_backend(backend),
       m_menu(backend),
       m_serviceName(QStringLiteral("org.kde.StatusNotifierItem-%1-1").arg(QCoreApplication::applicationPid())) {
     connect(&m_menu, &TrayMenu::toggleWindowRequested, this, &Tray::toggleWindowRequested);
     connect(&m_menu, &TrayMenu::quitRequested, this, &Tray::quitRequested);
-
-    connect(backend, &Backend::connectionStateChanged, this, &Tray::refresh);
-    connect(backend, &Backend::errorTextChanged, this, &Tray::refresh);
-    connect(backend->contacts(), &ContactModel::totalUnreadChanged, this, &Tray::refresh);
-    connect(backend, &Backend::statusChanged, this, [this] {
-        refresh();
-        m_menu.refresh();
-    });
-    connect(backend, &Backend::signedInChanged, this, [this] {
-        refresh();
-        m_menu.refresh();
-    });
+    connect(&m_menu, &TrayMenu::statusRequested, this, &Tray::statusRequested);
+    setBackend(backend);
     m_lastState = state();
 
     QDBusConnection bus = QDBusConnection::sessionBus();
@@ -290,6 +279,24 @@ void Tray::setAvailable(bool available) {
         return;
     m_available = available;
     emit availableChanged();
+}
+
+void Tray::setBackend(Backend *backend) {
+    for (const auto &connection : std::as_const(m_watching))
+        disconnect(connection);
+    m_watching.clear();
+    m_backend = backend;
+    m_menu.setBackend(backend);
+    auto both = [this] {
+        refresh();
+        m_menu.refresh();
+    };
+    m_watching << connect(backend, &Backend::connectionStateChanged, this, &Tray::refresh)
+               << connect(backend, &Backend::errorTextChanged, this, &Tray::refresh)
+               << connect(backend->contacts(), &ContactModel::totalUnreadChanged, this, &Tray::refresh)
+               << connect(backend, &Backend::statusChanged, this, both)
+               << connect(backend, &Backend::signedInChanged, this, both);
+    refresh();
 }
 
 void Tray::refresh() {

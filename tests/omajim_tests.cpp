@@ -39,6 +39,7 @@
 #include <QCryptographicHash>
 #include <QImage>
 
+#include "accounts.h"
 #include "avatarstore.h"
 #include "backend.h"
 #include "contactmodel.h"
@@ -791,6 +792,116 @@ private slots:
         QCOMPARE(html("> said\nreply"), QString("<span style=\"color:#2\">│ said</span><br>reply"));
         // Still escaped inside styling.
         QCOMPARE(html("*<b>*"), QString("<b>&lt;b&gt;</b>"));
+    }
+
+    void accountsRunTogetherEachWithItsOwnHistory() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        // One account from before several: it becomes the list, with its server.
+        {
+            QSettings old(dir.filePath("config/omajim.conf"), QSettings::IniFormat);
+            old.setValue("account/jid", "alice@example.org");
+            old.setValue("account/host", "127.0.0.1:1");
+            old.setValue("account/status", "offline");
+        }
+        secrets.passwords.insert("alice@example.org", "secret");
+        secrets.passwords.insert("carol@example.org", "other");
+        {
+            Accounts accounts(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+            accounts.start();
+            QCOMPARE(accounts.list().size(), 1);
+            QCOMPARE(accounts.current()->jid(), QString("alice@example.org"));
+            QCOMPARE(accounts.current()->host(), QString("127.0.0.1:1"));
+            QVERIFY(accounts.current()->signedIn());
+            // Alone, it can't be turned off.
+            accounts.setEnabled("alice@example.org", false);
+            QVERIFY(accounts.current()->enabled());
+        }
+        {
+            QSettings settings(dir.filePath("config/omajim.conf"), QSettings::IniFormat);
+            settings.setValue("accounts/list", QStringList{"alice@example.org", "carol@example.org"});
+            settings.setValue("hosts/carol@example.org", "127.0.0.1:2");
+        }
+
+        // Both signed in at once, each with its own conversations.
+        Accounts accounts(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        accounts.start();
+        QCOMPARE(accounts.backends().size(), 2);
+        Backend *alice = accounts.backends().at(0);
+        Backend *carol = accounts.backends().at(1);
+        QVERIFY(alice->signedIn() && carol->signedIn());
+        QCOMPARE(accounts.current(), alice);
+        QXmppMessage message("bob@example.org/phone", "alice@example.org", "for alice");
+        message.setType(QXmppMessage::Chat);
+        message.setId("a1");
+        emit alice->client()->messageReceived(message);
+        QVERIFY(alice->contacts()->contains("bob@example.org"));
+        QVERIFY(!carol->contacts()->contains("bob@example.org"));
+        QCOMPARE(accounts.totalUnread(), 1);
+        QCOMPARE(accounts.list().at(0).toMap().value("unread").toInt(), 1);
+
+        // Moving between them, by name or by place (Ctrl+2).
+        QSignalSpy current(&accounts, &Accounts::currentChanged);
+        accounts.selectIndex(1);
+        QCOMPARE(accounts.current(), carol);
+        accounts.select("alice@example.org");
+        QCOMPARE(accounts.current(), alice);
+        QCOMPARE(current.count(), 2);
+
+        // A notification brings up its own account and conversation.
+        accounts.select("alice@example.org");
+        emit carol->raiseRequested();
+        QCOMPARE(accounts.current(), carol);
+        accounts.select("alice@example.org");
+
+        // One off: kept, offline, remembered; the last one on stays on.
+        accounts.setEnabled("carol@example.org", false);
+        QVERIFY(!carol->enabled());
+        accounts.setEnabled("alice@example.org", false);
+        QVERIFY(alice->enabled());
+        accounts.setEnabled("carol@example.org", true);
+
+        // A password not kept: asked for again once it's turned back on.
+        accounts.configure("carol@example.org", "127.0.0.1:3", false);
+        QCOMPARE(carol->host(), QString("127.0.0.1:3"));
+        QVERIFY(!secrets.passwords.contains("carol@example.org"));
+        accounts.setEnabled("carol@example.org", false);
+        QVERIFY(carol->signedIn());
+        accounts.setEnabled("carol@example.org", true);
+        QVERIFY(!carol->signedIn());
+        QCOMPARE(accounts.current(), carol);
+        carol->signIn("carol@example.org", "other", "127.0.0.1:3", true);
+        QVERIFY(carol->signedIn() && carol->savePassword());
+        QCOMPARE(secrets.passwords.value("carol@example.org"), QString("other"));
+        accounts.select("alice@example.org");
+
+        // Our status goes to every account.
+        accounts.setStatus("dnd");
+        QCOMPARE(alice->status(), QString("dnd"));
+        QCOMPARE(carol->status(), QString("dnd"));
+        accounts.setStatus("offline");
+
+        // Adding one: a sign-in of its own, and back if called off.
+        accounts.addAccount();
+        QVERIFY(accounts.adding());
+        QVERIFY(accounts.current()->jid().isEmpty());
+        QVERIFY(!accounts.current()->signedIn());
+        accounts.cancelAdding();
+        QVERIFY(!accounts.adding());
+        QCOMPARE(accounts.current(), alice);
+
+        // Signing out: off the list and the keyring, the other one shows.
+        accounts.signOut("alice@example.org");
+        QCOMPARE(accounts.backends().size(), 1);
+        QCOMPARE(accounts.current(), carol);
+        QVERIFY(!secrets.passwords.contains("alice@example.org"));
+        QSettings settings(dir.filePath("config/omajim.conf"), QSettings::IniFormat);
+        QCOMPARE(settings.value("accounts/list").toStringList(), QStringList{"carol@example.org"});
+        // The last one too: signing in again.
+        accounts.signOut("carol@example.org");
+        QVERIFY(accounts.current());
+        QVERIFY(!accounts.current()->signedIn());
+        QVERIFY(accounts.list().isEmpty());
     }
 
     void preferencesAreKept() {
@@ -2005,9 +2116,11 @@ private slots:
         menu.GetLayout(0, 0, {}, layout);
         QVERIFY(layout.children.isEmpty());
 
+        // A status picked there is for every account: it's asked for.
+        QSignalSpy picked(&menu, &TrayMenu::statusRequested);
         menu.Event(14, "clicked", QDBusVariant(0), 0);
-        QCOMPARE(backend.status(), QString("dnd"));
-        backend.setStatus("offline");
+        QCOMPARE(picked.count(), 1);
+        QCOMPARE(picked.first().first().toString(), QString("dnd"));
 
         QSignalSpy quit(&menu, &TrayMenu::quitRequested);
         QVERIFY(menu.EventGroup({DBusMenuEvent{4, "clicked", QDBusVariant(0), 0}}).isEmpty());
