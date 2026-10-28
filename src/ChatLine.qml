@@ -653,16 +653,20 @@ Item {
             if (picking) {
                 view.clearTextSelection()
                 wasSelected = line.selected
+                // A range only from a message already picked; the first
+                // Shift+click picks just this one.
+                const from = view.selectionAnchor >= 0 && backend.messages.selectedCount > 0
+                           ? view.selectionAnchor : line.messageId
                 if (!line.selected)
-                    backend.messages.selectRange(view.selectionAnchor >= 0 ? view.selectionAnchor : line.messageId,
-                                                 line.messageId)
+                    backend.messages.selectRange(from, line.messageId)
                 view.selectionAnchor = line.messageId
                 backend.messages.holdSelection()
                 view.startPicking(line.messageId)
                 mouse.accepted = true
                 return
             }
-            view.selectionAnchor = line.messageId
+            // A plain click picks nothing, so it starts no range.
+            view.selectionAnchor = -1
             backend.messages.clearSelection()
             if (onControl(mouse.x, mouse.y)) {
                 // Buttons, files, quotes: theirs to handle.
