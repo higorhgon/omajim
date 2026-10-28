@@ -139,13 +139,6 @@ Item {
         border.color: line.selected ? line.ui.accent : line.outgoing ? Qt.alpha(line.ui.accent, 0.4) : "transparent"
         border.width: line.selected ? 2 : 1
 
-        // The whole bubble of a text selects its text, as in ZapFast: the
-        // text cursor shows wherever a drag would start a selection. Links,
-        // quotes, and reactions keep their own pointer.
-        HoverHandler {
-            cursorShape: line.kind === "text" ? Qt.IBeamCursor : Qt.ArrowCursor
-        }
-
         ColumnLayout {
             id: content
             anchors.fill: parent
@@ -208,7 +201,6 @@ Item {
                         wrapMode: Text.Wrap
                     }
                 }
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
                 TapHandler {
                     onTapped: {
                         const row = backend.messages.rowOfMessage(line.reply.id)
@@ -235,10 +227,6 @@ Item {
                 selectionColor: line.ui.selection
                 selectedTextColor: line.ui.selectionText
                 font.pixelSize: 14
-
-                HoverHandler {
-                    cursorShape: bodyText.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor
-                }
             }
 
             // A picture as a file: the picture fills the bubble, with the
@@ -259,11 +247,11 @@ Item {
                     asynchronous: true
                     smooth: true
                     mipmap: true
-                    HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: backend.openFile(line.localPath) }
                 }
 
                 Rectangle {
+                    id: pictureBar
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
@@ -327,6 +315,7 @@ Item {
                 spacing: 12
 
                 Rectangle {
+                    id: fileBadge
                     Layout.alignment: Qt.AlignTop
                     implicitWidth: 48
                     implicitHeight: 48
@@ -340,7 +329,6 @@ Item {
                         name: line.fileIcon
                         color: line.ui.accent
                     }
-                    HoverHandler { cursorShape: line.localPath !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor }
                     TapHandler { onTapped: if (line.localPath !== "") backend.openFile(line.localPath) }
                 }
 
@@ -351,13 +339,13 @@ Item {
 
                     // The whole name, as Gajim shows it, over two lines at most.
                     Label {
+                        id: fileName
                         Layout.fillWidth: true
                         text: line.body
                         color: line.ui.foreground
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                         maximumLineCount: 2
                         elide: Text.ElideMiddle
-                        HoverHandler { cursorShape: line.localPath !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor }
                         TapHandler { onTapped: if (line.localPath !== "") backend.openFile(line.localPath) }
                     }
                     Label {
@@ -439,7 +427,7 @@ Item {
                             color: line.ui.foreground
                             font.pixelSize: 12
                         }
-                        HoverHandler { id: chipHover; cursorShape: Qt.PointingHandCursor }
+                        HoverHandler { id: chipHover }
                         ToolTip.visible: chipHover.hovered
                         ToolTip.text: chip.modelData.who
                         TapHandler { onTapped: backend.toggleReaction(line.messageId, chip.modelData.emoji) }
@@ -460,7 +448,7 @@ Item {
                         name: "smile-plus"
                         color: line.ui.muted
                     }
-                    HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
+                    HoverHandler { id: addHover }
                     ToolTip.visible: addHover.hovered
                     ToolTip.text: qsTr("Add a reaction")
                     TapHandler { onTapped: line.ListView.view.pickReaction(addChip, line.messageId) }
@@ -495,6 +483,18 @@ Item {
                 // The other side's client confirmed it arrived (XEP-0184).
                 AppIcon {
                     visible: line.outgoing && line.delivered
+                    implicitWidth: 13
+                    implicitHeight: 13
+                    name: "check"
+                    color: line.ui.accent
+                    ToolTip.visible: deliveredHover.hovered
+                    ToolTip.text: qsTr("Delivered")
+                    HoverHandler { id: deliveredHover }
+                }
+            }
+        }
+    }
+
     // Answer and react, beside the bubble while the pointer is over it or
     // them, as in ZapFast: on the side facing the middle, centered on the
     // bubble, the reaction next to it.
@@ -532,18 +532,6 @@ Item {
                 iconName: "reply"
                 description: qsTr("Reply")
                 onClicked: backend.startReply(line.messageId)
-            }
-        }
-    }
-
-                    implicitWidth: 13
-                    implicitHeight: 13
-                    name: "check"
-                    color: line.ui.accent
-                    ToolTip.visible: deliveredHover.hovered
-                    ToolTip.text: qsTr("Delivered")
-                    HoverHandler { id: deliveredHover }
-                }
             }
         }
     }
@@ -617,6 +605,35 @@ Item {
                 return true
             const over = item => item.visible && item.contains(mapToItem(item, x, y))
             return over(quote) || over(reactionRow)
+        }
+
+        // Covering the bubble, this area's cursor is the one that shows, so
+        // it picks it for what's under the pointer: the text cursor on a
+        // text's bubble, as in ZapFast, wherever a drag would select; a hand
+        // on links and on what opens or reacts.
+        function cursorAt(x, y) {
+            const over = item => item.visible && item.contains(mapToItem(item, x, y))
+            if (line.kind === "text") {
+                if (over(quote))
+                    return Qt.PointingHandCursor
+                if (over(reactionRow)) {
+                    const point = mapToItem(reactionRow, x, y)
+                    return reactionRow.childAt(point.x, point.y) ? Qt.PointingHandCursor : Qt.ArrowCursor
+                }
+                const point = mapToItem(bodyText, x, y)
+                return over(bodyText) && bodyText.linkAt(point.x, point.y) !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor
+            }
+            if (line.localPath !== "" && (over(pictureCard) && !over(pictureBar) || over(fileBadge) || over(fileName)))
+                return Qt.PointingHandCursor
+            return Qt.ArrowCursor
+        }
+        cursorShape: {
+            if (pressed && !picking && line.kind === "text")
+                return Qt.IBeamCursor
+            if (!lineHover.hovered)
+                return Qt.ArrowCursor
+            const point = hoverZone.mapToItem(pointer, lineHover.point.position.x, lineHover.point.position.y)
+            return cursorAt(point.x, point.y)
         }
 
         onPressed: mouse => {
