@@ -66,8 +66,14 @@ ApplicationWindow {
             close.accepted = false
             win.hide()
         } else {
-            Qt.quit()
+            win.quit()
         }
+    }
+
+    // Qt.quit() asks the window to close first, and closing it only hides
+    // it, which calls the quit off; exit() leaves without asking.
+    function quit() {
+        Qt.exit(0)
     }
 
     Connections {
@@ -83,7 +89,7 @@ ApplicationWindow {
     // typing, where it's a character; F1 and Ctrl+/ work everywhere.
     Shortcut { sequences: ["?", "Shift+?"]; enabled: !win.typing; onActivated: shortcutsOverlay.open() }
     Shortcut { sequences: ["F1", "Ctrl+/"]; context: Qt.ApplicationShortcut; onActivated: shortcutsOverlay.visible ? shortcutsOverlay.close() : shortcutsOverlay.open() }
-    Shortcut { sequence: "Ctrl+Q"; context: Qt.ApplicationShortcut; onActivated: Qt.quit() }
+    Shortcut { sequence: "Ctrl+Q"; context: Qt.ApplicationShortcut; onActivated: win.quit() }
     Shortcut { sequence: "Ctrl+Shift+K"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: backend.showAllContacts = !backend.showAllContacts }
     Shortcut { sequences: ["Ctrl+K", "Ctrl+T"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.focusSearch() }
     Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: addContactDialog.open() }
@@ -201,7 +207,7 @@ ApplicationWindow {
                     AppMenuItem { text: qsTr("Import history from Gajim…"); onTriggered: importDialog.open() }
                     AppMenuSeparator {}
                     AppMenuItem { text: qsTr("Sign out"); onTriggered: backend.signOut() }
-                    AppMenuItem { text: qsTr("Quit"); hint: "Ctrl+Q"; destructive: true; onTriggered: Qt.quit() }
+                    AppMenuItem { text: qsTr("Quit"); hint: "Ctrl+Q"; destructive: true; onTriggered: win.quit() }
                 }
             }
         }

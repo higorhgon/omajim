@@ -115,7 +115,9 @@ int main(int argc, char *argv[]) {
         else
             showWindow();
     });
-    QObject::connect(&tray, &Tray::quitRequested, &app, &QGuiApplication::quit);
+    // exit(), not quit(): quit() asks the window to close first, and closing
+    // it only hides it while the tray shows, which calls the quit off.
+    QObject::connect(&tray, &Tray::quitRequested, &app, [] { QCoreApplication::exit(0); });
 
     // Away after a while without using the computer, as Gajim does; 0 turns
     // a step off.
