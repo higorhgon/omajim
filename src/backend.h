@@ -63,6 +63,7 @@ class Backend : public QObject {
     Q_PROPERTY(QVariantList invitations READ invitations NOTIFY invitationsChanged)
     Q_PROPERTY(bool serverUploadAvailable READ serverUploadAvailable NOTIFY uploadSupportChanged)
     Q_PROPERTY(bool editing READ editing NOTIFY editingChanged)
+    Q_PROPERTY(QString editingText READ editingText NOTIFY editingChanged)
     Q_PROPERTY(QString replyingTo READ replyingTo NOTIFY replyChanged)
     // The sidebar's mode, remembered: every contact by group, or only the
     // open conversations.
@@ -98,7 +99,9 @@ public:
     QStringList currentRoomParticipants() const;
     QVariantList invitations() const { return m_invitations; }
     bool serverUploadAvailable() const;
-    bool editing() const { return m_editingId != 0; }
+    bool editing() const { return m_editing.id != 0; }
+    // The line being corrected, as it was.
+    QString editingText() const { return m_editing.body; }
     QString replyingTo() const;
     bool showAllContacts() const { return m_contacts.browsing(); }
     void setShowAllContacts(bool show);
@@ -128,6 +131,10 @@ public:
     // Up in an empty message field: our last line comes back to be
     // corrected (XEP-0308), and the next send replaces it.
     Q_INVOKABLE QString startEditingLast();
+    // Any of our text lines from the last hour, as Gajim allows (XEP-0308);
+    // its text to put in the message field, or empty when it can't be.
+    Q_INVOKABLE bool canEdit(qint64 messageId) const;
+    Q_INVOKABLE QString startEditing(qint64 messageId);
     // Sends the picked messages again to another conversation, and opens
     // it: texts as they are, files by their link on the server, or from
     // this computer when they have none.
@@ -293,7 +300,9 @@ private:
     void applyOutOfBand(HistoryEntry &entry, const QXmppMessage &message) const;
     // Applies a correction to the line it replaces, if its author wrote it.
     bool applyCorrection(const HistoryEntry &correction, const QString &replaceId);
-    bool sendCorrection(const QString &body);
+    bool sendCorrection(const QString &body, const QString &xhtml = {});
+    QString beginEditing(const HistoryEntry &entry);
+    QString authorOf(const HistoryEntry &entry) const;
     // Fills in a line's quote and reactions on screen.
     void decorate(const HistoryEntry &entry);
     void react(qint64 messageId, const QString &emoji, bool toggle);
@@ -343,7 +352,13 @@ private:
     QString m_pickMethod = QStringLiteral("server");
     QString m_proxy;
     QString m_saveSource;
-    qint64 m_editingId = 0;
+    HistoryEntry m_editing;
+    bool m_sidebarCollapsed = false;
+    // Our picture's hash as our vCard has it; known once the vCard was read
+    // or written in this session, empty for no picture.
+    bool m_ownAvatarKnown = false;
+    QString m_ownAvatarHash;
+    QString m_ownNickname;
     qint64 m_replyId = 0;
     // The status before automatic away, to come back to; empty when not away.
     QString m_statusBeforeIdle;
@@ -367,6 +382,7 @@ private:
     bool m_starting = false;
     bool m_resolving = false;
     bool m_signedIn = false;
+    bool m_forwarding = false;
     QString m_jid;
     QString m_password;
     QString m_status = QStringLiteral("online");

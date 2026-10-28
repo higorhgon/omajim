@@ -376,6 +376,15 @@ Rectangle {
                 pickFrom = -1
             }
 
+            // One of our lines back in the message field, to correct it.
+            function editMessage(messageId) {
+                const text = backend.startEditing(messageId)
+                if (text === "")
+                    return
+                pane.setComposerText(text)
+                composer.forceActiveFocus()
+            }
+
             // A reaction from the emoji picker, opened over a line's bubble.
             function pickReaction(item, messageId) {
                 emojiPicker.openAt(item, emoji => backend.addReaction(messageId, emoji))
@@ -489,6 +498,46 @@ Rectangle {
                     iconName: "close"
                     description: qsTr("Don't reply (Esc)")
                     onClicked: backend.cancelReply()
+                }
+            }
+        }
+
+        // The message being corrected; Esc or the cross leaves it as it was.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.leftMargin: 20
+            Layout.rightMargin: 20
+            Layout.bottomMargin: 8
+            visible: backend.editing
+            implicitHeight: 40
+            radius: Math.min(4, theme.radius)
+            color: pane.ui.panel
+            border.color: pane.ui.border
+
+            Rectangle {
+                width: 3
+                height: parent.height
+                color: pane.ui.accent
+            }
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 4
+                spacing: 8
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Editing: %1").arg(backend.editingText.replace(/\s+/g, " "))
+                    color: pane.ui.muted
+                    font.pixelSize: 13
+                    elide: Text.ElideRight
+                }
+                IconButton {
+                    iconName: "close"
+                    description: qsTr("Don't edit (Esc)")
+                    onClicked: {
+                        backend.cancelEditing()
+                        pane.setComposerText("")
+                    }
                 }
             }
         }
@@ -623,7 +672,7 @@ Rectangle {
                         }
                         // Up in an empty field brings back our last line to correct.
                         Keys.onUpPressed: event => {
-                            const last = text === "" ? backend.startEditingLast() : ""
+                            const last = length === 0 ? backend.startEditingLast() : ""
                             if (last !== "") {
                                 text = last
                                 cursorPosition = length
@@ -689,7 +738,7 @@ Rectangle {
         property var destinations: []
 
         title: qsTr("Forward %n messages", "", backend.messages.selectedCount)
-        subtitle: qsTr("They go as new messages, and the conversation opens.")
+        subtitle: qsTr("Each goes with who wrote it and when, and the conversation opens.")
         acceptText: qsTr("Forward")
         acceptEnabled: destinationList.currentIndex >= 0
         onAboutToShow: {

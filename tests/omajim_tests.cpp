@@ -10,6 +10,7 @@
 #include <QSqlQuery>
 #include <QXmlStreamWriter>
 #include <QXmppClient.h>
+#include <QXmppXmlElement.h>
 #include <QXmppFallback.h>
 #include <QXmppMessage.h>
 #include <QXmppMessageReaction.h>
@@ -595,6 +596,45 @@ private slots:
         QVERIFY(backend.startEditingLast().isEmpty());
     }
 
+    void anyRecentLineOfOursCanBeEdited() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+        auto send = [&](const QString &from, const QString &to, const QString &id, const QString &body,
+                        const QDateTime &stamp = {}) {
+            QXmppMessage message(from, to, body);
+            message.setType(QXmppMessage::Chat);
+            message.setId(id);
+            if (stamp.isValid())
+                message.setStamp(stamp);
+            emit backend.client()->messageReceived(message);
+        };
+        // Ours from another device two hours ago, ours just now, then Bob's.
+        send("alice@example.org/laptop", "bob@example.org", "old", "too late", QDateTime::currentDateTimeUtc().addSecs(-7200));
+        send("alice@example.org/laptop", "bob@example.org", "mine", "typo hree");
+        send("bob@example.org/phone", "alice@example.org", "his", "ok");
+        auto *messages = backend.messages();
+        QCOMPARE(messages->rowCount(), 3);
+        auto id = [&](int row) { return messages->data(messages->index(row), MessageModel::IdRole).toLongLong(); };
+
+        // Not the last line, yet ours and recent: it can be edited.
+        QVERIFY(backend.canEdit(id(1)));
+        QVERIFY(!backend.canEdit(id(0)));
+        QVERIFY(!backend.canEdit(id(2)));
+        QVERIFY(backend.startEditing(id(2)).isEmpty());
+        QVERIFY(!backend.editing());
+
+        QCOMPARE(backend.startEditing(id(1)), QString("typo hree"));
+        QVERIFY(backend.editing());
+        QCOMPARE(backend.editingText(), QString("typo hree"));
+        // Another conversation drops it.
+        backend.openChat("carol@example.org");
+        QVERIFY(!backend.editing());
+    }
+
     void destinationsFollowTheSidebarOrder() {
         ContactModel model;
         model.upsert("zoe@example.org", "Zoe");
@@ -702,6 +742,52 @@ private slots:
         QCOMPARE(html("> said\nreply"), QString("<span style=\"color:#2\">│ said</span><br>reply"));
         // Still escaped inside styling.
         QCOMPARE(html("*<b>*"), QString("<b>&lt;b&gt;</b>"));
+    }
+
+    void forwardedLinesShowWhoWroteThem() {
+        // The header, up to the line break (or space) after it.
+        const QString line = "[28/10/2026 10:20] Karen Fernanda de Moraes:\nele na intranet https://example.org/?a=1";
+        QCOMPARE(TextFormat::forwardedHeaderLength(line), qsizetype(QString("[28/10/2026 10:20] Karen Fernanda de Moraes:\n").size()));
+        QVERIFY(TextFormat::forwardedHeaderLength("[10/28/26, 10:20 AM] Bob: hi") > 0);
+        QCOMPARE(TextFormat::forwardedHeaderLength("[nota] Bob: hi"), qsizetype(0));
+        // Only a forwarded line gets the header set apart: a pasted copy is text.
+        QVERIFY(TextFormat::toHtml(line, "#1", "#2", {}, true, true)
+                    .startsWith("<span style=\"font-weight:600\">[28/10/2026 10:20] Karen Fernanda de Moraes:</span><br>ele na intranet <a"));
+        QVERIFY(!TextFormat::toHtml(line, "#1", "#2").contains("font-weight"));
+        // Forwarded before the line break: the header still on its own line.
+        QVERIFY(TextFormat::toHtml("[28/10/2026 10:20] Karen: oi", "#1", "#2", {}, true, true).endsWith("Karen:</span><br>oi"));
+
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+        // Omajim's mark says so, not the text.
+        QXmppMessage forwarded("bob@example.org/pc", "alice@example.org", line);
+        forwarded.setType(QXmppMessage::Chat);
+        forwarded.setId("f1");
+        forwarded.extensions().add(QXmpp::Xml::Element("forwarded", "https://github.com/higorhgon/omajim/forwarded"));
+        // Through the wire and back, as another Omajim gets it.
+        QByteArray xml;
+        QXmlStreamWriter writer(&xml);
+        forwarded.toXml(&writer);
+        QDomDocument document;
+        QVERIFY(bool(document.setContent(xml, QDomDocument::ParseOption::UseNamespaceProcessing)));
+        QXmppMessage received;
+        received.parse(document.documentElement());
+        emit backend.client()->messageReceived(received);
+        QXmppMessage pasted("bob@example.org/pc", "alice@example.org", line);
+        pasted.setType(QXmppMessage::Chat);
+        pasted.setId("f2");
+        emit backend.client()->messageReceived(pasted);
+        QCOMPARE(backend.messages()->rowCount(), 2);
+        QVERIFY(backend.messages()->data(backend.messages()->index(0), MessageModel::ForwardedRole).toBool());
+        QVERIFY(!backend.messages()->data(backend.messages()->index(1), MessageModel::ForwardedRole).toBool());
+        // Kept in the history.
+        backend.openChat("carol@example.org");
+        backend.openChat("bob@example.org");
+        QVERIFY(backend.messages()->data(backend.messages()->index(0), MessageModel::ForwardedRole).toBool());
     }
 
     void imagesFromKnownContactsGetPreviews() {

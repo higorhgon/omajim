@@ -28,6 +28,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case SenderRole: return entry.sender;
     case UrlRole: return entry.url;
     case EditedRole: return entry.edited;
+    case ForwardedRole: return entry.forwarded;
     case SelectedRole: return m_selected.contains(entry.id);
     case ReplyRole: return m_replies.value(entry.id);
     case ReactionsRole: return m_reactions.value(entry.id);

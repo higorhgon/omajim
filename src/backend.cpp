@@ -89,6 +89,21 @@ static const quint16 DirectTransferPort = 28011;
 // only, so history from years back doesn't download on the first sign-in.
 static const int ArchivePageSize = 100;
 
+// Omajim's mark on a forwarded message, so another Omajim shows it as one;
+// other clients ignore it and show the text, header and all.
+static const QString ForwardedNamespace = QStringLiteral("https://github.com/higorhgon/omajim/forwarded");
+
+static bool isForwarded(const QXmppMessage &message) {
+    for (const auto &element : message.extensions().getAll<QXmpp::Xml::Element>())
+        if (element.tag() == "forwarded" && element.xmlns() == ForwardedNamespace)
+            return true;
+    return false;
+}
+
+static void markForwarded(QXmppMessage &message) {
+    message.extensions().add(QXmpp::Xml::Element(QStringLiteral("forwarded"), ForwardedNamespace));
+}
+
 // Lines of history to ask a room for the first time we join it.
 static const int RoomHistoryStanzas = 50;
 
@@ -901,6 +916,7 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
             entry.body = stripped;
     }
     applyOutOfBand(entry, message);
+    entry.forwarded = isForwarded(message);
     entry.xmppId = message.id();
     // Our server's id for it; another entity's stanza-id says nothing.
     const auto stanzaIds = message.stanzaIds();
@@ -1020,8 +1036,8 @@ bool Backend::sendMessage(const QString &text) {
         setError(tr("You're offline, so the message wasn't sent."));
         return false;
     }
-    if (m_editingId != 0)
-        return sendCorrection(body);
+    if (editing())
+        return sendCorrection(body, xhtml);
     if (m_rooms.contains(m_currentChat)) {
         auto room = m_muc->findRoom(m_currentChat);
         if (!room || !room->joined().value()) {
@@ -1040,6 +1056,10 @@ bool Backend::sendMessage(const QString &text) {
         entry.xmppId = message.id();
         entry.sender = roomNickname(m_currentChat);
         quoteReply(message, entry);
+        if (m_forwarding) {
+            entry.forwarded = true;
+            markForwarded(message);
+        }
         const QString name = currentChatName();
         room->sendMessage(message).then(this, [this, name](QXmpp::Result<> &&result) {
             if (auto *error = std::get_if<QXmppError>(&result))
@@ -1063,6 +1083,10 @@ bool Backend::sendMessage(const QString &text) {
     entry.body = body;
     entry.xmppId = message.id();
     quoteReply(message, entry);
+    if (m_forwarding) {
+        entry.forwarded = true;
+        markForwarded(message);
+    }
     const QString peer = m_currentChat;
     m_client->send(std::move(message)).then(this, [this, peer](QXmpp::SendResult &&result) {
         if (std::holds_alternative<QXmppError>(result))
@@ -1617,6 +1641,7 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
             entry.body = stripped;
     }
     applyOutOfBand(entry, message);
+    entry.forwarded = isForwarded(message);
     entry.xmppId = message.originId().isEmpty() ? message.id() : message.originId();
     const auto stanzaIds = message.stanzaIds();
     for (const QXmppStanzaId &stanzaId : stanzaIds)
@@ -1726,31 +1751,43 @@ bool Backend::applyCorrection(const HistoryEntry &correction, const QString &rep
 }
 
 QString Backend::startEditingLast() {
-    const HistoryEntry last = m_history.lastOwnText(m_currentChat);
-    if (last.id == 0)
+    return beginEditing(m_history.lastOwnText(m_currentChat));
+}
+
+bool Backend::canEdit(qint64 messageId) const {
+    const HistoryEntry entry = m_messages.entry(messageId);
+    // Gajim's limit (MAX_MESSAGE_CORRECTION_DELAY): an hour.
+    return entry.id != 0 && entry.outgoing && entry.kind == "text" && !entry.xmppId.isEmpty()
+        && entry.stamp.secsTo(QDateTime::currentDateTimeUtc()) <= 3600;
+}
+
+QString Backend::startEditing(qint64 messageId) {
+    return canEdit(messageId) ? beginEditing(m_messages.entry(messageId)) : QString();
+}
+
+QString Backend::beginEditing(const HistoryEntry &entry) {
+    if (entry.id == 0)
         return {};
-    m_editingId = last.id;
+    // One thing at a time in the message field.
+    cancelReply();
+    m_editing = entry;
     emit editingChanged();
-    return last.body;
+    return entry.body;
 }
 
 void Backend::cancelEditing() {
-    if (m_editingId == 0)
+    if (m_editing.id == 0)
         return;
-    m_editingId = 0;
+    m_editing = {};
     emit editingChanged();
 }
 
-bool Backend::sendCorrection(const QString &body) {
-    const HistoryEntry original = m_history.lastOwnText(m_currentChat);
-    const qint64 editing = m_editingId;
+bool Backend::sendCorrection(const QString &body, const QString &xhtml) {
+    const HistoryEntry original = m_editing;
     cancelEditing();
-    // Something else was said meanwhile; the edit no longer fits the last line.
-    if (original.id != editing) {
-        setError(tr("The message changed meanwhile, so the correction wasn't sent."));
+    if (original.peer != m_currentChat)
         return false;
-    }
-    if (body == original.body)
+    if (body == original.body && xhtml == original.xhtml)
         return true;
 
     QXmppMessage message({}, m_currentChat, body);
@@ -1939,13 +1976,19 @@ static QString transcriptLine(const HistoryEntry &entry, const QString &who, con
     return who.isEmpty() ? QStringLiteral("[%1] %2").arg(when, text) : QStringLiteral("[%1] %2: %3").arg(when, who, text);
 }
 
+// Who wrote a line: our account's name, our nickname in a room, the
+// nickname of whoever wrote in one, or the contact's name.
+QString Backend::authorOf(const HistoryEntry &entry) const {
+    if (entry.outgoing)
+        return entry.sender.isEmpty() ? QXmppUtils::jidToUser(m_jid) : entry.sender;
+    return !entry.sender.isEmpty() ? entry.sender : m_contacts.nameOf(entry.peer);
+}
+
 QString Backend::selectedMessagesText() const {
     QStringList lines;
     const auto entries = m_messages.selectedEntries();
     for (const HistoryEntry &entry : entries) {
-        const QString who = entry.outgoing ? (entry.sender.isEmpty() ? QXmppUtils::jidToUser(m_jid) : entry.sender)
-                          : !entry.sender.isEmpty() ? entry.sender
-                          : m_contacts.nameOf(entry.peer);
+        const QString who = authorOf(entry);
         const QString text = entry.kind == "file" ? (entry.url.isEmpty() ? tr("File: %1").arg(entry.body) : entry.url)
                                                   : entry.body;
         lines << transcriptLine(entry, who, text);
@@ -1964,9 +2007,7 @@ QString Backend::transcriptText(const QVariantList &parts) const {
         if (row < 0 || row >= entries.size())
             continue;
         const HistoryEntry &entry = entries.at(row);
-        const QString who = entry.outgoing ? (entry.sender.isEmpty() ? QXmppUtils::jidToUser(m_jid) : entry.sender)
-                          : !entry.sender.isEmpty() ? entry.sender
-                          : m_contacts.nameOf(entry.peer);
+        const QString who = authorOf(entry);
         // A partial line starts or ends wherever the drag did, spaces and all.
         QString text = part.value("text").isNull() ? entry.body : part.value("text").toString().trimmed();
         if (entry.kind == "file")
@@ -1997,16 +2038,29 @@ void Backend::forwardSelected(const QString &jid) {
         setError(tr("You're offline, so nothing was forwarded."));
         return;
     }
+    // Each goes with who wrote it and when, as the copy has it, worked
+    // out before the other conversation opens.
+    // The header on a line of its own, the text below it.
+    QStringList headers;
+    for (const HistoryEntry &original : entries)
+        headers << transcriptLine(original, authorOf(original),
+                                  "\n" + (original.kind == "text" ? original.body : tr("File: %1").arg(original.body)))
+                       .replace(": \n", ":\n");
     m_messages.clearSelection();
     openChat(jid);
     cancelEditing();
     cancelReply();
     const bool room = m_rooms.contains(jid);
     bool missing = false;
-    for (const HistoryEntry &original : entries) {
-        if (original.kind == "text") {
-            sendMessage(original.body);
-        } else if (!original.url.isEmpty()) {
+    for (int i = 0; i < entries.size(); ++i) {
+        const HistoryEntry &original = entries.at(i);
+        // A text in a single message; a file after a line saying whose it is.
+        m_forwarding = true;
+        sendMessage(headers.at(i));
+        m_forwarding = false;
+        if (original.kind == "text")
+            continue;
+        if (!original.url.isEmpty()) {
             // Already on the server: the link is enough.
             HistoryEntry entry;
             entry.peer = jid;

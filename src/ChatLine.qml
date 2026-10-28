@@ -21,6 +21,7 @@ Item {
     required property string sender
     required property string url
     required property bool edited
+    required property bool forwarded
     required property string preview
     required property string route
     required property bool selected
@@ -455,7 +456,8 @@ Item {
                 }
             }
 
-            // When it was written, and whether it was edited or delivered.
+            // When it was written, and whether it was forwarded, edited or
+            // delivered.
             RowLayout {
                 id: stampRow
                 Layout.alignment: line.outgoing ? Qt.AlignRight : Qt.AlignLeft
@@ -472,6 +474,13 @@ Item {
                     }
                     color: line.ui.muted
                     font.pixelSize: 11
+                }
+                Label {
+                    visible: line.forwarded
+                    text: qsTr("(forwarded)")
+                    color: line.ui.muted
+                    font.pixelSize: 11
+                    font.italic: true
                 }
                 Label {
                     visible: line.edited
@@ -715,10 +724,13 @@ Item {
         }
     }
 
-    // Right-click: answer, react, copy.
+    // Right-click: answer, react, edit, copy.
     AppMenu {
         id: lineMenu
         readonly property var quick: ["👍", "❤️", "😂", "😮", "😢", "🙏"]
+        // Ours, text, and recent enough; asked as it opens, since it expires.
+        property bool editable: false
+        onAboutToShow: editable = backend.canEdit(line.messageId)
 
         Item {
             implicitWidth: emojiRow.implicitWidth + 12
@@ -762,6 +774,12 @@ Item {
         AppMenuItem {
             text: qsTr("Reply")
             onTriggered: backend.startReply(line.messageId)
+        }
+        AppMenuItem {
+            text: qsTr("Edit")
+            visible: lineMenu.editable
+            height: visible ? implicitHeight : 0
+            onTriggered: line.ListView.view.editMessage(line.messageId)
         }
         AppMenuItem {
             text: qsTr("Copy text")
