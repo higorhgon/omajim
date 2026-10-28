@@ -169,6 +169,7 @@
   "Room address (room@server)": "Endereço da sala (sala@servidor)",
   "Room password (optional)": "Senha da sala (opcional)",
   "SHA-256 fingerprint: %1": "Impressão digital SHA-256: %1",
+  "React": "Reagir",
   "SOCKS5 connection": "conexão SOCKS5",
   "Save": "Salvar",
   "Save %1": "Salvar %1",

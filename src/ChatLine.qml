@@ -495,6 +495,47 @@ Item {
                 // The other side's client confirmed it arrived (XEP-0184).
                 AppIcon {
                     visible: line.outgoing && line.delivered
+    // Answer and react, beside the bubble while the pointer is over it or
+    // them, as in ZapFast: on the side facing the middle, centered on the
+    // bubble, the reaction next to it.
+    Item {
+        id: hoverZone
+        readonly property real gap: 6
+        x: line.outgoing ? bubble.x - quickActions.width - gap : bubble.x
+        width: bubble.width + quickActions.width + gap
+        height: bubble.height
+        HoverHandler { id: lineHover }
+
+        Row {
+            id: quickActions
+            x: line.outgoing ? 0 : bubble.width + hoverZone.gap
+            anchors.verticalCenter: parent.verticalCenter
+            layoutDirection: line.outgoing ? Qt.RightToLeft : Qt.LeftToRight
+            spacing: 2
+            // Not while dragging a selection across it.
+            readonly property bool shown: lineHover.hovered && !pointer.pressed
+            opacity: shown ? 1 : 0
+            enabled: shown
+            Behavior on opacity { NumberAnimation { duration: 90 } }
+
+            IconButton {
+                id: reactButton
+                implicitWidth: 30
+                implicitHeight: 30
+                iconName: "smile"
+                description: qsTr("React")
+                onClicked: line.ListView.view.pickReaction(reactButton, line.messageId)
+            }
+            IconButton {
+                implicitWidth: 30
+                implicitHeight: 30
+                iconName: "reply"
+                description: qsTr("Reply")
+                onClicked: backend.startReply(line.messageId)
+            }
+        }
+    }
+
                     implicitWidth: 13
                     implicitHeight: 13
                     name: "check"

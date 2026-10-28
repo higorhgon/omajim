@@ -26,8 +26,6 @@ Nesta ordem:
 Pedidos para o uso do dia a dia, sem ordem definida:
 
 - Ocultar o menu lateral
-- Botão de responder em cada mensagem (as respostas já funcionam; falta o
-  botão)
 - Janela de preferências (hoje os ajustes ficam em `omajim.conf`)
 - Encaminhar uma mensagem para outra conversa
 - Opção de a janela ganhar foco ao receber uma mensagem
