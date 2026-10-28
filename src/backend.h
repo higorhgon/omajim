@@ -51,6 +51,13 @@ class Backend : public QObject {
     Q_PROPERTY(bool signedIn READ signedIn NOTIFY signedInChanged)
     Q_PROPERTY(QString jid READ jid NOTIFY signedInChanged)
     Q_PROPERTY(QString host READ host NOTIFY signedInChanged)
+    Q_PROPERTY(int awayMinutes READ awayMinutes WRITE setAwayMinutes NOTIFY idleTimesChanged)
+    Q_PROPERTY(int xaMinutes READ xaMinutes WRITE setXaMinutes NOTIFY idleTimesChanged)
+    Q_PROPERTY(bool notifications READ notifications WRITE setNotifications NOTIFY notificationsChanged)
+    Q_PROPERTY(bool textSmileys READ textSmileys WRITE setTextSmileys NOTIFY textSmileysChanged)
+    Q_PROPERTY(QString closeAction READ closeAction WRITE setCloseAction NOTIFY closeActionChanged)
+    Q_PROPERTY(bool historySyncing READ historySyncing NOTIFY historySyncChanged)
+    Q_PROPERTY(int historySyncCount READ historySyncCount NOTIFY historySyncChanged)
     Q_PROPERTY(QString connectionState READ connectionState NOTIFY connectionStateChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(QString errorText READ errorText NOTIFY errorTextChanged)
@@ -95,6 +102,21 @@ public:
     bool signedIn() const { return m_signedIn; }
     QString jid() const { return m_jid; }
     QString host() const;
+    int awayMinutes() const;
+    void setAwayMinutes(int minutes);
+    int xaMinutes() const;
+    void setXaMinutes(int minutes);
+    bool notifications() const;
+    void setNotifications(bool on);
+    bool textSmileys() const;
+    void setTextSmileys(bool on);
+    QString closeAction() const;
+    void setCloseAction(const QString &action);
+    bool historySyncing() const { return m_historySyncing; }
+    int historySyncCount() const { return m_historySyncCount; }
+    // Where Gajim (and the Python Omajim) keep settings and history, to
+    // take them over on the first run.
+    void setGajimSources(const QStringList &settings, const QStringList &histories);
     QString connectionState() const;
     QString status() const { return m_status; }
     QString errorText() const { return m_errorText; }
@@ -130,6 +152,10 @@ public:
 
     Q_INVOKABLE void signIn(const QString &jid, const QString &password, const QString &host, bool remember);
     Q_INVOKABLE void signOut();
+    // Brings the server's archive back to some days ago (-1: all of it),
+    // as Gajim's "Synchronize Chat History"; whether that's already here.
+    Q_INVOKABLE void syncHistory(int days);
+    Q_INVOKABLE bool historyReaches(int days) const;
     Q_INVOKABLE void setStatus(const QString &status);
     // How long the user has been away from the computer: 0 back, 1 a while
     // (away), 2 long (not available). Fed by the IdleMonitor.
@@ -215,8 +241,6 @@ public:
     QString selectedMessagesText() const;
     // Gajim's history for this account: where it is and how many messages
     // it holds ({path, found, error}), and bringing them over.
-    Q_INVOKABLE QVariantMap findGajimHistory() const;
-    Q_INVOKABLE QVariantMap importGajimHistory(const QString &path);
 
     Q_INVOKABLE bool addContact(const QString &jid, const QString &name);
     // A name for a contact on this computer only; empty goes back to the
@@ -258,6 +282,11 @@ signals:
     void ownNicknameChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
+    void idleTimesChanged();
+    void notificationsChanged();
+    void textSmileysChanged();
+    void closeActionChanged();
+    void historySyncChanged();
     void smileyPicturePicked(const QString &path);
 
 private:
@@ -278,6 +307,9 @@ private:
     // An empty server follows the domain's SRV records.
     void connectTo(const QString &server, int port);
     void openHistory();
+    void adoptGajim();
+    void importGajimHistory(const QString &jid, History &history);
+    void fetchHistoryPage(const QString &account, const QDateTime &start, const QDateTime &end, const QString &after);
     void setError(const QString &text);
     void setSignedIn(bool signedIn);
     // How a message reached us: as it was sent, or later from the server's
@@ -422,7 +454,12 @@ private:
     bool m_starting = false;
     bool m_resolving = false;
     bool m_signedIn = false;
+    bool m_silentSync = false;
     bool m_forwarding = false;
+    bool m_historySyncing = false;
+    int m_historySyncCount = 0;
+    QStringList m_gajimSettings;
+    QStringList m_gajimHistories;
     QString m_jid;
     QString m_password;
     QString m_status = QStringLiteral("online");

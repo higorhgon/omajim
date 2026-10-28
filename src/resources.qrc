@@ -1,11 +1,13 @@
 <RCC>
     <qresource prefix="/">
         <file alias="AppButton.qml">AppButton.qml</file>
+        <file alias="AppCheckBox.qml">AppCheckBox.qml</file>
         <file alias="AppDialog.qml">AppDialog.qml</file>
         <file alias="AppIcon.qml">AppIcon.qml</file>
         <file alias="AppMenu.qml">AppMenu.qml</file>
         <file alias="AppMenuItem.qml">AppMenuItem.qml</file>
         <file alias="AppMenuSeparator.qml">AppMenuSeparator.qml</file>
+        <file alias="AppSegmented.qml">AppSegmented.qml</file>
         <file alias="AppTextField.qml">AppTextField.qml</file>
         <file alias="ChatLine.qml">ChatLine.qml</file>
         <file alias="ChatPane.qml">ChatPane.qml</file>
@@ -13,6 +15,7 @@
         <file alias="ContactPane.qml">ContactPane.qml</file>
         <file alias="IconButton.qml">IconButton.qml</file>
         <file alias="Main.qml">Main.qml</file>
+        <file alias="PreferencesDialog.qml">PreferencesDialog.qml</file>
         <file alias="PresenceDot.qml">PresenceDot.qml</file>
         <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>
         <file alias="SignInView.qml">SignInView.qml</file>

@@ -44,6 +44,7 @@ Popup {
             ["Ctrl+Shift+O", qsTr("Send a file directly")] ] },
         { title: qsTr("Window"), keys: [
             ["? / F1", qsTr("Show these shortcuts")],
+            ["Ctrl+,", qsTr("Preferences")],
             ["Ctrl+Q", qsTr("Quit")] ] }
     ]
 

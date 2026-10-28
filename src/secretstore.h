@@ -17,6 +17,9 @@ public:
     explicit SecretStore(QObject *parent = nullptr, const QString &secretTool = {});
 
     virtual void lookup(const QString &account, LookupDone done);
+    // The password Gajim (or the Python Omajim) keeps for an account, as
+    // the Python keyring library stores it; only read, to take it over.
+    virtual void lookupGajim(const QString &account, LookupDone done);
     virtual void store(const QString &account, const QString &password, Done done);
     virtual void clear(const QString &account, Done done);
 

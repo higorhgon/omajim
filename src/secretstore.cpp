@@ -18,6 +18,13 @@ void SecretStore::lookup(const QString &account, LookupDone done) {
         });
 }
 
+void SecretStore::lookupGajim(const QString &account, LookupDone done) {
+    run({"lookup", "service", "gajim", "username", account}, {},
+        [done](int code, const QByteArray &out, const QString &error) {
+            done(error.isEmpty() && code == 0 ? QString::fromUtf8(out) : QString(), {});
+        });
+}
+
 void SecretStore::store(const QString &account, const QString &password, Done done) {
     run({"store", "--label", tr("Omajim password for %1").arg(account), "service", "omajim", "account", account},
         password.toUtf8(), [done](int code, const QByteArray &, const QString &error) {

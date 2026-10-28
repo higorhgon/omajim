@@ -1,12 +1,4 @@
 {
-  "%n messages imported.": {
-    "one": "%n message imported.",
-    "other": "%n messages imported."
-  },
-  "%n messages of %1 in %2.": {
-    "one": "%n message of %1 in %2.",
-    "other": "%n messages of %1 in %2."
-  },
   "%n messages selected · Shift+click or drag adds or removes": {
     "one": "%n message selected · Shift+click or drag adds or removes",
     "other": "%n messages selected · Shift+click or drag adds or removes"
@@ -26,5 +18,9 @@
   "Send %n files to %1?": {
     "one": "Send %n file to %1?",
     "other": "Send %n files to %1?"
+  },
+  "Synchronizing… %n messages so far.": {
+    "one": "Synchronizing… %n message so far.",
+    "other": "Synchronizing… %n messages so far."
   }
 }

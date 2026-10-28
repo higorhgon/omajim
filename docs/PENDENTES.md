@@ -25,17 +25,11 @@ Nesta ordem:
 
 Pedidos para o uso do dia a dia, sem ordem definida:
 
-- Ocultar o menu lateral
-- Janela de preferências (hoje os ajustes ficam em `omajim.conf`)
-- Opção de a janela ganhar foco ao receber uma mensagem
-- Clicar na notificação abre o Omajim, já na conversa da mensagem recebida
-
-Vindo do Pidgin:
-
-- Figurinhas por texto: trocar códigos como `:)` por uma imagem, como os
-  temas de smileys do Pidgin
-- Botões de formatação no campo de mensagem (negrito, itálico etc.). O app já
-  mostra a formatação recebida (XEP-0393); falta ajudar a escrever
+- Opção de a janela ganhar foco ao receber uma mensagem, no menu de preferências
+- Clicar na notificação abre o Omajim, já na conversa da mensagem recebida 
+  (parece já estar funcionando)
+- Corrigir uma mensagem formatada mantendo a formatação (hoje a correção
+  volta ao texto com os marcadores do Gajim)
 
 ## Ainda não portado do Gajim
 

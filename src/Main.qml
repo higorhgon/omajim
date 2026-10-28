@@ -59,10 +59,14 @@ ApplicationWindow {
 
     onActiveChanged: backend.windowActive = active
 
-    // With the tray item showing, closing the window keeps Omajim connected
-    // in the background, like other chat apps; Ctrl+Q quits for real.
+    // Closing the window does what the preferences say, as Gajim's
+    // action_on_close: to the tray (connected in the background, like other
+    // chat apps), minimized, or quit. Ctrl+Q always quits.
     onClosing: close => {
-        if (tray.available && backend.signedIn) {
+        if (backend.closeAction === "minimize") {
+            close.accepted = false
+            win.showMinimized()
+        } else if (backend.closeAction === "tray" && tray.available && backend.signedIn) {
             close.accepted = false
             win.hide()
         } else {
@@ -93,6 +97,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Shift+K"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: backend.showAllContacts = !backend.showAllContacts }
     Shortcut { sequences: ["Ctrl+K", "Ctrl+T"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.focusSearch() }
     Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.setCollapsed(!contactPane.collapsed) }
+    Shortcut { sequence: "Ctrl+,"; context: Qt.ApplicationShortcut; onActivated: preferencesDialog.open() }
     Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: addContactDialog.open() }
     Shortcut { sequence: "Ctrl+J"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: joinRoomDialog.open() }
     Shortcut {
@@ -197,8 +202,8 @@ ApplicationWindow {
                 AppMenu {
                     id: moreMenu
                     objectName: "moreMenu"
+                    AppMenuItem { text: qsTr("Preferences…"); hint: "Ctrl+,"; onTriggered: preferencesDialog.open() }
                     AppMenuItem { text: qsTr("Keyboard shortcuts"); hint: "?"; onTriggered: shortcutsOverlay.open() }
-                    AppMenuItem { text: qsTr("Import history from Gajim…"); onTriggered: importDialog.open() }
                     AppMenuSeparator {}
                     AppMenuItem { text: qsTr("Sign out"); onTriggered: backend.signOut() }
                     AppMenuItem { text: qsTr("Quit"); hint: "Ctrl+Q"; destructive: true; onTriggered: win.quit() }
@@ -326,6 +331,10 @@ ApplicationWindow {
             }
         }
 
+        PreferencesDialog {
+            id: preferencesDialog
+        }
+
         AppDialog {
             id: addContactDialog
             objectName: "addContactDialog"
@@ -391,46 +400,6 @@ ApplicationWindow {
             }
         }
 
-        // Gajim's conversations, counted first and imported on request; the
-        // same dialog then says how it went.
-        AppDialog {
-            id: importDialog
-            objectName: "importDialog"
-            property var found: ({})
-            property var outcome: null
-
-            title: qsTr("Import history from Gajim")
-            subtitle: outcome ? (outcome.error !== "" ? outcome.error
-                                 : outcome.imported > 0 ? qsTr("%n messages imported.", "", outcome.imported)
-                                 : qsTr("Everything was already here; nothing new to import."))
-                    : found.error ? found.error
-                    : found.found > 0 ? qsTr("%n messages of %1 in %2.", "", found.found).arg(backend.jid).arg(found.path)
-                    : qsTr("No Gajim history of %1 on this computer.").arg(backend.jid)
-            acceptText: outcome || !(found.found > 0) ? qsTr("Close") : qsTr("Import")
-            showCancel: !outcome && found.found > 0
-            closeOnAccept: false
-            onOpened: {
-                outcome = null
-                found = backend.findGajimHistory()
-            }
-            onAccepted: {
-                if (outcome || !(found.found > 0))
-                    close()
-                else
-                    outcome = backend.importGajimHistory(found.path)
-            }
-
-            Label {
-                Layout.fillWidth: true
-                visible: !importDialog.outcome && importDialog.found.found > 0
-                text: qsTr("Gajim's file isn't changed, and messages already here aren't added twice.")
-                color: win.ui.muted
-                font.pixelSize: 13
-                wrapMode: Text.Wrap
-            }
-        }
-
-        // A contact's roster group, kept on the server like in Gajim.
         AppDialog {
             id: groupDialog
             property string jid

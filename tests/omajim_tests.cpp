@@ -68,6 +68,8 @@ public:
         passwords.remove(account);
         done({});
     }
+    QHash<QString, QString> gajimPasswords;
+    void lookupGajim(const QString &account, LookupDone done) override { done(gajimPasswords.value(account), {}); }
 };
 
 class FakeFilePicker : public FilePicker {
@@ -786,6 +788,37 @@ private slots:
         QCOMPARE(html("*<b>*"), QString("<b>&lt;b&gt;</b>"));
     }
 
+    void preferencesAreKept() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        {
+            Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+            QCOMPARE(backend.awayMinutes(), 5);
+            QCOMPARE(backend.xaMinutes(), 15);
+            QVERIFY(backend.notifications());
+            QVERIFY(backend.textSmileys());
+            QSignalSpy idle(&backend, &Backend::idleTimesChanged);
+            backend.setAwayMinutes(10);
+            backend.setXaMinutes(0);
+            QCOMPARE(idle.count(), 2);
+            backend.setNotifications(false);
+            backend.setTextSmileys(false);
+            QCOMPARE(backend.closeAction(), QString("tray"));
+            backend.setCloseAction("sideways");
+            QCOMPARE(backend.closeAction(), QString("tray"));
+            backend.setCloseAction("minimize");
+            // Nothing synced yet: no period is here already.
+            QVERIFY(!backend.historyReaches(30));
+            QCOMPARE(backend.formatMessage(":) oi", "#1", "#2"), QString(":) oi"));
+        }
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        QCOMPARE(backend.awayMinutes(), 10);
+        QCOMPARE(backend.xaMinutes(), 0);
+        QVERIFY(!backend.notifications());
+        QVERIFY(!backend.textSmileys());
+        QCOMPARE(backend.closeAction(), QString("minimize"));
+    }
+
     void pidginTextSmileysBecomeEmoji() {
         auto html = [](const QString &text) { return TextFormat::toHtml(text, "#1", "#2"); };
         QCOMPARE(html(":) oi :-D, <3 e :beer:"), QString("🙂 oi 😃, ❤️ e 🍺"));
@@ -1088,6 +1121,100 @@ private slots:
         QCOMPARE(GajimImport::import(source, "alice@example.org", history).imported, 0);
         QVERIFY(original.open(QIODevice::ReadOnly));
         QCOMPARE(QCryptographicHash::hash(original.readAll(), QCryptographicHash::Sha256), before);
+    }
+
+    void gajimComesOverOnTheFirstRun() {
+        QTemporaryDir dir;
+        // Gajim's settings, only what differs from its defaults, and its history.
+        const QString settings = dir.filePath("gajim/settings.sqlite");
+        const QString logs = dir.filePath("gajim/logs.db");
+        QDir().mkpath(dir.filePath("gajim"));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "gajim-settings");
+            db.setDatabaseName(settings);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            for (const char *statement : {
+                     "CREATE TABLE settings (name TEXT UNIQUE, settings TEXT)",
+                     "CREATE TABLE account_settings (account TEXT UNIQUE, settings TEXT)",
+                     "INSERT INTO settings VALUES ('app', '{\"autoawaytime\": 10, \"autoxa\": false,"
+                     " \"show_notifications\": false, \"action_on_close\": \"minimize\"}')",
+                     "INSERT INTO account_settings VALUES ('old', '{\"account\": {\"address\": \"Old@example.org\","
+                     " \"active\": false}}')",
+                     "INSERT INTO account_settings VALUES ('work', '{\"account\": {\"address\": \"alice@example.org\","
+                     " \"use_custom_host\": true, \"custom_host\": \"127.0.0.1\", \"custom_port\": 1, \"password\": \"\"},"
+                     " \"contact\": {}}')"})
+                QVERIFY2(q.exec(statement), qPrintable(q.lastError().text()));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase("gajim-settings");
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "gajim-logs");
+            db.setDatabaseName(logs);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            for (const char *statement : {
+                     "CREATE TABLE account (pk INTEGER PRIMARY KEY, jid TEXT NOT NULL)",
+                     "CREATE TABLE remote (pk INTEGER PRIMARY KEY, jid TEXT NOT NULL)",
+                     "CREATE TABLE message (pk INTEGER PRIMARY KEY, fk_account_pk INTEGER, fk_remote_pk INTEGER,"
+                     " resource TEXT, type INTEGER, direction INTEGER, timestamp FLOAT, state INTEGER, id TEXT,"
+                     " stanza_id TEXT, text TEXT, correction_id TEXT)",
+                     "CREATE TABLE oob (pk INTEGER PRIMARY KEY, fk_message_pk INTEGER, url TEXT, description TEXT)",
+                     "CREATE TABLE filetransfer (pk INTEGER PRIMARY KEY, fk_message_pk INTEGER, name TEXT, size INTEGER)",
+                     "INSERT INTO account VALUES (1, 'alice@example.org')",
+                     "INSERT INTO remote VALUES (1, 'bob@example.org')",
+                     "INSERT INTO message VALUES (1, 1, 1, 'phone', 1, 1, 100.5, 0, 'g1', 's1', 'from gajim', NULL)"})
+                QVERIFY2(q.exec(statement), qPrintable(q.lastError().text()));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase("gajim-logs");
+
+        const auto read = GajimImport::readSettings(settings);
+        QCOMPARE(read.accounts.size(), 2);
+        QCOMPARE(read.accounts.at(0).jid, QString("old@example.org"));
+        QVERIFY(!read.accounts.at(0).active);
+        QCOMPARE(read.accounts.at(1).host, QString("127.0.0.1:1"));
+        QCOMPARE(*read.awayMinutes, 10);
+        QCOMPARE(*read.xaMinutes, 0);
+        QVERIFY(!*read.notifications);
+        QCOMPARE(*read.closeAction, QString("minimize"));
+
+        FakeSecretStore secrets;
+        secrets.gajimPasswords.insert("alice@example.org", "from-gajim");
+        {
+            Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+            backend.setStatus("offline");
+            backend.setGajimSources({settings}, {logs});
+            backend.start();
+            // The active account, with its server, Gajim's password kept as ours.
+            QCOMPARE(backend.jid(), QString("alice@example.org"));
+            QCOMPARE(backend.host(), QString("127.0.0.1:1"));
+            QSettings kept(dir.filePath("config/omajim.conf"), QSettings::IniFormat);
+            QCOMPARE(kept.value("accounts/list").toStringList(), (QStringList{"old@example.org", "alice@example.org"}));
+            // Off in Gajim, off here.
+            QVERIFY(kept.value("disabled/old@example.org").toBool());
+            QVERIFY(backend.signedIn());
+            QCOMPARE(secrets.passwords.value("alice@example.org"), QString("from-gajim"));
+            QCOMPARE(backend.awayMinutes(), 10);
+            QCOMPARE(backend.xaMinutes(), 0);
+            QVERIFY(!backend.notifications());
+            QCOMPARE(backend.closeAction(), QString("minimize"));
+            backend.openChat("bob@example.org");
+            QCOMPARE(backend.messages()->rowCount(), 1);
+            QCOMPARE(backend.messages()->data(backend.messages()->index(0), MessageModel::BodyRole).toString(),
+                     QString("from gajim"));
+        }
+        // Only the first run: what changes here afterwards stays.
+        {
+            Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+            backend.setCloseAction("quit");
+            backend.signOut();
+        }
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.setGajimSources({settings}, {logs});
+        backend.start();
+        QCOMPARE(backend.closeAction(), QString("quit"));
     }
 
     void ufwRulesDecideTheDirectPort() {

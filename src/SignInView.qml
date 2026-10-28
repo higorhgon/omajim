@@ -76,37 +76,11 @@ Item {
                     inputMethodHints: Qt.ImhNoAutoUppercase
                     onAccepted: view.submit()
                 }
-                CheckBox {
+                AppCheckBox {
                     id: rememberBox
                     Layout.leftMargin: -6
                     checked: true
                     text: qsTr("Remember the password in the keyring")
-                    font.pixelSize: 13
-                    indicator: Rectangle {
-                        x: rememberBox.leftPadding
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 18
-                        height: 18
-                        radius: Math.min(3, theme.radius)
-                        color: rememberBox.checked ? view.ui.accent : view.ui.background
-                        border.color: rememberBox.checked ? view.ui.accent
-                                    : rememberBox.visualFocus ? view.ui.accent : view.ui.border
-                        AppIcon {
-                            anchors.centerIn: parent
-                            width: 14
-                            height: 14
-                            visible: rememberBox.checked
-                            name: "check"
-                            color: view.ui.accentText
-                        }
-                    }
-                    contentItem: Label {
-                        leftPadding: rememberBox.indicator.width + 10
-                        text: rememberBox.text
-                        font: rememberBox.font
-                        color: view.ui.foreground
-                        verticalAlignment: Text.AlignVCenter
-                    }
                 }
             }
 

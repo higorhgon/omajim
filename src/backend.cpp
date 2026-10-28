@@ -89,9 +89,12 @@ static void trace(const QString &step) {
 // the Python Omajim used, and an existing ufw rule keeps working.
 static const quint16 DirectTransferPort = 28011;
 
-// Messages per archive request. The first sync of an account fetches one page
-// only, so history from years back doesn't download on the first sign-in.
+// Messages per archive request.
 static const int ArchivePageSize = 100;
+
+// How far back the first sync of an account goes, in days, as Gajim's: so
+// history from years back doesn't download on the first sign-in.
+static const int FirstSyncDays = 7;
 
 // Omajim's mark on a forwarded message, so another Omajim shows it as one;
 // other clients ignore it and show the text, header and all.
@@ -423,17 +426,18 @@ Backend::~Backend() {
 }
 
 void Backend::start() {
+    adoptGajim();
     if (m_jid.isEmpty() || !m_secrets)
         return;
     m_starting = true;
     emit signedInChanged();
     trace("keyring: looking up the password");
-    m_secrets->lookup(m_jid, [this](const QString &password, const QString &error) {
-        trace("keyring: done");
+    const QString account = m_jid;
+    auto signIn = [this, account](const QString &password) {
         m_starting = false;
-        if (!error.isEmpty())
-            setError(error);
-        if (password.isEmpty()) {
+        if (account != m_jid)
+            return;
+        if (password.isEmpty() && m_enabled) {
             emit signedInChanged();
             return;
         }
@@ -441,6 +445,25 @@ void Backend::start() {
         openHistory();
         setSignedIn(true);
         connectToServer();
+    };
+    m_secrets->lookup(m_jid, [this, account, signIn](const QString &password, const QString &error) {
+        trace("keyring: done");
+        if (!error.isEmpty())
+            setError(error);
+        // An account taken over from Gajim signs in with Gajim's password
+        // the first time, kept from then on as Omajim's own.
+        if (password.isEmpty() && error.isEmpty() && m_settings.value("gajim/accounts").toStringList().contains(account)) {
+            m_secrets->lookupGajim(account, [this, account, signIn](const QString &gajimPassword, const QString &) {
+                if (!gajimPassword.isEmpty())
+                    m_secrets->store(account, gajimPassword, [this](const QString &error) {
+                        if (!error.isEmpty())
+                            setError(error);
+                    });
+                signIn(gajimPassword);
+            });
+            return;
+        }
+        signIn(password);
     });
 }
 
@@ -450,6 +473,61 @@ quint16 Backend::directTransferPort() const {
 
 QString Backend::host() const {
     return m_settings.value("account/host").toString();
+
+int Backend::awayMinutes() const {
+    return m_settings.value("idle/awayMinutes", 5).toInt();
+}
+
+void Backend::setAwayMinutes(int minutes) {
+    if (minutes == awayMinutes() || minutes < 0)
+        return;
+    m_settings.setValue("idle/awayMinutes", minutes);
+    emit idleTimesChanged();
+}
+
+int Backend::xaMinutes() const {
+    return m_settings.value("idle/xaMinutes", 15).toInt();
+}
+
+void Backend::setXaMinutes(int minutes) {
+    if (minutes == xaMinutes() || minutes < 0)
+        return;
+    m_settings.setValue("idle/xaMinutes", minutes);
+    emit idleTimesChanged();
+}
+
+bool Backend::notifications() const {
+    return m_settings.value("ui/notifications", true).toBool();
+}
+
+void Backend::setNotifications(bool on) {
+    if (on == notifications())
+        return;
+    m_settings.setValue("ui/notifications", on);
+    emit notificationsChanged();
+}
+
+QString Backend::closeAction() const {
+    return m_settings.value("ui/closeAction", "tray").toString();
+}
+
+void Backend::setCloseAction(const QString &action) {
+    static const QStringList known{"tray", "minimize", "quit"};
+    if (!known.contains(action) || action == closeAction())
+        return;
+    m_settings.setValue("ui/closeAction", action);
+    emit closeActionChanged();
+}
+
+bool Backend::textSmileys() const {
+    return m_settings.value("ui/textSmileys", true).toBool();
+}
+
+void Backend::setTextSmileys(bool on) {
+    if (on == textSmileys())
+        return;
+    m_settings.setValue("ui/textSmileys", on);
+    emit textSmileysChanged();
 }
 
 QString Backend::connectionState() const {
@@ -576,6 +654,10 @@ void Backend::signOut() {
     m_rooms.clear();
     m_requests.clear();
     m_invitations.clear();
+    m_silentSync = false;
+    m_historySyncing = false;
+    m_historySyncCount = 0;
+    emit historySyncChanged();
     emit subscriptionRequestsChanged();
     emit invitationsChanged();
     closeChat();
@@ -1027,7 +1109,7 @@ qint64 Backend::addEntry(HistoryEntry &entry, Delivery delivery) {
         m_contacts.addUnread(entry.peer);
         if (delivery == Delivery::Archived) {
             ++m_archivedUnread;
-        } else if (m_notifier && m_status != "dnd") {
+        } else if (m_notifier && m_status != "dnd" && notifications()) {
             const QString name = m_contacts.nameOf(entry.peer);
             const QString body = entry.kind == "file" ? tr("Wants to send you %1").arg(entry.body)
                                                       : entry.body.left(200);
@@ -1110,21 +1192,28 @@ void Backend::syncArchive(bool firstPage) {
     const QString last = m_settings.value(key).toString();
     QXmppResultSetQuery page;
     page.setMax(ArchivePageSize);
-    if (firstPage)
-        page.setBefore(QStringLiteral(""));  // An empty <before/> asks for the newest page.
-    else
+    // The first time, the last week, as Gajim does (mam.py); older history
+    // comes by asking, in the preferences. Then from the last message on.
+    QDateTime start;
+    if (firstPage) {
+        start = QDateTime::currentDateTimeUtc().addDays(-FirstSyncDays);
+        m_silentSync = true;
+        m_settings.setValue("archive/" + m_jid + "/from", start.toString(Qt::ISODate));
+    } else {
         page.setAfter(last);
+    }
 
     const QString account = m_jid;
-    m_mam->retrieveMessages({}, {}, {}, {}, {}, page)
+    m_mam->retrieveMessages({}, {}, {}, start, {}, page)
         .then(this, [this, key, account, firstPage, last](QXmppMamManager::RetrieveResult &&result) {
             m_syncing = false;
             // Signed out or switched accounts meanwhile.
             if (account != m_jid)
                 return;
             if (std::holds_alternative<QXmppError>(result)) {
+                m_silentSync = false;
                 // The server forgot the message we continue from (archives
-                // expire), so start over from the newest page. A server
+                // expire), so start over from the last week. A server
                 // without an archive just has nothing to add.
                 if (!firstPage && !last.isEmpty()) {
                     m_settings.remove(key);
@@ -1134,18 +1223,84 @@ void Backend::syncArchive(bool firstPage) {
             }
 
             const auto &retrieved = std::get<QXmppMamManager::RetrievedMessages>(result);
-            const Delivery delivery = firstPage ? Delivery::ArchivedSilently : Delivery::Archived;
+            // What came in the first sync is history, not news.
+            const Delivery delivery = m_silentSync ? Delivery::ArchivedSilently : Delivery::Archived;
             for (const QXmppMessage &message : retrieved.messages)
                 ingest(message, delivery);
 
             const QString newLast = retrieved.result.resultSetReply().last();
             if (!newLast.isEmpty())
                 m_settings.setValue(key, newLast);
-            if (!firstPage && !retrieved.result.complete() && !newLast.isEmpty() && newLast != last) {
+            if (!retrieved.result.complete() && !newLast.isEmpty() && newLast != last) {
                 syncArchive(false);
                 return;
             }
+            m_silentSync = false;
             finishArchiveSync();
+        });
+}
+
+bool Backend::historyReaches(int days) const {
+    const QString from = m_settings.value("archive/" + m_jid + "/from").toString();
+    if (from == "all")
+        return true;
+    if (days < 0 || from.isEmpty())
+        return false;
+    return QDateTime::fromString(from, Qt::ISODate) <= QDateTime::currentDateTimeUtc().addDays(-days).addSecs(3600);
+}
+
+void Backend::syncHistory(int days) {
+    if (m_historySyncing || !m_client->isAuthenticated() || !m_history.isOpen())
+        return;
+    // From that far back up to where the history already goes.
+    const QString from = m_settings.value("archive/" + m_jid + "/from").toString();
+    const QDateTime end = from.isEmpty() || from == "all" ? QDateTime::currentDateTimeUtc()
+                                                         : QDateTime::fromString(from, Qt::ISODate);
+    const QDateTime start = days < 0 ? QDateTime() : QDateTime::currentDateTimeUtc().addDays(-days);
+    m_historySyncing = true;
+    m_historySyncCount = 0;
+    emit historySyncChanged();
+    trace(QStringLiteral("archive: syncing back %1 days").arg(days));
+    fetchHistoryPage(m_jid, start, end, {});
+}
+
+void Backend::fetchHistoryPage(const QString &account, const QDateTime &start, const QDateTime &end,
+                               const QString &after) {
+    QXmppResultSetQuery page;
+    page.setMax(ArchivePageSize);
+    if (!after.isEmpty())
+        page.setAfter(after);
+    m_mam->retrieveMessages({}, {}, {}, start, end, page)
+        .then(this, [this, account, start, end, after](QXmppMamManager::RetrieveResult &&result) {
+            if (account != m_jid) {
+                m_historySyncing = false;
+                emit historySyncChanged();
+                return;
+            }
+            if (auto *error = std::get_if<QXmppError>(&result)) {
+                m_historySyncing = false;
+                emit historySyncChanged();
+                setError(tr("The server's history couldn't be synchronized: %1").arg(error->description));
+                return;
+            }
+            const auto &retrieved = std::get<QXmppMamManager::RetrievedMessages>(result);
+            for (const QXmppMessage &message : retrieved.messages)
+                if (ingest(message, Delivery::ArchivedSilently))
+                    ++m_historySyncCount;
+            emit historySyncChanged();
+
+            const QString last = retrieved.result.resultSetReply().last();
+            if (!retrieved.result.complete() && !last.isEmpty() && last != after) {
+                fetchHistoryPage(account, start, end, last);
+                return;
+            }
+            m_settings.setValue("archive/" + m_jid + "/from", start.isValid() ? start.toString(Qt::ISODate) : QStringLiteral("all"));
+            m_historySyncing = false;
+            emit historySyncChanged();
+            trace(QStringLiteral("archive: %1 older messages").arg(m_historySyncCount));
+            if (!m_currentChat.isEmpty())
+                m_messages.reset(m_history.recent(m_currentChat, HistoryLimit));
+            m_reloadCurrentChat = false;
         });
 }
 
@@ -1154,8 +1309,8 @@ void Backend::finishArchiveSync() {
     if (m_reloadCurrentChat && !m_currentChat.isEmpty())
         m_messages.reset(m_history.recent(m_currentChat, HistoryLimit));
     m_reloadCurrentChat = false;
-    if (m_archivedUnread > 0 && m_notifier && m_status != "dnd")
-        m_notifier->notify(QStringLiteral("archive"), QStringLiteral("Omajim"),
+    if (m_archivedUnread > 0 && m_notifier && m_status != "dnd" && notifications())
+        notify(QStringLiteral("archive"), QStringLiteral("Omajim"),
                            tr("%n new messages while you were away", "", m_archivedUnread));
     m_archivedUnread = 0;
 }
@@ -2099,32 +2254,85 @@ void Backend::ensurePreview(const HistoryEntry &entry) {
     });
 }
 
-QVariantMap Backend::findGajimHistory() const {
-    // The file with the most of this account's messages, when both Gajim
-    // and the Python Omajim have one.
-    QVariantMap best{{"path", QString()}, {"found", 0}, {"error", QString()}};
-    const QStringList paths = GajimImport::candidates();
-    for (const QString &path : paths) {
-        const auto result = GajimImport::count(path, m_jid);
-        if (!result.error.isEmpty() && best.value("found").toInt() == 0)
-            best.insert("error", result.error);
-        if (result.found > best.value("found").toInt())
-            best = {{"path", path}, {"found", result.found}, {"error", QString()}};
+// The file with the most of an account's messages, when both Gajim and
+// the Python Omajim have one, into its history here.
+void Backend::importGajimHistory(const QString &jid, History &history) {
+    QString best;
+    int most = 0;
+    for (const QString &path : std::as_const(m_gajimHistories)) {
+        const int found = GajimImport::count(path, jid).found;
+        if (found > most) {
+            best = path;
+            most = found;
+        }
     }
-    return best;
+    if (best.isEmpty())
+        return;
+    const auto result = GajimImport::import(best, jid, history);
+    trace(QStringLiteral("gajim import: %1 of %2 messages of %3").arg(result.imported).arg(result.found).arg(jid));
+    if (!result.error.isEmpty())
+        setError(tr("Gajim's history of %1 couldn't be brought over: %2").arg(jid, result.error));
 }
 
-QVariantMap Backend::importGajimHistory(const QString &path) {
-    if (!m_history.isOpen())
-        return {{"imported", 0}, {"error", tr("The message history isn't open.")}};
-    const auto result = GajimImport::import(path, m_jid, m_history);
-    if (!m_currentChat.isEmpty()) {
-        m_messages.reset(m_history.recent(m_currentChat, HistoryLimit));
-        for (const HistoryEntry &entry : m_messages.entries())
-            ensurePreview(entry);
+void Backend::setGajimSources(const QStringList &settings, const QStringList &histories) {
+    m_gajimSettings = settings;
+    m_gajimHistories = histories;
+}
+
+// The first run on a computer with Gajim (or the Python Omajim): its
+// accounts, the preferences Omajim has too, and each account's history.
+// The passwords come from Gajim's keyring entries when each account signs
+// in. Only once, and never over accounts already here.
+void Backend::adoptGajim() {
+    if (!m_jid.isEmpty() || m_settings.value("gajim/adopted").toBool())
+        return;
+    if (m_gajimSettings.isEmpty() && m_gajimHistories.isEmpty())
+        return;
+    m_settings.setValue("gajim/adopted", true);
+
+    GajimImport::Settings gajim;
+    for (const QString &path : std::as_const(m_gajimSettings)) {
+        gajim = GajimImport::readSettings(path);
+        if (!gajim.accounts.isEmpty())
+            break;
     }
-    trace(QStringLiteral("gajim import: %1 of %2 messages").arg(result.imported).arg(result.found));
-    return {{"imported", result.imported}, {"found", result.found}, {"error", result.error}};
+    if (gajim.awayMinutes)
+        setAwayMinutes(*gajim.awayMinutes);
+    if (gajim.xaMinutes)
+        setXaMinutes(*gajim.xaMinutes);
+    if (gajim.notifications)
+        setNotifications(*gajim.notifications);
+    if (gajim.closeAction)
+        setCloseAction(*gajim.closeAction);
+
+    QStringList jids;
+    for (const GajimImport::Account &account : std::as_const(gajim.accounts)) {
+        if (jids.contains(account.jid))
+            continue;
+        jids << account.jid;
+        m_settings.setValue("hosts/" + account.jid, account.host);
+        // Off in Gajim, off here: listed, not connected.
+        if (!account.active)
+            m_settings.setValue("disabled/" + account.jid, true);
+        History history;
+        if (history.open(QDir(m_dataDirectory).filePath("accounts/" + account.jid + "/history.sqlite")))
+            importGajimHistory(account.jid, history);
+    }
+    if (jids.isEmpty())
+        return;
+    trace(QStringLiteral("gajim: took over %1 accounts").arg(jids.size()));
+    m_settings.setValue("accounts/list", jids);
+    m_settings.setValue("gajim/accounts", jids);
+    // The first active one, as Gajim would connect it.
+    m_jid = jids.first();
+    for (const GajimImport::Account &account : std::as_const(gajim.accounts))
+        if (account.active) {
+            m_jid = account.jid;
+            break;
+        }
+    m_settings.setValue("account/jid", m_jid);
+    emit accountsChanged();
+    emit signedInChanged();
 }
 
 QString Backend::previewOf(const HistoryEntry &entry) const {

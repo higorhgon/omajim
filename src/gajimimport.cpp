@@ -3,6 +3,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -31,6 +33,17 @@ QStringList candidates() {
     return found;
 }
 
+QStringList settingsCandidates() {
+    const QString config = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+    QStringList found;
+    for (const QString &name : {QStringLiteral("gajim"), QStringLiteral("omajim")}) {
+        const QString path = QDir(config).filePath(name + "/settings.sqlite");
+        if (QFileInfo::exists(path))
+            found << path;
+    }
+    return found;
+}
+
 // A private copy of the file and its write-ahead log, opened read-only, so
 // a running Gajim and its data are never touched.
 class Copy {
@@ -40,7 +53,7 @@ public:
             m_error = QObject::tr("No temporary folder to read %1 from.").arg(path);
             return;
         }
-        const QString copy = m_dir.filePath("logs.db");
+        const QString copy = m_dir.filePath(QFileInfo(path).fileName());
         for (const QString &suffix : {QString(), QStringLiteral("-wal"), QStringLiteral("-shm")}) {
             if (QFileInfo::exists(path + suffix) && !QFile::copy(path + suffix, copy + suffix)) {
                 m_error = QObject::tr("%1 couldn't be copied for reading.").arg(path + suffix);
@@ -175,6 +188,50 @@ Result import(const QString &path, const QString &account, History &history) {
     }
     history.commitBatch();
     return result;
+}
+
+// Gajim keeps each group of settings as a JSON object, only with what
+// differs from its defaults (gajim/common/settings.py).
+Settings readSettings(const QString &path) {
+    Settings settings;
+    Copy copy(path);
+    if (!copy.error().isEmpty()) {
+        settings.error = copy.error();
+        return settings;
+    }
+    QSqlQuery query(copy.db());
+    if (query.exec("SELECT settings FROM settings WHERE name = 'app'") && query.next()) {
+        const QJsonObject app = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
+        // Gajim's defaults (gajim/common/setting_values.py): away after 5
+        // minutes, not available after 15, both on.
+        if (app.contains("autoawaytime") || app.contains("autoaway"))
+            settings.awayMinutes = app.value("autoaway").toBool(true) ? app.value("autoawaytime").toInt(5) : 0;
+        if (app.contains("autoxatime") || app.contains("autoxa"))
+            settings.xaMinutes = app.value("autoxa").toBool(true) ? app.value("autoxatime").toInt(15) : 0;
+        if (app.contains("show_notifications"))
+            settings.notifications = app.value("show_notifications").toBool();
+        // Gajim's "hide" is to the tray.
+        const QString close = app.value("action_on_close").toString();
+        if (close == "hide")
+            settings.closeAction = QStringLiteral("tray");
+        else if (close == "minimize" || close == "quit")
+            settings.closeAction = close;
+    }
+    if (query.exec("SELECT settings FROM account_settings ORDER BY rowid")) {
+        while (query.next()) {
+            const QJsonObject account = QJsonDocument::fromJson(query.value(0).toString().toUtf8())
+                                            .object().value("account").toObject();
+            const QString jid = account.value("address").toString().trimmed().toLower();
+            if (!jid.contains('@'))
+                continue;
+            Account found{jid, {}, account.value("active").toBool(true)};
+            if (account.value("use_custom_host").toBool() && !account.value("custom_host").toString().isEmpty())
+                found.host = QStringLiteral("%1:%2").arg(account.value("custom_host").toString())
+                                 .arg(account.value("custom_port").toInt(5222));
+            settings.accounts << found;
+        }
+    }
+    return settings;
 }
 
 }

@@ -11,12 +11,12 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
-#include <QSettings>
 #include <QStandardPaths>
 #include <QUrl>
 
 #include "backend.h"
 #include "emojicatalog.h"
+#include "gajimimport.h"
 #include "idlemonitor.h"
 #include "instance.h"
 #include "notifier.h"

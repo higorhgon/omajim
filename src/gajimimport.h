@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QString>
+#include <QList>
 #include <QStringList>
+#include <optional>
 
 class History;
 
@@ -12,6 +14,26 @@ namespace GajimImport {
 
 // Where Gajim and the Python Omajim keep their history, if there.
 QStringList candidates();
+// Where they keep their settings (settings.sqlite), if there.
+QStringList settingsCandidates();
+
+// What Omajim can take over from Gajim's settings: its accounts and the
+// preferences Omajim has too. A preference Gajim left at its default is
+// left out, so Omajim's own default stays.
+struct Account {
+    QString jid;
+    QString host;  // "host:port", or empty to find the server by DNS
+    bool active = true;
+};
+struct Settings {
+    QList<Account> accounts;
+    std::optional<int> awayMinutes;  // 0 when automatic away is off
+    std::optional<int> xaMinutes;
+    std::optional<bool> notifications;
+    std::optional<QString> closeAction;  // "tray", "minimize" or "quit"
+    QString error;
+};
+Settings readSettings(const QString &path);
 
 struct Result {
     int found = 0;     // messages of the account in the file
