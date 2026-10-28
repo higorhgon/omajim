@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QPainterPath>
+#include <QBuffer>
 #include <QRegularExpression>
 #include <QSaveFile>
 
@@ -45,6 +46,24 @@ QString AvatarStore::hashFor(const QString &jid) const {
 QString AvatarStore::pathFor(const QString &jid) const {
     const QString hash = hashFor(jid);
     return has(hash) ? fileFor(hash) : QString();
+}
+
+QByteArray AvatarStore::photoFrom(const QImage &image, QString *type) {
+    if (image.isNull())
+        return {};
+    const int side = qMin(image.width(), image.height());
+    QImage square = image.copy((image.width() - side) / 2, (image.height() - side) / 2, side, side);
+    if (side > 256)
+        square = square.scaled(256, 256, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    const bool clear = square.hasAlphaChannel();
+    QByteArray data;
+    QBuffer buffer(&data);
+    buffer.open(QIODevice::WriteOnly);
+    if (!square.save(&buffer, clear ? "PNG" : "JPEG", clear ? -1 : 90))
+        return {};
+    if (type)
+        *type = clear ? QStringLiteral("image/png") : QStringLiteral("image/jpeg");
+    return data;
 }
 
 QString AvatarStore::save(const QByteArray &photo) {

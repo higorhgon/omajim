@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -23,6 +25,7 @@ class Notifier;
 class QFileInfo;
 class QNetworkAccessManager;
 class QNetworkReply;
+class QXmppVCardIq;
 class QXmppClient;
 class QXmppHttpUpload;
 class QXmppHttpUploadManager;
@@ -57,6 +60,10 @@ class Backend : public QObject {
     Q_PROPERTY(QString currentChatPresence READ currentChatPresence NOTIFY currentChatChanged)
     Q_PROPERTY(QString currentChatStatusText READ currentChatStatusText NOTIFY currentChatChanged)
     Q_PROPERTY(QString currentChatAvatar READ currentChatAvatar NOTIFY currentChatChanged)
+    // Our own picture, as a file URL for QML, or empty.
+    Q_PROPERTY(QString ownAvatar READ ownAvatar NOTIFY ownAvatarChanged)
+    // Our nickname, as our vCard has it; empty when we have none.
+    Q_PROPERTY(QString ownNickname READ ownNickname NOTIFY ownNicknameChanged)
     Q_PROPERTY(bool currentChatTyping READ currentChatTyping NOTIFY typingChanged)
     Q_PROPERTY(bool currentChatIsRoom READ currentChatIsRoom NOTIFY currentChatChanged)
     Q_PROPERTY(QStringList currentRoomParticipants READ currentRoomParticipants NOTIFY participantsChanged)
@@ -68,6 +75,8 @@ class Backend : public QObject {
     // The sidebar's mode, remembered: every contact by group, or only the
     // open conversations.
     Q_PROPERTY(bool showAllContacts READ showAllContacts WRITE setShowAllContacts NOTIFY showAllContactsChanged)
+    // The sidebar narrowed to the conversations' pictures, as in ZapFast.
+    Q_PROPERTY(bool sidebarCollapsed READ sidebarCollapsed WRITE setSidebarCollapsed NOTIFY sidebarCollapsedChanged)
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
@@ -94,6 +103,8 @@ public:
     QString currentChatPresence() const;
     QString currentChatStatusText() const;
     QString currentChatAvatar() const;
+    QString ownAvatar() const;
+    QString ownNickname() const { return m_ownNickname; }
     bool currentChatTyping() const { return m_typing.contains(m_currentChat); }
     bool currentChatIsRoom() const { return m_rooms.contains(m_currentChat); }
     QStringList currentRoomParticipants() const;
@@ -105,6 +116,8 @@ public:
     QString replyingTo() const;
     bool showAllContacts() const { return m_contacts.browsing(); }
     void setShowAllContacts(bool show);
+    bool sidebarCollapsed() const { return m_sidebarCollapsed; }
+    void setSidebarCollapsed(bool collapsed);
     bool windowActive() const { return m_windowActive; }
     void setWindowActive(bool active);
     ContactModel *contacts() { return &m_contacts; }
@@ -139,6 +152,13 @@ public:
     // it: texts as they are, files by their link on the server, or from
     // this computer when they have none.
     Q_INVOKABLE void forwardSelected(const QString &jid);
+    // Our picture (XEP-0153): picked in the desktop's dialog, or from a
+    // file; it goes in our vCard, and our presence tells contacts.
+    Q_INVOKABLE void chooseAvatar();
+    Q_INVOKABLE void setAvatar(const QString &path);
+    Q_INVOKABLE void removeAvatar();
+    // Our nickname, in our vCard and as XEP-0172 for clients that show it.
+    Q_INVOKABLE void setNickname(const QString &nickname);
     Q_INVOKABLE void cancelEditing();
     // Answering a line (XEP-0461): the next message quotes it.
     Q_INVOKABLE void startReply(qint64 messageId);
@@ -195,7 +215,6 @@ public:
     Q_INVOKABLE QVariantMap importGajimHistory(const QString &path);
 
     Q_INVOKABLE bool addContact(const QString &jid, const QString &name);
-    Q_INVOKABLE void removeContact(const QString &jid);
     // A name for a contact on this computer only; empty goes back to the
     // roster's name.
     Q_INVOKABLE void setAlias(const QString &jid, const QString &alias);
@@ -230,6 +249,9 @@ signals:
     void editingChanged();
     void replyChanged();
     void showAllContactsChanged();
+    void sidebarCollapsedChanged();
+    void ownAvatarChanged();
+    void ownNicknameChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
 
@@ -287,6 +309,14 @@ private:
     QString previewOf(const HistoryEntry &entry) const;
     void handleAvatarHash(const QXmppPresence &presence);
     void fetchAvatar(const QString &jid);
+    // Our presence for a status, with our picture's hash once known.
+    QXmppPresence ownPresence(const QString &status) const;
+    void refreshOwnVCard();
+    // Reads our vCard, changes it, and writes it back; done runs once the
+    // server took it.
+    void updateOwnVCard(std::function<void(QXmppVCardIq &)> change, std::function<void()> done);
+    void adoptOwnPhoto(const QByteArray &photo);
+    void adoptOwnNickname(const QString &nickname);
     QString bestResource(const QString &bareJid) const;
     qint64 addEntry(HistoryEntry &entry, Delivery delivery = Delivery::Live);
     void updateTransfer(qint64 id, const QString &state, const QString &path);

@@ -57,7 +57,5 @@ uma; confirmar antes de portar.
 
 - **Testar com uma conta real.** Até agora tudo foi conferido nos testes e
   numa tela de teste com dados inventados.
-- **Fonte do Omarchy.** Por enquanto, a fonte vem do portal do desktop, como no
-  Hype. Seguir `omarchy-font-set` fica para depois.
 - **Recorte de cartões de arquivo.** Na tela de teste, um cartão de arquivo no
   topo da lista apareceu cortado. Ver se isso acontece na tela de verdade.

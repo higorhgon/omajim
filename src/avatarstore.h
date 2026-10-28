@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QImage>
 #include <QSettings>
 #include <QString>
 
@@ -20,6 +21,11 @@ public:
     QString hashFor(const QString &jid) const;
     // The picture file for a contact, or empty when there's none.
     QString pathFor(const QString &jid) const;
+
+    // A picture made ready for our own vCard: its middle square, at most
+    // 256 px a side, as JPEG, or PNG when it has see-through parts; empty
+    // when there's no picture. The MIME type goes in type.
+    static QByteArray photoFrom(const QImage &image, QString *type);
 
     // Stores an image from a vCard and returns its hash, or an empty string
     // when the data isn't an image.

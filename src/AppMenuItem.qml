@@ -7,6 +7,8 @@ MenuItem {
     // A shortcut shown at the right edge, like "Ctrl+N".
     property string hint
     property bool destructive: false
+    // A status (online, away…): its dot goes before the label.
+    property string presence
     readonly property var ui: theme.colors
     readonly property color ink: destructive ? ui.error : ui.foreground
 

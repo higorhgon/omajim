@@ -292,6 +292,44 @@ private slots:
         QVERIFY(store.save("not an image").isEmpty());
     }
 
+    void ownPicturesAreSquaredAndSmall() {
+        // A wide photo: its middle square, shrunk to 256, as JPEG.
+        QImage photo(1200, 800, QImage::Format_RGB32);
+        photo.fill(Qt::blue);
+        QString type;
+        const QByteArray jpeg = AvatarStore::photoFrom(photo, &type);
+        QCOMPARE(type, QString("image/jpeg"));
+        QImage read;
+        QVERIFY(read.loadFromData(jpeg));
+        QCOMPARE(read.size(), QSize(256, 256));
+
+        // See-through and small: PNG, not made bigger.
+        QImage icon(100, 140, QImage::Format_ARGB32);
+        icon.fill(Qt::transparent);
+        const QByteArray png = AvatarStore::photoFrom(icon, &type);
+        QCOMPARE(type, QString("image/png"));
+        QVERIFY(read.loadFromData(png));
+        QCOMPARE(read.size(), QSize(100, 100));
+
+        QVERIFY(AvatarStore::photoFrom(QImage(), &type).isEmpty());
+    }
+
+    void ownAvatarNeedsAConnection() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        QVERIFY(backend.ownAvatar().isEmpty());
+        backend.setAvatar(dir.filePath("nothing.png"));
+        QVERIFY(backend.errorText().contains("offline"));
+        backend.dismissError();
+        QVERIFY(backend.ownNickname().isEmpty());
+        backend.setNickname("Alice");
+        QVERIFY(backend.errorText().contains("offline"));
+        QVERIFY(backend.ownNickname().isEmpty());
+    }
+
     void avatarHashesAreReadEitherWay() {
         const QByteArray raw = QCryptographicHash::hash("x", QCryptographicHash::Sha1);
         const QString hex = QString::fromLatin1(raw.toHex());
@@ -1406,10 +1444,16 @@ private slots:
             QVERIFY(!backend.showAllContacts());
             backend.setShowAllContacts(true);
             QVERIFY(backend.contacts()->browsing());
+            QVERIFY(!backend.sidebarCollapsed());
+            QSignalSpy collapsed(&backend, &Backend::sidebarCollapsedChanged);
+            backend.setSidebarCollapsed(true);
+            backend.setSidebarCollapsed(true);
+            QCOMPARE(collapsed.count(), 1);
         }
         Backend again(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
         QVERIFY(again.showAllContacts());
         QVERIFY(again.contacts()->browsing());
+        QVERIFY(again.sidebarCollapsed());
     }
 
     void contactsCountUnread() {

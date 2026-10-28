@@ -131,6 +131,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     }
     m_jid = m_settings.value("account/jid").toString();
     m_contacts.setBrowsing(m_settings.value("ui/showAllContacts", false).toBool());
+    m_sidebarCollapsed = m_settings.value("ui/sidebarCollapsed", false).toBool();
     m_status = m_settings.value("account/status", "online").toString();
 
     // Contacts' clients show who they talk to: Omajim, not QXmpp's defaults.
@@ -296,6 +297,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             // of the account's devices.
             syncArchive(m_settings.value("archive/" + m_jid + "/last").toString().isEmpty());
             discoverProxy();
+            refreshOwnVCard();
             // The bookmarks bring their rooms back too, but a server without
             // bookmarks still has the rooms joined in this session.
             for (auto it = m_rooms.cbegin(); it != m_rooms.cend(); ++it)
@@ -593,7 +595,7 @@ void Backend::applyStatus(const QString &status, bool remember) {
     if (status == "offline") {
         m_client->disconnectFromServer();
     } else if (m_client->isConnected()) {
-        m_client->setClientPresence(presenceFor(status));
+        m_client->setClientPresence(ownPresence(status));
     } else if (m_signedIn && m_client->state() == QXmppClient::DisconnectedState) {
         connectToServer();
     }
@@ -691,7 +693,7 @@ void Backend::connectTo(const QString &server, int port) {
     }
     trace(server.isEmpty() ? QStringLiteral("connecting through the SRV records")
                            : QStringLiteral("connecting to %1:%2").arg(server).arg(port));
-    m_client->connectToServer(configuration, presenceFor(m_status));
+    m_client->connectToServer(configuration, ownPresence(m_status));
 }
 
 void Backend::openHistory() {
@@ -702,6 +704,11 @@ void Backend::openHistory() {
     }
     m_history.failInterruptedTransfers();
     m_avatars = std::make_unique<AvatarStore>(QDir(m_dataDirectory).filePath("accounts/" + m_jid + "/avatars"));
+    m_ownAvatarKnown = false;
+    m_ownAvatarHash.clear();
+    emit ownAvatarChanged();
+    m_ownNickname = m_settings.value("nickname/" + m_jid).toString();
+    emit ownNicknameChanged();
 
     // Last session's contacts show right away, offline until the server
     // says otherwise, instead of an empty list while connecting.
@@ -762,6 +769,13 @@ void Backend::showContact(const QString &jid) {
 
 void Backend::handleAvatarHash(const QXmppPresence &presence) {
     const QString jid = QXmppUtils::jidToBareJid(presence.from()).toLower();
+    // Another of our devices changed our picture: read our vCard again.
+    if (m_avatars && jid == m_jid && m_ownAvatarKnown
+            && presence.vCardUpdateType() == QXmppPresence::VCardUpdateValidPhoto
+            && AvatarStore::normalizedHash(presence.photoHash()) != m_ownAvatarHash) {
+        refreshOwnVCard();
+        return;
+    }
     if (!m_avatars || jid.isEmpty() || jid == m_jid || !m_contacts.contains(jid))
         return;
     switch (presence.vCardUpdateType()) {
@@ -786,6 +800,146 @@ void Backend::handleAvatarHash(const QXmppPresence &presence) {
         // No word on the picture (or not yet): keep what we have.
         break;
     }
+}
+
+QString Backend::ownAvatar() const {
+    const QString path = m_avatars ? m_avatars->pathFor(m_jid) : QString();
+    return path.isEmpty() ? QString() : QUrl::fromLocalFile(path).toString();
+}
+
+QXmppPresence Backend::ownPresence(const QString &status) const {
+    QXmppPresence presence = presenceFor(status);
+    if (m_ownAvatarKnown) {
+        presence.setVCardUpdateType(m_ownAvatarHash.isEmpty() ? QXmppPresence::VCardUpdateNoPhoto
+                                                               : QXmppPresence::VCardUpdateValidPhoto);
+        presence.setPhotoHash(QByteArray::fromHex(m_ownAvatarHash.toLatin1()));
+    }
+    return presence;
+}
+
+void Backend::refreshOwnVCard() {
+    const QString account = m_jid;
+    m_vcards->fetchVCard(m_jid).then(this, [this, account](QXmppVCardManager::VCardIqResult &&result) {
+        if (account != m_jid || !m_avatars)
+            return;
+        if (const auto *vcard = std::get_if<QXmppVCardIq>(&result)) {
+            adoptOwnPhoto(vcard->photo());
+            adoptOwnNickname(vcard->nickName());
+            return;
+        }
+        // No vCard yet is no picture; any other failure leaves it unknown.
+        const auto error = std::get<QXmppError>(result).value<QXmppStanza::Error>();
+        if (error && error->condition() == QXmppStanza::Error::ItemNotFound) {
+            adoptOwnPhoto({});
+            adoptOwnNickname({});
+        }
+    });
+}
+
+void Backend::adoptOwnNickname(const QString &nickname) {
+    const QString trimmed = nickname.trimmed();
+    if (trimmed == m_ownNickname)
+        return;
+    m_ownNickname = trimmed;
+    m_settings.setValue("nickname/" + m_jid, trimmed);
+    emit ownNicknameChanged();
+}
+
+void Backend::setNickname(const QString &nickname) {
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so your nickname wasn't changed."));
+        return;
+    }
+    const QString trimmed = nickname.trimmed();
+    updateOwnVCard([trimmed](QXmppVCardIq &vcard) { vcard.setNickName(trimmed); },
+                   [this, trimmed] { adoptOwnNickname(trimmed); });
+}
+
+void Backend::adoptOwnPhoto(const QByteArray &photo) {
+    const QString hash = photo.isEmpty() ? QString() : m_avatars->save(photo);
+    if (hash.isEmpty())
+        m_avatars->clear(m_jid);
+    else
+        m_avatars->assign(m_jid, hash);
+    const bool changed = !m_ownAvatarKnown || hash != m_ownAvatarHash;
+    m_ownAvatarKnown = true;
+    m_ownAvatarHash = hash;
+    emit ownAvatarChanged();
+    // Contacts learn of it from our presence.
+    if (changed && m_client->isAuthenticated() && m_status != "offline")
+        m_client->setClientPresence(ownPresence(m_status));
+}
+
+void Backend::chooseAvatar() {
+    if (!m_filePicker)
+        return;
+    pickFile("avatar", tr("Pick a picture for your avatar"));
+}
+
+void Backend::setAvatar(const QString &path) {
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so your avatar wasn't changed."));
+        return;
+    }
+    const QString file = path.startsWith("file:") ? QUrl(path).toLocalFile() : path;
+    QString type;
+    const QByteArray photo = AvatarStore::photoFrom(QImage(file), &type);
+    if (photo.isEmpty()) {
+        setError(tr("%1 isn't a picture.").arg(QFileInfo(file).fileName()));
+        return;
+    }
+    updateOwnVCard([photo, type](QXmppVCardIq &vcard) {
+        vcard.setPhoto(photo);
+        vcard.setPhotoType(type);
+    }, [this, photo] { adoptOwnPhoto(photo); });
+}
+
+void Backend::removeAvatar() {
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so your avatar wasn't changed."));
+        return;
+    }
+    updateOwnVCard([](QXmppVCardIq &vcard) {
+        vcard.setPhoto({});
+        vcard.setPhotoType({});
+    }, [this] { adoptOwnPhoto({}); });
+}
+
+void Backend::updateOwnVCard(std::function<void(QXmppVCardIq &)> change, std::function<void()> done) {
+    const QString account = m_jid;
+    // The rest of our vCard (name, e-mail…) stays as it is.
+    m_vcards->fetchVCard(m_jid).then(this, [this, account, change, done](QXmppVCardManager::VCardIqResult &&result) {
+        if (account != m_jid)
+            return;
+        QXmppVCardIq vcard;
+        if (auto *current = std::get_if<QXmppVCardIq>(&result)) {
+            vcard = *current;
+        } else {
+            const QXmppError &error = std::get<QXmppError>(result);
+            const auto stanza = error.value<QXmppStanza::Error>();
+            // Without a vCard yet we start one; otherwise writing would
+            // throw away what we couldn't read.
+            if (!stanza || stanza->condition() != QXmppStanza::Error::ItemNotFound) {
+                setError(tr("Your profile couldn't be saved: %1").arg(error.description));
+                return;
+            }
+        }
+        // What came back was the server's answer; this goes out as ours.
+        vcard.setType(QXmppIq::Set);
+        vcard.setFrom({});
+        vcard.setTo({});
+        vcard.setId(QXmppUtils::generateStanzaUuid());
+        change(vcard);
+        m_vcards->setVCard(vcard).then(this, [this, account, done](QXmppVCardManager::Result &&saved) {
+            if (account != m_jid)
+                return;
+            if (const auto *error = std::get_if<QXmppError>(&saved)) {
+                setError(tr("Your profile couldn't be saved: %1").arg(error->description));
+                return;
+            }
+            done();
+        });
+    });
 }
 
 void Backend::fetchAvatar(const QString &jid) {
@@ -1523,11 +1677,6 @@ bool Backend::addContact(const QString &jid, const QString &name) {
     m_roster->addItem(bare, name.trimmed());
     m_roster->subscribe(bare);
     return true;
-}
-
-void Backend::removeContact(const QString &jid) {
-    if (m_client->isAuthenticated())
-        m_roster->removeItem(jid);
 }
 
 void Backend::acceptRequest(const QString &jid) {
@@ -2368,6 +2517,14 @@ void Backend::setShowAllContacts(bool show) {
     m_contacts.setBrowsing(show);
     m_settings.setValue("ui/showAllContacts", show);
     emit showAllContactsChanged();
+}
+
+void Backend::setSidebarCollapsed(bool collapsed) {
+    if (collapsed == m_sidebarCollapsed)
+        return;
+    m_sidebarCollapsed = collapsed;
+    m_settings.setValue("ui/sidebarCollapsed", collapsed);
+    emit sidebarCollapsedChanged();
 }
 
 void Backend::openFolder(const QString &path) {

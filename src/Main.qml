@@ -92,6 +92,7 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Q"; context: Qt.ApplicationShortcut; onActivated: win.quit() }
     Shortcut { sequence: "Ctrl+Shift+K"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: backend.showAllContacts = !backend.showAllContacts }
     Shortcut { sequences: ["Ctrl+K", "Ctrl+T"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.focusSearch() }
+    Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: contactPane.setCollapsed(!contactPane.collapsed) }
     Shortcut { sequence: "Ctrl+N"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: addContactDialog.open() }
     Shortcut { sequence: "Ctrl+J"; context: Qt.ApplicationShortcut; enabled: backend.signedIn; onActivated: joinRoomDialog.open() }
     Shortcut {
@@ -160,12 +161,6 @@ ApplicationWindow {
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: 6
-                PresenceDot {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 8
-                    height: 8
-                    presence: win.ownPresence
-                }
                 Label {
                     text: win.presenceLabel(win.ownPresence)
                     font.pixelSize: 12
@@ -182,7 +177,6 @@ ApplicationWindow {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
 
-            StatusPicker { objectName: "statusPicker" }
             IconButton {
                 iconName: "user-add"
                 description: qsTr("Add a contact (Ctrl+N)")
@@ -317,7 +311,7 @@ ApplicationWindow {
                         aliasField.text = alias
                         aliasDialog.open()
                     }
-                    Layout.preferredWidth: 300
+                    Layout.preferredWidth: collapsed ? 68 : 300
                     Layout.fillHeight: true
                 }
                 Rectangle {

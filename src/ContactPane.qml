@@ -3,11 +3,15 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // The sidebar: a search field, requests and invitations waiting for an
-// answer, then rooms and people.
+// answer, then rooms and people. Collapsed, as in ZapFast, only the open
+// conversations' pictures, and the button to bring it back.
 Rectangle {
     id: pane
 
     readonly property var ui: theme.colors
+    readonly property bool collapsed: backend.sidebarCollapsed
+    // The Contacts tab, if it was on, comes back with the whole sidebar.
+    property bool browsedBefore: false
     signal aliasRequested(string jid, string alias, string rosterName)
     signal groupRequested(string jid, string name, string group)
     // A search lists every contact and room; otherwise only the open
@@ -19,9 +23,147 @@ Rectangle {
         return group === "#rooms" ? qsTr("Group chats") : group === "" ? qsTr("No group") : group
     }
 
+    function editNickname() {
+        nicknameField.text = backend.ownNickname
+        nicknameDialog.open()
+    }
+
     function focusSearch() {
+        setCollapsed(false)
         search.forceActiveFocus()
         search.selectAll()
+    }
+
+    // Collapsed, it lists the conversations, whatever was searched or
+    // browsed.
+    function setCollapsed(collapsed) {
+        if (collapsed === pane.collapsed)
+            return
+        if (collapsed) {
+            search.text = ""
+            browsedBefore = backend.showAllContacts
+            backend.showAllContacts = false
+        }
+        backend.sidebarCollapsed = collapsed
+        if (!collapsed && browsedBefore)
+            backend.showAllContacts = true
+    }
+
+    // Our own picture at the foot of the sidebar, as in ZapFast; a click
+    // sets our status, or changes our picture or nickname. Expanded, our name and status beside it,
+    // like Discord's user panel; the full address in the tooltip.
+    component OwnAvatar: ItemDelegate {
+        id: own
+        property bool compact: false
+
+        Layout.fillWidth: true
+        implicitHeight: 52
+        leftPadding: compact ? 0 : 20
+        rightPadding: compact ? 0 : 18
+        // The style's own vertical padding would push the row off center.
+        topPadding: 0
+        bottomPadding: 0
+        focusPolicy: Qt.NoFocus
+        Accessible.name: qsTr("Your avatar")
+        // Above it; expanded, its right edge under the arrow's.
+        onClicked: avatarMenu.toggle(own, own.compact ? 0 : own.width - avatarMenu.implicitWidth - 8,
+                                     -avatarMenu.implicitHeight - 4)
+
+        readonly property bool lit: own.hovered || avatarMenu.visible
+        // Inset and rounded, like the line above it, not edge to edge.
+        background: Rectangle {
+            anchors.fill: parent
+            anchors.leftMargin: own.compact ? 10 : 8
+            anchors.rightMargin: own.compact ? 10 : 8
+            radius: Math.min(6, theme.radius)
+            color: own.lit ? pane.ui.hover : "transparent"
+        }
+        contentItem: RowLayout {
+            spacing: 12
+            ContactAvatar {
+                Layout.alignment: own.compact ? Qt.AlignCenter : Qt.AlignVCenter
+                Layout.fillWidth: own.compact
+                implicitWidth: 34
+                implicitHeight: 34
+                Layout.maximumWidth: 34
+                jid: backend.jid
+                name: backend.jid
+                source: backend.ownAvatar
+                presence: win.ownPresence
+                ringColor: own.lit ? pane.ui.hover : pane.ui.panel
+            }
+            ColumnLayout {
+                visible: !own.compact
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 1
+                Label {
+                    Layout.fillWidth: true
+                    text: backend.ownNickname !== "" ? backend.ownNickname : backend.jid.split("@")[0]
+                    color: pane.ui.foreground
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: win.presenceLabel(win.ownPresence)
+                    color: pane.ui.muted
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                }
+            }
+            // It opens a menu above it.
+            AppIcon {
+                visible: !own.compact
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: 16
+                implicitHeight: 16
+                name: "chevron-up"
+                color: own.lit ? pane.ui.foreground : pane.ui.muted
+            }
+        }
+        // Collapsed, beside the column like the conversations' names.
+        ToolTip {
+            visible: own.hovered && !avatarMenu.visible
+            delay: 600
+            text: backend.jid
+            x: own.compact ? own.width + 4 : (own.width - width) / 2
+            y: own.compact ? (own.height - height) / 2 : -height - 4
+        }
+
+        AppMenu {
+            id: avatarMenu
+            hasChecks: true
+            Repeater {
+                model: ["online", "chat", "away", "xa", "dnd", "offline"]
+                delegate: AppMenuItem {
+                    required property string modelData
+                    text: win.presenceLabel(modelData)
+                    presence: modelData
+                    checkable: true
+                    checked: backend.status === modelData
+                    onTriggered: accounts.setStatus(modelData)
+                }
+            }
+            AppMenuSeparator {}
+            AppMenuItem {
+                text: qsTr("Change nickname…")
+                enabled: backend.connectionState === "online"
+                onTriggered: pane.editNickname()
+            }
+            AppMenuSeparator {}
+            AppMenuItem {
+                text: qsTr("Change avatar…")
+                enabled: backend.connectionState === "online"
+                onTriggered: backend.chooseAvatar()
+            }
+            AppMenuItem {
+                text: qsTr("Remove avatar")
+                enabled: backend.connectionState === "online" && backend.ownAvatar !== ""
+                destructive: true
+                onTriggered: backend.removeAvatar()
+            }
+        }
     }
 
     // A pending question (a contact request or a room invitation), as a
@@ -85,6 +227,7 @@ Rectangle {
         anchors.fill: parent
         anchors.topMargin: 12
         spacing: 10
+        visible: !pane.collapsed
 
         AppTextField {
             id: search
@@ -279,10 +422,14 @@ Rectangle {
                         hint: row.selected ? "Ctrl+W" : ""
                         onTriggered: backend.closeConversation(row.jid)
                     }
+                    // Contacts aren't removed from here: in a company the
+                    // list is everyone's, not one person's to trim.
                     AppMenuItem {
-                        text: row.isRoom ? qsTr("Leave %1").arg(row.name) : qsTr("Remove %1").arg(row.name)
+                        visible: row.isRoom
+                        height: visible ? implicitHeight : 0
+                        text: qsTr("Leave %1").arg(row.name)
                         destructive: true
-                        onTriggered: row.isRoom ? backend.leaveRoom(row.jid) : backend.removeContact(row.jid)
+                        onTriggered: backend.leaveRoom(row.jid)
                     }
                 }
 
@@ -372,6 +519,150 @@ Rectangle {
                     : backend.showAllContacts ? qsTr("No contacts yet. Ctrl+N adds one.")
                     : qsTr("No open conversations. Search for a contact to start one (Ctrl+K).")
             }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            Layout.preferredHeight: 1
+            color: pane.ui.border
+        }
+        // As much room above as below (the column's spacing is 10).
+        OwnAvatar {
+            Layout.topMargin: -2
+            Layout.bottomMargin: 8
+        }
+    }
+
+    // Collapsed: the open conversations as pictures, the one shown marked
+    // at the edge, as in ZapFast.
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.topMargin: 12
+        spacing: 8
+        visible: pane.collapsed
+
+        IconButton {
+            Layout.alignment: Qt.AlignHCenter
+            iconName: "sidebar"
+            description: qsTr("Show the sidebar (Ctrl+B)")
+            onClicked: pane.setCollapsed(false)
+        }
+        Rectangle {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: 32
+            Layout.preferredHeight: 1
+            color: pane.ui.border
+        }
+
+        ListView {
+            id: rail
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            clip: true
+            spacing: 4
+            model: pane.collapsed ? backend.contacts : null
+            boundsBehavior: Flickable.StopAtBounds
+
+            delegate: Item {
+                id: railItem
+                required property string jid
+                required property string name
+                required property string presence
+                required property int unread
+                required property string avatar
+                required property bool isRoom
+                readonly property bool selected: jid === backend.currentChat
+
+                width: ListView.view.width
+                height: 48
+
+                Rectangle {
+                    visible: railItem.selected
+                    width: 3
+                    height: 26
+                    radius: 1.5
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: pane.ui.accent
+                }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 46
+                    height: 46
+                    radius: Math.min(8, theme.radius)
+                    color: railItem.selected ? pane.ui.selection : railHover.hovered ? pane.ui.hover : "transparent"
+                }
+                ContactAvatar {
+                    anchors.centerIn: parent
+                    implicitWidth: 38
+                    implicitHeight: 38
+                    jid: railItem.jid
+                    name: railItem.name
+                    source: railItem.avatar
+                    presence: railItem.presence
+                    isRoom: railItem.isRoom
+                    ringColor: railItem.selected ? pane.ui.selection : railHover.hovered ? pane.ui.hover : pane.ui.panel
+                }
+                // New lines waiting, over the picture's corner.
+                Rectangle {
+                    visible: railItem.unread > 0
+                    x: parent.width / 2 + 8
+                    y: 2
+                    implicitWidth: Math.max(18, railUnread.implicitWidth + 8)
+                    implicitHeight: 18
+                    radius: 9
+                    color: pane.ui.accent
+                    border.color: pane.ui.panel
+                    Label {
+                        id: railUnread
+                        anchors.centerIn: parent
+                        text: translator.language, railItem.unread.toLocaleString(Qt.locale(), 'f', 0)
+                        color: pane.ui.accentText
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                HoverHandler { id: railHover; cursorShape: Qt.PointingHandCursor }
+                // The name beside the column, not over the next picture.
+                ToolTip {
+                    visible: railHover.hovered
+                    delay: 300
+                    text: railItem.name
+                    x: railItem.width + 4
+                    y: (railItem.height - height) / 2
+                }
+                TapHandler { onTapped: backend.openChat(railItem.jid) }
+            }
+        }
+
+        Rectangle {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: 32
+            Layout.preferredHeight: 1
+            color: pane.ui.border
+        }
+        // As much room above as below (the column's spacing is 8).
+        OwnAvatar {
+            compact: true
+            Layout.bottomMargin: 8
+        }
+    }
+
+    AppDialog {
+        id: nicknameDialog
+        title: qsTr("Your nickname")
+        subtitle: qsTr("How contacts see you when they haven't named you themselves.")
+        acceptText: qsTr("Save")
+        onAboutToShow: nicknameField.forceActiveFocus()
+        onAccepted: backend.setNickname(nicknameField.text)
+
+        AppTextField {
+            id: nicknameField
+            Layout.fillWidth: true
+            placeholderText: backend.jid.split("@")[0]
+            onAccepted: nicknameDialog.accept()
         }
     }
 }

@@ -16,7 +16,6 @@
         <file alias="PresenceDot.qml">PresenceDot.qml</file>
         <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>
         <file alias="SignInView.qml">SignInView.qml</file>
-        <file alias="StatusPicker.qml">StatusPicker.qml</file>
         <file alias="TextContextMenu.qml">TextContextMenu.qml</file>
         <file alias="EmojiPicker.qml">EmojiPicker.qml</file>
         <file alias="emoji.tsv">emoji.tsv</file>
