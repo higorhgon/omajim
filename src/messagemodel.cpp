@@ -29,6 +29,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case UrlRole: return entry.url;
     case EditedRole: return entry.edited;
     case ForwardedRole: return entry.forwarded;
+    case XhtmlRole: return entry.xhtml;
     case SelectedRole: return m_selected.contains(entry.id);
     case ReplyRole: return m_replies.value(entry.id);
     case ReactionsRole: return m_reactions.value(entry.id);
@@ -51,7 +52,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
             {UrlRole, "url"}, {EditedRole, "edited"},
             {PreviewRole, "preview"}, {RouteRole, "route"}, {SelectedRole, "selected"},
-            {ReplyRole, "reply"}, {ReactionsRole, "reactions"}};
+            {ReplyRole, "reply"}, {ReactionsRole, "reactions"}, {SmileysRole, "smileys"}, {ForwardedRole, "forwarded"}, {XhtmlRole, "xhtml"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -110,13 +111,14 @@ void MessageModel::setLink(qint64 id, const QString &url, const QString &xmppId)
     emit dataChanged(index(row), index(row), {UrlRole});
 }
 
-void MessageModel::applyCorrection(qint64 id, const QString &body) {
+void MessageModel::applyCorrection(qint64 id, const QString &body, const QString &xhtml) {
     const int row = rowOf(id);
     if (row < 0)
         return;
     m_entries[row].body = body;
+    m_entries[row].xhtml = xhtml;
     m_entries[row].edited = true;
-    emit dataChanged(index(row), index(row), {BodyRole, EditedRole});
+    emit dataChanged(index(row), index(row), {BodyRole, EditedRole, XhtmlRole});
 }
 
 void MessageModel::setPreview(qint64 id, const QString &path) {

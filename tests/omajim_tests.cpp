@@ -27,6 +27,9 @@
 #include <QXmppTask.h>
 
 #include <QBuffer>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickTextDocument>
 #include <QDomDocument>
 #include <QClipboard>
 #include <QGuiApplication>
@@ -45,6 +48,8 @@
 #include "firewall.h"
 #include "gajimimport.h"
 #include "history.h"
+#include "richtext.h"
+#include "composer.h"
 #include "smileys.h"
 #include "messagemodel.h"
 #include "rosterstore.h"
@@ -835,6 +840,132 @@ private slots:
         // Nor a custom smiley inside an address.
         const QString custom = TextFormat::toHtml("https://example.org/?x=:gato: :gato:", "#1", "#2", {{":gato:", "<img>"}});
         QCOMPARE(custom.count("<img>"), 1);
+    }
+
+    void formattedMessagesGoOutForGajimAndPidgin() {
+        using RichText::Run;
+        auto run = [](const QString &text, auto setup) {
+            Run r;
+            r.text = text;
+            setup(r);
+            return r;
+        };
+        auto none = [](Run &) {};
+        // Plain text: no XHTML-IM.
+        auto plain = RichText::compose({run("just text", none)});
+        QCOMPARE(plain.body, QString("just text"));
+        QVERIFY(plain.xhtml.isEmpty());
+
+        // Markers for Gajim, at the words' edges; Pidgin's tags and spans.
+        auto message = RichText::compose({run("a ", none), run("bold ", [](Run &r) { r.bold = true; }),
+                                          run("red", [](Run &r) { r.bold = true; r.color = "#ff0000"; }),
+                                          run(" and ", none),
+                                          run("marked", [](Run &r) { r.background = "#ffff00"; r.underline = true; }),
+                                          run(" f(x)", [](Run &r) { r.code = true; })});
+        QCOMPARE(message.body, QString("a *bold red* and marked `f(x)`"));
+        QCOMPARE(message.xhtml, QString("<p>a <strong>bold </strong><span style=\"color: #ff0000;\"><strong>red</strong></span> and "
+                                        "<span style=\"background: #ffff00; text-decoration: underline;\">marked</span>"
+                                        "<span style=\"font-family: monospace;\"> f(x)</span></p>"));
+
+        // A code block keeps its lines, fenced; custom smileys as pictures, not in links.
+        auto block = RichText::compose({run("veja :gato: https://x.org/:gato:\n", [](Run &r) { r.italic = true; }),
+                                        run("int a;\nint b;", [](Run &r) { r.block = true; })},
+                                       {{":gato:", "sha1+1@bob.xmpp.org"}});
+        QCOMPARE(block.body, QString("_veja :gato: https://x.org/:gato:_\n```\nint a;\nint b;\n```"));
+        QVERIFY(block.xhtml.contains("<em>veja <img alt=\":gato:\" src=\"cid:sha1+1@bob.xmpp.org\"/> https://x.org/:gato:</em>"));
+        QVERIFY(block.xhtml.endsWith("<br/><span style=\"font-family: monospace;\">int a;</span><br/>"
+                                     "<span style=\"font-family: monospace;\">int b;</span></p>"));
+    }
+
+    void theMessageFieldFormatsAsPidginsToolbar() {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nTextEdit { textFormat: TextEdit.RichText }", QUrl());
+        std::unique_ptr<QObject> edit(component.create());
+        QVERIFY2(edit, qPrintable(component.errorString()));
+        auto *document = edit->property("textDocument").value<QQuickTextDocument *>();
+        QVERIFY(document);
+        Composer composer;
+        // Text goes in as text, even what looks like markup.
+        composer.setPlainText(document, "ola <b>mundo</b>");
+        QCOMPARE(composer.plainText(document), QString("ola <b>mundo</b>"));
+        composer.setPlainText(document, "ola mundo bonito");
+        composer.toggle(document, 4, 9, "bold");
+        QVERIFY(composer.formatOf(document, 4, 9).value("bold").toBool());
+        QVERIFY(!composer.formatOf(document, 0, 9).value("bold").toBool());
+        composer.setColor(document, 4, 9, "#e01b24", false);
+        composer.setColor(document, 0, 3, "#fff3a0", true);
+        composer.toggle(document, 10, 16, "underline");
+
+        QVariantList runs = composer.runs(document);
+        QList<RichText::Run> parts;
+        for (const QVariant &value : runs) {
+            const QVariantMap map = value.toMap();
+            RichText::Run run;
+            run.text = map.value("text").toString();
+            run.bold = map.value("bold").toBool();
+            run.underline = map.value("underline").toBool();
+            run.color = map.value("color").toString();
+            run.background = map.value("background").toString();
+            parts << run;
+        }
+        const auto message = RichText::compose(parts);
+        QCOMPARE(message.body, QString("ola *mundo* bonito"));
+        QVERIFY2(message.xhtml.contains("<span style=\"color: #000000; background: #fff3a0;\">ola</span>"), qPrintable(message.xhtml));
+        QVERIFY(message.xhtml.contains("<span style=\"color: #e01b24;\"><strong>mundo</strong></span>"));
+        QVERIFY(message.xhtml.contains("<span style=\"text-decoration: underline;\">bonito</span>"));
+
+        // Taking the background off takes the dark letters it brought; again
+        // on bold, bold comes off.
+        composer.setColor(document, 0, 3, "", true);
+        composer.toggle(document, 4, 9, "bold");
+        runs = composer.runs(document);
+        QCOMPARE(runs.first().toMap().value("color").toString(), QString());
+        QVERIFY(!composer.formatOf(document, 4, 9).value("bold").toBool());
+        // A code block, and back to plain.
+        composer.setPlainText(document, "veja\nint a;");
+        composer.toggleBlock(document, 6, 6);
+        runs = composer.runs(document);
+        QVERIFY(!runs.first().toMap().value("block").toBool());
+        QVERIFY(runs.last().toMap().value("block").toBool());
+        composer.clearFormat(document, 0, 11);
+        QVERIFY(!composer.runs(document).last().toMap().value("block").toBool());
+    }
+
+    void pidginFormattingShowsReadably() {
+        const QColor bubble("#2a2b3d"), foreground("#e4e4e7");
+        auto html = [&](const QString &xhtml) {
+            return RichText::toHtml(xhtml, "#88f", {{"sha1+1@bob.xmpp.org", "<img src=\"file:///s.png\">"}}, true, bubble, foreground);
+        };
+        // As Pidgin sends it: spans with CSS, <br/>, text smileys still turned.
+        const QString pidgin = html("<p><span style='font-weight: bold;'>oi</span> <span style='color: #ff0000;'>:)</span>"
+                                    "<br/><em>it</em> <span style='text-decoration: underline;'>u</span></p>");
+        QVERIFY2(pidgin.contains("<span style=\"font-weight:600\">oi</span>"), qPrintable(pidgin));
+        QVERIFY(pidgin.contains("🙂"));
+        QVERIFY(pidgin.contains("<br><span style=\"font-style:italic\">it</span>"));
+        QVERIFY(pidgin.contains("text-decoration:underline"));
+        // Black on the dark bubble comes up; a background brings dark text.
+        const QString dark = html("<p><span style='color: #000000;'>escuro</span></p>");
+        const QColor shown(QRegularExpression("color:(#[0-9a-f]{6})").match(dark).captured(1));
+        QVERIFY(shown.lightness() > 120);
+        const QString marked = html("<p><span style='background: #ffff00;'>marcado</span></p>");
+        QVERIFY2(marked.contains("background-color:#ffff00"), qPrintable(marked));
+        QVERIFY2(QColor(QRegularExpression("color:(#[0-9a-f]{6})").match(marked).captured(1)).lightness() < 100, qPrintable(marked));
+        // Nothing else gets through: no script, no local links, no outside pictures.
+        const QString hostile = html("<p><script>alert(1)</script><a href='file:///etc/passwd'>x</a>"
+                                     "<img src='https://evil/x.png' alt='pic'/><img src='cid:sha1+1@bob.xmpp.org' alt=':g:'/>"
+                                     "<span style='position:fixed' onclick='y'>&lt;b&gt;</span></p>");
+        QVERIFY(!hostile.contains("alert"));
+        QVERIFY(!hostile.contains("/etc/passwd"));
+        QVERIFY(!hostile.contains("evil"));
+        QVERIFY(hostile.contains("pic"));
+        QVERIFY(hostile.contains("<img src=\"file:///s.png\">"));
+        QVERIFY(!hostile.contains("onclick"));
+        QVERIFY(hostile.contains("&lt;b&gt;"));
+        // Links are still links, and unreadable or empty XHTML gives way to the body.
+        QVERIFY(html("<p>see https://example.org</p>").contains("<a href=\"https://example.org\""));
+        QVERIFY(html("<p>broken <b></p>").isEmpty());
+        QVERIFY(html("<p> </p>").isEmpty());
     }
 
     void forwardedLinesShowWhoWroteThem() {

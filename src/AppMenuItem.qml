@@ -9,11 +9,13 @@ MenuItem {
     property bool destructive: false
     // A status (online, away…): its dot goes before the label.
     property string presence
+    // A color, shown as a square before the label.
+    property string swatch
     readonly property var ui: theme.colors
     readonly property color ink: destructive ? ui.error : ui.foreground
 
     implicitHeight: 32
-    implicitWidth: leftPadding + label.implicitWidth + (hint ? 28 + hintLabel.implicitWidth : 0)
+    implicitWidth: leftPadding + (presence || swatch ? 18 : 0) + label.implicitWidth + (hint ? 28 + hintLabel.implicitWidth : 0)
                    + (subMenu ? 28 : 0) + rightPadding
     leftPadding: menu && menu.hasChecks ? 32 : 12
     rightPadding: 12
@@ -41,9 +43,30 @@ MenuItem {
     }
     contentItem: Item {
         opacity: item.enabled ? 1 : 0.4
+        PresenceDot {
+            id: dot
+            visible: item.presence !== ""
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: 8
+            height: 8
+            presence: item.presence || "offline"
+        }
+        Rectangle {
+            id: swatchBox
+            visible: item.swatch !== ""
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: 12
+            height: 12
+            radius: Math.min(2, theme.radius)
+            color: item.swatch || "transparent"
+            border.color: item.ui.border
+        }
         Label {
             id: label
             anchors.left: parent.left
+            anchors.leftMargin: dot.visible || swatchBox.visible ? 18 : 0
             anchors.verticalCenter: parent.verticalCenter
             text: item.text
             font: item.font

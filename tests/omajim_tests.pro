@@ -9,6 +9,7 @@ INCLUDEPATH += ../src
 HEADERS += \
     ../src/avatarstore.h \
     ../src/backend.h \
+    ../src/composer.h \
     ../src/contactmodel.h \
     ../src/emojicatalog.h \
     ../src/filepicker.h \
@@ -18,6 +19,7 @@ HEADERS += \
     ../src/history.h \
     ../src/messagemodel.h \
     ../src/notifier.h \
+    ../src/richtext.h \
     ../src/rosterstore.h \
     ../src/secretstore.h \
     ../src/smileys.h \
@@ -30,6 +32,7 @@ SOURCES += \
     omajim_tests.cpp \
     ../src/avatarstore.cpp \
     ../src/backend.cpp \
+    ../src/composer.cpp \
     ../src/contactmodel.cpp \
     ../src/emojicatalog.cpp \
     ../src/files.cpp \
@@ -38,6 +41,7 @@ SOURCES += \
     ../src/history.cpp \
     ../src/messagemodel.cpp \
     ../src/notifier.cpp \
+    ../src/richtext.cpp \
     ../src/rosterstore.cpp \
     ../src/secretstore.cpp \
     ../src/smileys.cpp \

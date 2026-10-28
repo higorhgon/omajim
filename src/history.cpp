@@ -12,7 +12,16 @@
 // Every column a HistoryEntry carries, in the order read() takes them.
 static const QString Columns = QStringLiteral(
     "id, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id, archive_id, delivered, sender, url,"
-    " edited, correction_id, reply_id");
+    " edited, correction_id, reply_id, smileys, forwarded, xhtml");
+
+static QString smileysColumn(const QHash<QString, QString> &smileys) {
+    if (smileys.isEmpty())
+        return {};
+    QJsonObject object;
+    for (auto it = smileys.cbegin(); it != smileys.cend(); ++it)
+        object.insert(it.key(), it.value());
+    return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
+}
 
 static HistoryEntry read(const QSqlQuery &query, const QString &peer) {
     HistoryEntry entry;
@@ -33,6 +42,11 @@ static HistoryEntry read(const QSqlQuery &query, const QString &peer) {
     entry.edited = query.value(13).toInt() != 0;
     entry.correctionId = query.value(14).toString();
     entry.replyId = query.value(15).toString();
+    const QJsonObject smileys = QJsonDocument::fromJson(query.value(16).toString().toUtf8()).object();
+    for (auto it = smileys.constBegin(); it != smileys.constEnd(); ++it)
+        entry.smileys.insert(it.key(), it.value().toString());
+    entry.forwarded = query.value(17).toInt() != 0;
+    entry.xhtml = query.value(18).toString();
     return entry;
 }
 
@@ -75,7 +89,10 @@ bool History::open(const QString &path) {
                                " url TEXT,"
                                " edited INTEGER NOT NULL DEFAULT 0,"
                                " correction_id TEXT,"
-                               " reply_id TEXT)") &&
+                               " reply_id TEXT,"
+                               " smileys TEXT,"
+                               " forwarded INTEGER NOT NULL DEFAULT 0,"
+                               " xhtml TEXT)") &&
                     query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)") &&
                     query.exec("CREATE TABLE IF NOT EXISTS roster ("
                                " jid TEXT PRIMARY KEY,"
@@ -105,7 +122,10 @@ bool History::open(const QString &path) {
                                                    {"url", "TEXT"},
                                                    {"edited", "INTEGER NOT NULL DEFAULT 0"},
                                                    {"correction_id", "TEXT"},
-                                                   {"reply_id", "TEXT"}};
+                                                   {"reply_id", "TEXT"},
+                                                   {"smileys", "TEXT"},
+                                                   {"forwarded", "INTEGER NOT NULL DEFAULT 0"},
+                                                   {"xhtml", "TEXT"}};
     for (const auto &[name, type] : added) {
         if (!columns.contains(name) && !query.exec(QStringLiteral("ALTER TABLE messages ADD COLUMN %1 %2").arg(name, type))) {
             m_error = query.lastError().text();
@@ -129,7 +149,8 @@ qint64 History::add(HistoryEntry &entry) {
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
     query.prepare("INSERT INTO messages (peer, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id,"
-                  " archive_id, delivered, sender, url, reply_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                  " archive_id, delivered, sender, url, reply_id, smileys, forwarded, xhtml)"
+                  " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     query.addBindValue(entry.peer);
     query.addBindValue(entry.outgoing ? 1 : 0);
     query.addBindValue(entry.kind);
@@ -146,6 +167,7 @@ qint64 History::add(HistoryEntry &entry) {
     query.addBindValue(entry.replyId);
     query.addBindValue(smileysColumn(entry.smileys));
     query.addBindValue(entry.forwarded ? 1 : 0);
+    query.addBindValue(entry.xhtml);
     if (!query.exec()) {
         m_error = query.lastError().text();
         return 0;
@@ -229,13 +251,14 @@ HistoryEntry History::findCorrectable(const QString &peer, const QString &xmppId
     return query.exec() && query.next() ? read(query, peer) : HistoryEntry{};
 }
 
-void History::applyCorrection(qint64 id, const QString &body, const QString &correctionId) {
+void History::applyCorrection(qint64 id, const QString &body, const QString &correctionId, const QString &xhtml) {
     if (!isOpen())
         return;
     QSqlQuery query(QSqlDatabase::database(m_connection));
-    query.prepare("UPDATE messages SET body = ?, edited = 1, correction_id = ? WHERE id = ?");
+    query.prepare("UPDATE messages SET body = ?, edited = 1, correction_id = ?, xhtml = ? WHERE id = ?");
     query.addBindValue(body);
     query.addBindValue(correctionId);
+    query.addBindValue(xhtml);
     query.addBindValue(id);
     query.exec();
 }
@@ -548,5 +571,5 @@ HistoryEntry History::byId(qint64 id) const {
     if (!query.exec() || !query.next())
         return {};
     // The peer comes after the usual columns.
-    return read(query, query.value(16).toString());
+    return read(query, query.value(19).toString());
 }

@@ -22,6 +22,7 @@ Item {
     required property string url
     required property bool edited
     required property bool forwarded
+    required property string xhtml
     required property string preview
     required property string route
     required property bool selected
@@ -217,7 +218,12 @@ Item {
                 id: bodyText
                 Layout.fillWidth: true
                 visible: line.kind === "text"
-                text: backend.formatMessage(line.body, line.ui.accent, line.ui.muted)
+                text: {
+                    // Again when a custom smiley's picture arrives.
+                    backend.smileys.revision
+                    return backend.formatMessage(line.body, line.ui.accent, line.ui.muted, line.smileys, line.forwarded,
+                                                 line.xhtml, bubble.color, line.ui.foreground)
+                }
                 textFormat: TextEdit.RichText
                 readOnly: true
                 // Selection is the conversation's, so it can run across

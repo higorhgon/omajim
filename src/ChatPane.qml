@@ -98,12 +98,57 @@ Rectangle {
             composer.clear()
     }
 
+    // The message field is rich text: what goes in from outside goes in as
+    // text, never as markup.
+    function setComposerText(text) {
+        pendingFormat = null
+        composerFormat.setPlainText(composer.textDocument, text)
+        composer.cursorPosition = composer.length
+    }
+    function insertInComposer(text) {
+        const start = composer.selectionStart, end = composer.selectionEnd
+        if (end > start)
+            composer.remove(start, end)
+        composerFormat.insertPlain(composer.textDocument, start, text)
+        composer.cursorPosition = start + text.length
+        composer.forceActiveFocus()
+    }
+    function pastePlain() {
+        const text = backend.clipboardText()
+        if (text !== "")
+            insertInComposer(text)
+        return true
+    }
+
+    // Formatting as Pidgin's toolbar does it: on the selected text, or with
+    // nothing selected, on what's typed next (the letters after it follow
+    // the one before them).
+    property var pendingFormat: null
+    function format(apply, start, end) {
+        composer.forceActiveFocus()
+        if (end > start) {
+            apply(start, end)
+            composer.select(start, end)
+        } else {
+            pendingFormat = {apply: apply, at: start, length: composer.length}
+        }
+    }
+    readonly property var colors: [
+        {name: qsTr("Red"), value: "#e01b24"}, {name: qsTr("Orange"), value: "#e66100"},
+        {name: qsTr("Yellow"), value: "#c88800"}, {name: qsTr("Green"), value: "#26a269"},
+        {name: qsTr("Teal"), value: "#0f8b8d"}, {name: qsTr("Blue"), value: "#1c71d8"},
+        {name: qsTr("Purple"), value: "#9141ac"}, {name: qsTr("Pink"), value: "#d6338a"},
+        {name: qsTr("Brown"), value: "#865e3c"}, {name: qsTr("Gray"), value: "#77767b"}]
+    // Light, so dark letters read on them, on Pidgin's white too.
+    readonly property var backgrounds: [
+        {name: qsTr("Yellow"), value: "#fff3a0"}, {name: qsTr("Green"), value: "#c8f0c8"},
+        {name: qsTr("Blue"), value: "#cfe3ff"}, {name: qsTr("Pink"), value: "#ffd3e6"},
+        {name: qsTr("Orange"), value: "#ffdcb8"}, {name: qsTr("Purple"), value: "#e5d4f5"},
+        {name: qsTr("Gray"), value: "#e0e0e0"}]
+
     // An emoji into the message, where the cursor is.
     function pickEmojiForMessage() {
-        emojiPicker.openAt(emojiButton, emoji => {
-            composer.insert(composer.cursorPosition, emoji)
-            composer.forceActiveFocus()
-        })
+        emojiPicker.openAt(emojiButton, emoji => pane.insertInComposer(emoji), true)
     }
 
     // Ctrl+C copies what's selected in the conversation. While the message
@@ -626,6 +671,106 @@ Rectangle {
                     }
                 }
 
+                // Bold, colors and the rest, as Pidgin's toolbar: Pidgin
+                // users see them all (XHTML-IM), Gajim's the bold, italic,
+                // strike and code (XEP-0393).
+                IconButton {
+                    id: formatButton
+                    Layout.alignment: Qt.AlignBottom
+                    iconName: "format"
+                    description: qsTr("Format")
+                    checked: formatMenu.visible
+                    // The menu takes the focus, and the selection with it.
+                    property int selectionStart: 0
+                    property int selectionEnd: 0
+                    property var current: ({})
+                    onClicked: {
+                        selectionStart = composer.selectionStart
+                        selectionEnd = composer.selectionEnd
+                        current = composerFormat.formatOf(composer.textDocument, selectionStart, selectionEnd)
+                        formatMenu.toggle(formatButton, 0, -formatMenu.implicitHeight - 4)
+                    }
+
+                    AppMenu {
+                        id: formatMenu
+                        hasChecks: true
+                        Repeater {
+                            model: [{label: qsTr("Bold"), kind: "bold"},
+                                    {label: qsTr("Italic"), kind: "italic"},
+                                    {label: qsTr("Underline"), kind: "underline"},
+                                    {label: qsTr("Strike"), kind: "strike"},
+                                    {label: qsTr("Code"), kind: "code"}]
+                            AppMenuItem {
+                                required property var modelData
+                                text: modelData.label
+                                checkable: true
+                                checked: !!formatButton.current[modelData.kind]
+                                onTriggered: pane.format((start, end) => composerFormat.toggle(composer.textDocument, start, end, modelData.kind),
+                                                         formatButton.selectionStart, formatButton.selectionEnd)
+                            }
+                        }
+                        AppMenuItem {
+                            text: qsTr("Code block")
+                            checkable: true
+                            checked: !!formatButton.current.block
+                            onTriggered: {
+                                composer.forceActiveFocus()
+                                composerFormat.toggleBlock(composer.textDocument, formatButton.selectionStart, formatButton.selectionEnd)
+                            }
+                        }
+                        AppMenuSeparator {}
+                        AppMenu {
+                            title: qsTr("Text color")
+                            hasChecks: true
+                            Repeater {
+                                model: pane.colors
+                                AppMenuItem {
+                                    required property var modelData
+                                    text: modelData.name
+                                    swatch: modelData.value
+                                    onTriggered: pane.format((start, end) => composerFormat.setColor(composer.textDocument, start, end, modelData.value, false),
+                                                             formatButton.selectionStart, formatButton.selectionEnd)
+                                }
+                            }
+                            AppMenuSeparator {}
+                            AppMenuItem {
+                                text: qsTr("No color")
+                                onTriggered: pane.format((start, end) => composerFormat.setColor(composer.textDocument, start, end, "", false),
+                                                         formatButton.selectionStart, formatButton.selectionEnd)
+                            }
+                        }
+                        AppMenu {
+                            title: qsTr("Background color")
+                            hasChecks: true
+                            Repeater {
+                                model: pane.backgrounds
+                                AppMenuItem {
+                                    required property var modelData
+                                    text: modelData.name
+                                    swatch: modelData.value
+                                    onTriggered: pane.format((start, end) => composerFormat.setColor(composer.textDocument, start, end, modelData.value, true),
+                                                             formatButton.selectionStart, formatButton.selectionEnd)
+                                }
+                            }
+                            AppMenuSeparator {}
+                            AppMenuItem {
+                                text: qsTr("No color")
+                                onTriggered: pane.format((start, end) => composerFormat.setColor(composer.textDocument, start, end, "", true),
+                                                         formatButton.selectionStart, formatButton.selectionEnd)
+                            }
+                        }
+                        AppMenuSeparator {}
+                        AppMenuItem {
+                            text: qsTr("Clear formatting")
+                            enabled: formatButton.selectionEnd > formatButton.selectionStart
+                            onTriggered: {
+                                composer.forceActiveFocus()
+                                composerFormat.clearFormat(composer.textDocument, formatButton.selectionStart, formatButton.selectionEnd)
+                            }
+                        }
+                    }
+                }
+
                 IconButton {
                     id: emojiButton
                     Layout.alignment: Qt.AlignBottom
@@ -644,6 +789,10 @@ Rectangle {
                     Layout.preferredHeight: Math.min(composer.implicitHeight, 160)
                     TextArea {
                         id: composer
+                        // Rich, for Pidgin's colors; text goes in only as text.
+                        textFormat: TextEdit.RichText
+                        // The format menu keeps what's selected.
+                        persistentSelection: true
                         wrapMode: TextEdit.Wrap
                         background: null
                         color: pane.ui.foreground
@@ -652,9 +801,25 @@ Rectangle {
                         font.pixelSize: 14
                         ContextMenu.menu: TextContextMenu {
                             target: composer
-                            pasteHandler: pane.offerPaste
+                            pasteHandler: () => pane.offerPaste() || pane.pastePlain()
                         }
-                        onTextChanged: backend.setComposing(text.length > 0)
+                        onTextChanged: {
+                            backend.setComposing(length > 0)
+                            // What was typed after picking a format with
+                            // nothing selected takes it.
+                            const pending = pane.pendingFormat
+                            if (pending && length > pending.length) {
+                                pane.pendingFormat = null
+                                const typed = length - pending.length
+                                if (cursorPosition === pending.at + typed)
+                                    pending.apply(pending.at, pending.at + typed)
+                            }
+                        }
+                        onCursorPositionChanged: {
+                            if (pane.pendingFormat && length === pane.pendingFormat.length
+                                    && cursorPosition !== pane.pendingFormat.at)
+                                pane.pendingFormat = null
+                        }
                         // Ctrl+C with nothing selected here copies what's
                         // selected in the conversation; Ctrl+V with a picture
                         // or files in the clipboard offers to send them;
@@ -665,17 +830,21 @@ Rectangle {
                                     && (event.key === Qt.Key_Period || event.key === Qt.Key_Semicolon)) {
                                 pane.pickEmojiForMessage()
                                 event.accepted = true
-                            } else if (event.matches(StandardKey.Copy) && composer.selectedText === "" && pane.copySelection())
+                            } else if (event.matches(StandardKey.Copy) && composer.selectedText === "" && pane.copySelection()) {
                                 event.accepted = true
-                            else if (event.matches(StandardKey.Paste) && pane.offerPaste())
+                            } else if (event.matches(StandardKey.Paste)) {
+                                // Pictures and files are offered; text goes
+                                // in as text, never as a web page's styling.
+                                if (!pane.offerPaste())
+                                    pane.pastePlain()
                                 event.accepted = true
+                            }
                         }
                         // Up in an empty field brings back our last line to correct.
                         Keys.onUpPressed: event => {
                             const last = length === 0 ? backend.startEditingLast() : ""
                             if (last !== "") {
-                                text = last
-                                cursorPosition = length
+                                pane.setComposerText(last)
                             } else {
                                 event.accepted = false
                             }
@@ -683,7 +852,7 @@ Rectangle {
                         Keys.onEscapePressed: event => {
                             if (backend.editing) {
                                 backend.cancelEditing()
-                                clear()
+                                pane.setComposerText("")
                             } else if (backend.replyingTo !== "") {
                                 backend.cancelReply()
                             } else {
@@ -702,8 +871,8 @@ Rectangle {
                         Label {
                             x: composer.leftPadding
                             y: composer.topPadding
-                            visible: composer.text === "" && !composer.preeditText
-                            text: backend.editing ? qsTr("Correcting your last message (Esc cancels)")
+                            visible: composer.length === 0 && !composer.preeditText
+                            text: backend.editing ? qsTr("Correcting your message (Esc cancels)")
                                   : backend.connectionState === "online" ? qsTr("Message %1").arg(backend.currentChatName)
                                   : qsTr("You're offline")
                             color: backend.editing ? pane.ui.accent : pane.ui.muted
@@ -720,7 +889,7 @@ Rectangle {
                     primary: true
                     iconName: backend.editing ? "check" : "send"
                     description: backend.editing ? qsTr("Correct") : qsTr("Send")
-                    enabled: composer.text.trim() !== "" && backend.connectionState === "online"
+                    enabled: composer.getText(0, composer.length).trim() !== "" && backend.connectionState === "online"
                     onClicked: pane.send()
                 }
             }

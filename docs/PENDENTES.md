@@ -39,8 +39,8 @@ uma; confirmar antes de portar.
 - Moderação de salas: expulsar, banir, mudar o papel e a afiliação dos
   participantes, e configurar a sala (o app só avisa quando você é banido)
 - Convidar contatos para uma sala (o app já aceita convites recebidos)
-- Editar o próprio perfil: avatar, nome e vCard
-- Trocar a senha da conta
+- Editar o resto do próprio vCard (nome completo, e-mail etc.); o avatar e o
+  apelido já dá para trocar
 - Bloquear contatos (XEP-0191)
 - Apagar e moderar mensagens (XEP-0424/0425)
 - Corretor ortográfico no campo de mensagem

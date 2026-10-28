@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include <QColor>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -169,7 +170,9 @@ public:
     // Takes a conversation off the sidebar; its history stays, and a new
     // message opens it again.
     Q_INVOKABLE void closeConversation(const QString &jid);
-    Q_INVOKABLE bool sendMessage(const QString &text);
+    Q_INVOKABLE bool sendMessage(const QString &text, const QString &xhtml = {});
+    // The message field's text, in runs of one formatting each.
+    Q_INVOKABLE bool sendComposed(const QVariantList &runs);
     // Up in an empty message field: our last line comes back to be
     // corrected (XEP-0308), and the next send replaces it.
     Q_INVOKABLE QString startEditingLast();
@@ -216,7 +219,10 @@ public:
     // A copy of a file wherever the user picks, from the save dialog.
     Q_INVOKABLE void saveFileAs(const QString &path, const QString &suggestedName);
     // A message as rich text with clickable links, and opening one of them.
-    Q_INVOKABLE QString formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor) const;
+    Q_INVOKABLE QString formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor,
+                                      const QVariantMap &smileys = {}, bool forwarded = false,
+                                      const QString &xhtml = {}, const QColor &bubble = {},
+                                      const QColor &foreground = {}) const;
     Q_INVOKABLE void openLink(const QString &url);
     // The selected messages as "[date time] Name: text" lines, to the clipboard.
     Q_INVOKABLE void copySelectedMessages();
@@ -229,6 +235,7 @@ public:
     // files copied in a file manager, {kind: "image"} for a picture such as
     // a screenshot, or an empty map.
     Q_INVOKABLE QVariantMap clipboardContent() const;
+    Q_INVOKABLE QString clipboardText() const;
     // Saves the clipboard's picture as a PNG to send, and returns its path.
     Q_INVOKABLE QString savePastedImage();
     Q_INVOKABLE int revealMessage(qint64 id);

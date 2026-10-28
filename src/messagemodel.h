@@ -33,6 +33,9 @@ public:
         SelectedRole,
         ReplyRole,
         ReactionsRole,
+        SmileysRole,
+        ForwardedRole,
+        XhtmlRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);
@@ -47,7 +50,7 @@ public:
     void setProgress(qint64 id, double progress);
     void markDelivered(const QString &xmppId);
     void setLink(qint64 id, const QString &url, const QString &xmppId);
-    void applyCorrection(qint64 id, const QString &body);
+    void applyCorrection(qint64 id, const QString &body, const QString &xhtml = {});
     // A picture to show for a file line, as a local path; not kept in the
     // history, since it's rebuilt from the files on disk.
     void setPreview(qint64 id, const QString &path);

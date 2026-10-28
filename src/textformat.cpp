@@ -186,7 +186,25 @@ static QString styleInline(const QString &text, const QString &linkColor, const 
     return html + linkify(plain, linkColor, smileys);
 }
 
-QString toHtml(const QString &plain, const QString &linkColor, const QString &quoteColor) {
+QString textToHtml(const QString &text, const QString &linkColor, const QHash<QString, QString> &images,
+                   bool textSmileys) {
+    return linkify(text, linkColor, Smileys{images, textSmileys});
+}
+
+qsizetype forwardedHeaderLength(const QString &text) {
+    // The date as any locale writes it (digits in it), then a name.
+    static const QRegularExpression header(R"re(^\[[^\]\n]*\d[^\]\n]*\] [^:\n]{1,100}:[ \n])re");
+    const auto match = header.match(text);
+    return match.hasMatch() ? match.capturedLength() : 0;
+}
+
+QString toHtml(const QString &plain, const QString &linkColor, const QString &quoteColor,
+               const QHash<QString, QString> &images, bool textSmileys, bool forwarded) {
+    if (const qsizetype header = forwarded ? forwardedHeaderLength(plain) : 0)
+        return QStringLiteral("<span style=\"font-weight:600\">%1</span><br>")
+                   .arg(plain.left(header - 1).toHtmlEscaped())
+               + toHtml(plain.mid(header), linkColor, quoteColor, images, textSmileys);
+    const Smileys smileys{images, textSmileys};
     // Block styling: ``` fences preformatted lines, > starts a quote.
     QStringList blocks, preformatted;
     bool inBlock = false;

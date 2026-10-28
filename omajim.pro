@@ -11,6 +11,7 @@ include(qxmpp.pri)
 HEADERS += \
     src/avatarstore.h \
     src/backend.h \
+    src/composer.h \
     src/contactmodel.h \
     src/emojicatalog.h \
     src/filepicker.h \
@@ -22,6 +23,7 @@ HEADERS += \
     src/messagemodel.h \
     src/notifier.h \
     src/portalfilepicker.h \
+    src/richtext.h \
     src/rosterstore.h \
     src/secretstore.h \
     src/smileys.h \
@@ -34,6 +36,7 @@ SOURCES += \
     src/main.cpp \
     src/avatarstore.cpp \
     src/backend.cpp \
+    src/composer.cpp \
     src/contactmodel.cpp \
     src/emojicatalog.cpp \
     src/files.cpp \
@@ -44,6 +47,7 @@ SOURCES += \
     src/messagemodel.cpp \
     src/notifier.cpp \
     src/portalfilepicker.cpp \
+    src/richtext.cpp \
     src/rosterstore.cpp \
     src/secretstore.cpp \
     src/smileys.cpp \

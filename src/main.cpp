@@ -15,6 +15,7 @@
 #include <QUrl>
 
 #include "backend.h"
+#include "composer.h"
 #include "emojicatalog.h"
 #include "gajimimport.h"
 #include "idlemonitor.h"
@@ -85,6 +86,7 @@ int main(int argc, char *argv[]) {
     Backend backend(config, data, &filePicker, &secrets, &notifier);
     Tray tray(&backend);
     EmojiCatalog emojis(QDir(config).filePath("omajim.conf"));
+    Composer composer;
 
     // Text drawn by FreeType with the desktop's hinting, like every other app:
     // Qt Quick's default distance-field text smears small bold type at 1x.
@@ -98,6 +100,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.rootContext()->setContextProperty("tray", &tray);
     engine.rootContext()->setContextProperty("emojis", &emojis);
+    engine.rootContext()->setContextProperty("composerFormat", &composer);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

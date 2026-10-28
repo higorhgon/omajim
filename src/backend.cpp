@@ -59,6 +59,7 @@
 #include "files.h"
 #include "firewall.h"
 #include "gajimimport.h"
+#include "richtext.h"
 #include "notifier.h"
 #include "rosterstore.h"
 #include "textformat.h"
@@ -105,6 +106,12 @@ static bool isForwarded(const QXmppMessage &message) {
         if (element.tag() == "forwarded" && element.xmlns() == ForwardedNamespace)
             return true;
     return false;
+}
+
+// The formatted text a message came with, if not absurdly long.
+static QString receivedXhtml(const QXmppMessage &message) {
+    const QString xhtml = message.xhtml();
+    return xhtml.size() <= 64 * 1024 ? xhtml : QString();
 }
 
 static void markForwarded(QXmppMessage &message) {
@@ -1166,6 +1173,7 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
     applyOutOfBand(entry, message);
     entry.smileys = receivedSmileys(message, entry.body);
     entry.forwarded = isForwarded(message);
+    entry.xhtml = receivedXhtml(message);
     entry.xmppId = message.id();
     // Our server's id for it; another entity's stanza-id says nothing.
     const auto stanzaIds = message.stanzaIds();
@@ -1353,7 +1361,30 @@ void Backend::closeChat() {
     emit typingChanged();
 }
 
-bool Backend::sendMessage(const QString &text) {
+bool Backend::sendComposed(const QVariantList &runs) {
+    QList<RichText::Run> parts;
+    for (const QVariant &value : runs) {
+        const QVariantMap map = value.toMap();
+        RichText::Run run;
+        run.text = map.value("text").toString();
+        run.bold = map.value("bold").toBool();
+        run.italic = map.value("italic").toBool();
+        run.underline = map.value("underline").toBool();
+        run.strike = map.value("strike").toBool();
+        run.code = map.value("code").toBool();
+        run.block = map.value("block").toBool();
+        run.color = map.value("color").toString();
+        run.background = map.value("background").toString();
+        parts << run;
+    }
+    QString plain;
+    for (const RichText::Run &run : std::as_const(parts))
+        plain += run.text;
+    const RichText::Message message = RichText::compose(parts, m_smileys->findOwn(plain));
+    return sendMessage(message.body, message.xhtml);
+}
+
+bool Backend::sendMessage(const QString &text, const QString &xhtml) {
     const QString body = text.trimmed();
     if (body.isEmpty() || m_currentChat.isEmpty())
         return false;
@@ -1965,6 +1996,7 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
     applyOutOfBand(entry, message);
     entry.smileys = receivedSmileys(message, entry.body);
     entry.forwarded = isForwarded(message);
+    entry.xhtml = receivedXhtml(message);
     entry.xmppId = message.originId().isEmpty() ? message.id() : message.originId();
     const auto stanzaIds = message.stanzaIds();
     for (const QXmppStanzaId &stanzaId : stanzaIds)
@@ -2068,9 +2100,9 @@ bool Backend::applyCorrection(const HistoryEntry &correction, const QString &rep
     // Only whoever wrote a line may change it.
     if (original.id == 0 || original.outgoing != correction.outgoing || original.sender != correction.sender)
         return false;
-    m_history.applyCorrection(original.id, correction.body, correction.xmppId);
+    m_history.applyCorrection(original.id, correction.body, correction.xmppId, correction.xhtml);
     if (original.peer == m_currentChat)
-        m_messages.applyCorrection(original.id, correction.body);
+        m_messages.applyCorrection(original.id, correction.body, correction.xhtml);
     return true;
 }
 
@@ -2115,6 +2147,8 @@ bool Backend::sendCorrection(const QString &body, const QString &xhtml) {
         return true;
 
     QXmppMessage message({}, m_currentChat, body);
+    if (!xhtml.isEmpty())
+        message.setXhtml(xhtml);
     const QString id = QXmppUtils::generateStanzaUuid();
     message.setId(id);
     // Always the first line's id, as XEP-0308 asks.
@@ -2141,13 +2175,43 @@ bool Backend::sendCorrection(const QString &body, const QString &xhtml) {
                 report(error->description);
         });
     }
-    m_history.applyCorrection(original.id, body, id);
-    m_messages.applyCorrection(original.id, body);
+    m_history.applyCorrection(original.id, body, id, xhtml);
+    m_messages.applyCorrection(original.id, body, xhtml);
     return true;
 }
 
-QString Backend::formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor) const {
-    return TextFormat::toHtml(body, linkColor, quoteColor);
+QString Backend::formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor,
+                               const QVariantMap &smileys, bool forwarded, const QString &xhtml,
+                               const QColor &bubble, const QColor &foreground) const {
+    // Custom smileys at their size, but no bigger than a sticker.
+    static const int Largest = 48;
+    QHash<QString, QString> images;
+    for (auto it = smileys.cbegin(); it != smileys.cend(); ++it) {
+        const QString cid = it.value().toString();
+        const QString path = m_smileys->pathOf(cid);
+        QSize size = m_smileys->sizeOf(cid);
+        if (path.isEmpty() || size.isEmpty())
+            continue;
+        if (size.width() > Largest || size.height() > Largest)
+            size.scale(Largest, Largest, Qt::KeepAspectRatio);
+        images.insert(it.key(), QStringLiteral("<img src=\"%1\" width=\"%2\" height=\"%3\" alt=\"%4\" align=\"middle\">")
+                                    .arg(QUrl::fromLocalFile(path).toString().toHtmlEscaped())
+                                    .arg(size.width())
+                                    .arg(size.height())
+                                    .arg(it.key().toHtmlEscaped()));
+    }
+    // Formatted as it came (Pidgin's colors and the like), when it reads.
+    if (!xhtml.isEmpty()) {
+        QHash<QString, QString> pictures;
+        for (auto it = smileys.cbegin(); it != smileys.cend(); ++it)
+            pictures.insert(it.value().toString(), images.value(it.key()));
+        const QString html = RichText::toHtml(xhtml, linkColor, pictures, textSmileys(), bubble, foreground);
+        if (!html.isEmpty())
+            return html;
+    }
+    return TextFormat::toHtml(body, linkColor, quoteColor, images, textSmileys(), forwarded);
+}
+
 void Backend::attachSmileys(QXmppMessage &message, HistoryEntry &entry, const QString &xhtml) const {
     // The text still carries the shortcuts for clients without pictures;
     // the XHTML-IM swaps them for ours, as Pidgin sends its own.
@@ -2725,6 +2789,10 @@ int Backend::revealMessage(qint64 id) {
         if (shown.at(row).id == id)
             return row;
     return -1;
+}
+
+QString Backend::clipboardText() const {
+    return QGuiApplication::clipboard()->text();
 }
 
 QVariantMap Backend::clipboardContent() const {

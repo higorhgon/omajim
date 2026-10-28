@@ -35,6 +35,14 @@ struct HistoryEntry {
     QString correctionId;
     // The message this one answers (XEP-0461), by its id.
     QString replyId;
+    // Forwarded with Omajim, whose "[when] who:" header starts the text.
+    bool forwarded = false;
+    // The formatted text (XHTML-IM, as Pidgin sends colors and the like),
+    // as it came; shown, filtered, instead of the body.
+    QString xhtml;
+    // Custom smileys in the text, Pidgin's way: the text each one stands
+    // for, to its picture's cid (XEP-0231).
+    QHash<QString, QString> smileys;
 };
 
 // One person's reactions to a message (XEP-0444): they always come as the
@@ -80,7 +88,7 @@ public:
     // The line a correction points to, by its own id or its last
     // correction's; id 0 when there's none.
     HistoryEntry findCorrectable(const QString &peer, const QString &xmppId) const;
-    void applyCorrection(qint64 id, const QString &body, const QString &correctionId);
+    void applyCorrection(qint64 id, const QString &body, const QString &correctionId, const QString &xhtml = {});
     // Our newest text line in a conversation, to correct; id 0 when none.
     HistoryEntry lastOwnText(const QString &peer) const;
     // An uploaded file gets its link, and the id of the message carrying
