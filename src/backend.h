@@ -19,6 +19,7 @@
 #include "contactmodel.h"
 #include "history.h"
 #include "messagemodel.h"
+#include "smileys.h"
 
 class FilePicker;
 class Notifier;
@@ -80,6 +81,7 @@ class Backend : public QObject {
     Q_PROPERTY(bool windowActive READ windowActive WRITE setWindowActive NOTIFY windowActiveChanged)
     Q_PROPERTY(ContactModel *contacts READ contacts CONSTANT)
     Q_PROPERTY(MessageModel *messages READ messages CONSTANT)
+    Q_PROPERTY(SmileyStore *smileys READ smileys CONSTANT)
 
 public:
     Backend(const QString &configDirectory, const QString &dataDirectory, FilePicker *filePicker,
@@ -124,6 +126,7 @@ public:
     quint16 directTransferPort() const;
     QXmppClient *client() const { return m_client.get(); }
     MessageModel *messages() { return &m_messages; }
+    SmileyStore *smileys() { return m_smileys; }
 
     Q_INVOKABLE void signIn(const QString &jid, const QString &password, const QString &host, bool remember);
     Q_INVOKABLE void signOut();
@@ -159,6 +162,7 @@ public:
     Q_INVOKABLE void removeAvatar();
     // Our nickname, in our vCard and as XEP-0172 for clients that show it.
     Q_INVOKABLE void setNickname(const QString &nickname);
+    Q_INVOKABLE void chooseSmileyPicture();
     Q_INVOKABLE void cancelEditing();
     // Answering a line (XEP-0461): the next message quotes it.
     Q_INVOKABLE void startReply(qint64 messageId);
@@ -254,6 +258,7 @@ signals:
     void ownNicknameChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
+    void smileyPicturePicked(const QString &path);
 
 private:
     struct Transfer {
@@ -342,6 +347,9 @@ private:
     QString ownReactionKey(const QString &peer) const;
     void applyReaction(const QString &peer, const QString &sender, const QXmppMessageReaction &reaction);
     void quoteReply(QXmppMessage &message, HistoryEntry &entry);
+    void attachSmileys(QXmppMessage &message, HistoryEntry &entry, const QString &xhtml = {}) const;
+    QHash<QString, QString> receivedSmileys(const QXmppMessage &message, const QString &body);
+    void fetchSmileys(const HistoryEntry &entry, const QString &from);
     bool trustsCertificateOf(const QList<QSslError> &errors) const;
     // Shows a picture for an image file line: the file itself when it's on
     // disk, or a copy fetched into the preview cache from a known contact.
@@ -364,6 +372,8 @@ private:
     QXmppVCardManager *m_vcards = nullptr;
     std::unique_ptr<AvatarStore> m_avatars;
     QSet<QString> m_fetchingAvatars;
+    SmileyStore *m_smileys = nullptr;
+    QSet<QString> m_fetchingSmileys;
     QXmppMucManagerV2 *m_muc = nullptr;
     QXmppPepBookmarkManager *m_bookmarks = nullptr;
     QHash<QString, Room> m_rooms;

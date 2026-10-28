@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QHash>
+#include <QList>
 #include <QString>
 
 namespace TextFormat {

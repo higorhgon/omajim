@@ -40,6 +40,10 @@
 #include <QXmppMucManagerV2.h>
 #include <QXmppPepBookmarkManager.h>
 #include <QXmppPubSubManager.h>
+#include <QXmppXmlElement.h>
+#include <QXmppBitsOfBinaryContentId.h>
+#include <QXmppBitsOfBinaryDataList.h>
+#include <QXmppBitsOfBinaryIq.h>
 #include <QXmppPresence.h>
 #include <QXmppRosterManager.h>
 #include <QXmppSocks.h>
@@ -115,6 +119,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     : QObject(parent),
       m_settings(QDir(configDirectory).filePath("omajim.conf"), QSettings::IniFormat),
       m_dataDirectory(dataDirectory),
+      m_smileys(SmileyStore::shared(QDir(dataDirectory).filePath("smileys"))),
       m_filePicker(filePicker),
       m_secrets(secrets),
       m_notifier(notifier),
@@ -154,6 +159,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     if (!m_vcards)
         m_vcards = m_client->addNewExtension<QXmppVCardManager>();
     connect(m_client.get(), &QXmppClient::presenceReceived, this, &Backend::handleAvatarHash);
+    m_client->addNewExtension<SmileyResponder>(m_smileys);
 
     auto *receipts = m_client->addNewExtension<QXmppMessageReceiptManager>();
     connect(receipts, &QXmppMessageReceiptManager::messageDelivered, this, [this](const QString &jid, const QString &id) {
@@ -870,6 +876,12 @@ void Backend::adoptOwnPhoto(const QByteArray &photo) {
         m_client->setClientPresence(ownPresence(m_status));
 }
 
+void Backend::chooseSmileyPicture() {
+    if (!m_filePicker)
+        return;
+    pickFile("smiley", tr("Pick a picture for the smiley"));
+}
+
 void Backend::chooseAvatar() {
     if (!m_filePicker)
         return;
@@ -1070,6 +1082,7 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
             entry.body = stripped;
     }
     applyOutOfBand(entry, message);
+    entry.smileys = receivedSmileys(message, entry.body);
     entry.forwarded = isForwarded(message);
     entry.xmppId = message.id();
     // Our server's id for it; another entity's stanza-id says nothing.
@@ -1082,7 +1095,10 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
         return true;
     if (m_history.contains(entry.peer, entry.xmppId, entry.archiveId))
         return false;
-    return addEntry(entry, delivery) > 0;
+    if (addEntry(entry, delivery) <= 0)
+        return false;
+    fetchSmileys(entry, message.from());
+    return true;
 }
 
 void Backend::syncArchive(bool firstPage) {
@@ -1210,6 +1226,7 @@ bool Backend::sendMessage(const QString &text) {
         entry.xmppId = message.id();
         entry.sender = roomNickname(m_currentChat);
         quoteReply(message, entry);
+        attachSmileys(message, entry, xhtml);
         if (m_forwarding) {
             entry.forwarded = true;
             markForwarded(message);
@@ -1237,6 +1254,7 @@ bool Backend::sendMessage(const QString &text) {
     entry.body = body;
     entry.xmppId = message.id();
     quoteReply(message, entry);
+    attachSmileys(message, entry, xhtml);
     if (m_forwarding) {
         entry.forwarded = true;
         markForwarded(message);
@@ -1790,6 +1808,7 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
             entry.body = stripped;
     }
     applyOutOfBand(entry, message);
+    entry.smileys = receivedSmileys(message, entry.body);
     entry.forwarded = isForwarded(message);
     entry.xmppId = message.originId().isEmpty() ? message.id() : message.originId();
     const auto stanzaIds = message.stanzaIds();
@@ -1801,7 +1820,8 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
         return;
     if (m_history.contains(roomJid, entry.xmppId, entry.archiveId))
         return;
-    addEntry(entry, delivery);
+    if (addEntry(entry, delivery) > 0)
+        fetchSmileys(entry, message.from());
 }
 
 void Backend::saveBookmark(const QString &jid) {
@@ -1973,6 +1993,52 @@ bool Backend::sendCorrection(const QString &body, const QString &xhtml) {
 
 QString Backend::formatMessage(const QString &body, const QString &linkColor, const QString &quoteColor) const {
     return TextFormat::toHtml(body, linkColor, quoteColor);
+void Backend::attachSmileys(QXmppMessage &message, HistoryEntry &entry, const QString &xhtml) const {
+    // The text still carries the shortcuts for clients without pictures;
+    // the XHTML-IM swaps them for ours, as Pidgin sends its own.
+    entry.smileys = m_smileys->findOwn(entry.body);
+    if (!xhtml.isEmpty()) {
+        // Formatted already, smileys and all; a reply's quote goes before it.
+        entry.xhtml = xhtml;
+        const QString quote = message.body().left(message.body().size() - entry.body.size());
+        QString quoted = quote.toHtmlEscaped();
+        quoted.replace('\n', "<br/>");
+        message.setXhtml(quote.isEmpty() ? xhtml : "<p>" + quoted + xhtml.mid(3));
+    } else if (!entry.smileys.isEmpty()) {
+        message.setXhtml(SmileyStore::xhtmlFor(message.body(), m_smileys->findOwn(message.body())));
+    }
+}
+
+QHash<QString, QString> Backend::receivedSmileys(const QXmppMessage &message, const QString &body) {
+    // Pictures may come along in the message itself.
+    for (const QXmppBitsOfBinaryData &data : message.bitsOfBinaryData())
+        m_smileys->store(data.cid().toContentId(), data.data());
+    QHash<QString, QString> smileys = SmileyStore::imagesIn(message.xhtml());
+    for (auto it = smileys.begin(); it != smileys.end();)
+        it = body.contains(it.key()) ? std::next(it) : smileys.erase(it);
+    return smileys;
+}
+
+void Backend::fetchSmileys(const HistoryEntry &entry, const QString &from) {
+    // Asked of whoever sent it, as Pidgin does (XEP-0231); the line shows
+    // the picture as soon as it's here.
+    for (const QString &cid : entry.smileys) {
+        if (!m_smileys->pathOf(cid).isEmpty() || m_fetchingSmileys.contains(cid) || !m_client->isAuthenticated())
+            continue;
+        m_fetchingSmileys.insert(cid);
+        QXmppBitsOfBinaryIq request;
+        request.setType(QXmppIq::Get);
+        request.setTo(from);
+        request.setCid(QXmppBitsOfBinaryContentId::fromContentId(cid));
+        m_client->sendIq(std::move(request)).then(this, [this, cid](QXmppClient::IqResult &&result) {
+            m_fetchingSmileys.remove(cid);
+            if (auto *element = std::get_if<QDomElement>(&result)) {
+                QXmppBitsOfBinaryIq reply;
+                reply.parse(*element);
+                m_smileys->store(cid, reply.data());
+            }
+        });
+    }
 }
 
 void Backend::openLink(const QString &url) {

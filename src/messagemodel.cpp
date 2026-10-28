@@ -32,6 +32,12 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case SelectedRole: return m_selected.contains(entry.id);
     case ReplyRole: return m_replies.value(entry.id);
     case ReactionsRole: return m_reactions.value(entry.id);
+    case SmileysRole: {
+        QVariantMap smileys;
+        for (auto it = entry.smileys.cbegin(); it != entry.smileys.cend(); ++it)
+            smileys.insert(it.key(), it.value());
+        return smileys;
+    }
     case RouteRole: return m_routes.value(entry.id);
     case PreviewRole: return m_previews.contains(entry.id) ? QUrl::fromLocalFile(m_previews.value(entry.id)).toString() : QString();
     }

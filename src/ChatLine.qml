@@ -27,6 +27,7 @@ Item {
     required property bool selected
     required property var reply
     required property var reactions
+    required property var smileys
 
     readonly property var ui: theme.colors
 

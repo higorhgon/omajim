@@ -3,30 +3,142 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QUrl>
+#include <algorithm>
 
 namespace TextFormat {
 
+// The smileys of Pidgin's default theme for XMPP (pidgin/pixmaps/emotes/
+// default/24/theme), which Pidgin users write as text, as emoji.
+static const QList<std::pair<QString, QStringList>> &textSmileys() {
+    static const QList<std::pair<QString, QStringList>> smileys{
+        {"🙂", {":)", ":-)", "=)"}},
+        {"😃", {":-D", ":-d", ":D", ":d", "=D", "=d"}},
+        {"🙁", {":-(", ":("}},
+        {"😉", {";-)", ";)", ";^)"}},
+        {"😛", {":P", ":p", ":-P", ":-p"}},
+        {"😮", {"=-O", "=-o", ":-O", ":-o"}},
+        {"😘", {":kiss:", ":-*"}},
+        {"😎", {"8-)", "B-)"}},
+        {"😳", {":-["}},
+        {"😢", {":'-(", ":'("}},
+        {"😕", {":-/", ":-\\"}},
+        {"😇", {"O:-)", "o:-)"}},
+        {"🤐", {":-X"}},
+        {"🤑", {":-$"}},
+        {"😬", {":-!"}},
+        {"😤", {">:o", ">:O"}},
+        {"😠", {">:-(", ">:(", "X-(", "x-("}},
+        {"👍", {":yes:"}},
+        {"👎", {":no:"}},
+        {"✋", {":wait:"}},
+        {"🌹", {"@->--", ":rose:"}},
+        {"📞", {":telephone:"}},
+        {"📧", {":email:"}},
+        {"💡", {":jabber:"}},
+        {"🎂", {":cake:"}},
+        {"❤️", {":heart:", ":love:", "<3"}},
+        {"💔", {":brokenheart:"}},
+        {"🎵", {":music:"}},
+        {"🍺", {":beer:"}},
+        {"☕", {":coffee:"}},
+        {"💰", {":money:"}},
+        {"🌙", {":moon:"}},
+        {"☀️", {":sun:"}},
+        {"⭐", {":star:"}},
+        {"😐", {":|", ":-|"}},
+        {"🤘", {"\\m/"}},
+    };
+    return smileys;
+}
+
+// Escapes a run of text, with its smileys: a custom one wherever its text
+// is, as Pidgin does, and a text one only standing apart, so "http://" or
+// "a:b" stay as they are.
+// The smileys a message is shown with.
+struct Smileys {
+    const QHash<QString, QString> &images;
+    bool text;
+};
+
+static QString escapeWithSmileys(const QString &text, const Smileys &smileys) {
+    const QHash<QString, QString> &images = smileys.images;
+    static const QList<std::pair<QString, QString>> byLength = [] {
+        QList<std::pair<QString, QString>> codes;
+        for (const auto &[emoji, texts] : textSmileys())
+            for (const QString &code : texts)
+                codes.append({code, emoji});
+        std::sort(codes.begin(), codes.end(), [](const auto &a, const auto &b) { return a.first.size() > b.first.size(); });
+        return codes;
+    }();
+    QStringList custom = images.keys();
+    std::sort(custom.begin(), custom.end(), [](const QString &a, const QString &b) { return a.size() > b.size(); });
+    auto endsApart = [&](qsizetype end) {
+        return end == text.size() || text.at(end).isSpace() || QStringLiteral(".,!?;").contains(text.at(end));
+    };
+
+    QString html;
+    for (qsizetype i = 0; i < text.size();) {
+        const QStringView rest = QStringView(text).mid(i);
+        bool matched = false;
+        for (const QString &alt : custom) {
+            if (rest.startsWith(alt)) {
+                html += images.value(alt);
+                i += alt.size();
+                matched = true;
+                break;
+            }
+        }
+        if (!matched && smileys.text && (i == 0 || text.at(i - 1).isSpace())) {
+            for (const auto &[code, emoji] : byLength) {
+                if (rest.startsWith(code) && endsApart(i + code.size())) {
+                    html += emoji;
+                    i += code.size();
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (!matched)
+            html += QString(text.at(i++)).toHtmlEscaped();
+    }
+    return html;
+}
+
 // Escapes a run of plain text and makes its links clickable.
-static QString linkify(const QString &plain, const QString &linkColor) {
-    // Links up to the next space, without the punctuation that usually ends
-    // the sentence around them.
+// Links up to the next space, without the punctuation that usually ends
+// the sentence around them.
+static const QRegularExpression &linkPattern() {
     static const QRegularExpression link(
         R"re((?:https?://|www\.)[^\s<>"]+[^\s<>".,;:!?)\]'}]|(?:mailto:|xmpp:)[^\s<>"]+[^\s<>".,;:!?)\]'}])re",
         QRegularExpression::CaseInsensitiveOption);
+    return link;
+}
 
+QList<std::pair<qsizetype, qsizetype>> links(const QString &text) {
+    QList<std::pair<qsizetype, qsizetype>> found;
+    auto it = linkPattern().globalMatch(text);
+    while (it.hasNext()) {
+        const auto match = it.next();
+        found.append({match.capturedStart(), match.capturedEnd()});
+    }
+    return found;
+}
+
+static QString linkify(const QString &plain, const QString &linkColor, const Smileys &smileys) {
+    const QRegularExpression &link = linkPattern();
     QString html;
     qsizetype last = 0;
     auto it = link.globalMatch(plain);
     while (it.hasNext()) {
         const auto match = it.next();
-        html += plain.mid(last, match.capturedStart() - last).toHtmlEscaped();
+        html += escapeWithSmileys(plain.mid(last, match.capturedStart() - last), smileys);
         const QString text = match.captured();
         const QString target = text.startsWith("www.", Qt::CaseInsensitive) ? "https://" + text : text;
         html += QStringLiteral("<a href=\"%1\" style=\"color:%2\">%3</a>")
                     .arg(QString::fromUtf8(QUrl(target).toEncoded()).toHtmlEscaped(), linkColor, text.toHtmlEscaped());
         last = match.capturedEnd();
     }
-    html += plain.mid(last).toHtmlEscaped();
+    html += escapeWithSmileys(plain.mid(last), smileys);
     return html;
 }
 
@@ -34,7 +146,7 @@ static QString linkify(const QString &plain, const QString &linkColor) {
 // _emphasis_, ~strike~, and `code`. A directive opens only at the start or
 // after a space, with text right after it, and closes before a space or the
 // end, so names_with_underscores and links stay as they are.
-static QString styleInline(const QString &text, const QString &linkColor) {
+static QString styleInline(const QString &text, const QString &linkColor, const Smileys &smileys) {
     static const QString directives = QStringLiteral("*_~`");
     auto opensAt = [&](qsizetype i) {
         return (i == 0 || text.at(i - 1).isSpace() || QStringLiteral("([{\"'").contains(text.at(i - 1)))
@@ -56,14 +168,14 @@ static QString styleInline(const QString &text, const QString &linkColor) {
                     break;
                 }
             if (close > 0) {
-                html += linkify(plain, linkColor);
+                html += linkify(plain, linkColor, smileys);
                 plain.clear();
                 const QString inner = text.mid(i + 1, close - i - 1);
                 if (c == '`')
                     html += "<code>" + inner.toHtmlEscaped() + "</code>";
                 else {
                     const QString tag = c == '*' ? "b" : c == '_' ? "i" : "s";
-                    html += "<" + tag + ">" + styleInline(inner, linkColor) + "</" + tag + ">";
+                    html += "<" + tag + ">" + styleInline(inner, linkColor, smileys) + "</" + tag + ">";
                 }
                 i = close;
                 continue;
@@ -71,7 +183,7 @@ static QString styleInline(const QString &text, const QString &linkColor) {
         }
         plain += c;
     }
-    return html + linkify(plain, linkColor);
+    return html + linkify(plain, linkColor, smileys);
 }
 
 QString toHtml(const QString &plain, const QString &linkColor, const QString &quoteColor) {
@@ -91,9 +203,9 @@ QString toHtml(const QString &plain, const QString &linkColor, const QString &qu
             preformatted << line;
         } else if (line.startsWith('>')) {
             const QString quoted = line.mid(line.startsWith("> ") ? 2 : 1);
-            blocks << QStringLiteral("<span style=\"color:%1\">│ %2</span>").arg(quoteColor, styleInline(quoted, linkColor));
+            blocks << QStringLiteral("<span style=\"color:%1\">│ %2</span>").arg(quoteColor, styleInline(quoted, linkColor, smileys));
         } else {
-            blocks << styleInline(line, linkColor);
+            blocks << styleInline(line, linkColor, smileys);
         }
     }
     // An unclosed fence runs to the end of the message.

@@ -9,6 +9,8 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QXmlStreamWriter>
+#include <QXmppBitsOfBinaryContentId.h>
+#include <QXmppBitsOfBinaryIq.h>
 #include <QXmppClient.h>
 #include <QXmppXmlElement.h>
 #include <QXmppFallback.h>
@@ -25,6 +27,7 @@
 #include <QXmppTask.h>
 
 #include <QBuffer>
+#include <QDomDocument>
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QMimeData>
@@ -42,6 +45,7 @@
 #include "firewall.h"
 #include "gajimimport.h"
 #include "history.h"
+#include "smileys.h"
 #include "messagemodel.h"
 #include "rosterstore.h"
 #include "secretstore.h"
@@ -782,6 +786,24 @@ private slots:
         QCOMPARE(html("*<b>*"), QString("<b>&lt;b&gt;</b>"));
     }
 
+    void pidginTextSmileysBecomeEmoji() {
+        auto html = [](const QString &text) { return TextFormat::toHtml(text, "#1", "#2"); };
+        QCOMPARE(html(":) oi :-D, <3 e :beer:"), QString("🙂 oi 😃, ❤️ e 🍺"));
+        QCOMPARE(html("O:-) \\m/"), QString("😇 🤘"));
+        // Only standing apart, and never in code or links.
+        QCOMPARE(html("a:) e (x:P) 10:30"), QString("a:) e (x:P) 10:30"));
+        QCOMPARE(html("`:)`"), QString("<code>:)</code>"));
+        QVERIFY(!html("https://example.org/:-D").contains("😃"));
+        // Addresses with many parameters, where Pidgin found smileys.
+        const QString address = "https://example.org/busca?q=a;)&b=:D&c=8-)&d=:P&e=:-*";
+        QVERIFY(!html(address + " :)").contains("😃"));
+        QVERIFY(html(address + " :)").endsWith(" 🙂"));
+        QVERIFY(html(address).contains(QString(address).replace("&", "&amp;") + "</a>"));
+        // Nor a custom smiley inside an address.
+        const QString custom = TextFormat::toHtml("https://example.org/?x=:gato: :gato:", "#1", "#2", {{":gato:", "<img>"}});
+        QCOMPARE(custom.count("<img>"), 1);
+    }
+
     void forwardedLinesShowWhoWroteThem() {
         // The header, up to the line break (or space) after it.
         const QString line = "[28/10/2026 10:20] Karen Fernanda de Moraes:\nele na intranet https://example.org/?a=1";
@@ -826,6 +848,119 @@ private slots:
         backend.openChat("carol@example.org");
         backend.openChat("bob@example.org");
         QVERIFY(backend.messages()->data(backend.messages()->index(0), MessageModel::ForwardedRole).toBool());
+    }
+
+    void customSmileysTravelAsPidginSendsThem() {
+        QTemporaryDir dir;
+        SmileyStore store(dir.filePath("smileys"));
+        auto picture = [&](const QString &name, int side, bool noisy) {
+            QImage image(side, side, QImage::Format_ARGB32);
+            for (int y = 0; y < side; ++y)
+                for (int x = 0; x < side; ++x)
+                    image.setPixel(x, y, noisy ? qRgba(x * 7 % 256, y * 13 % 256, (x * y) % 256, 255) : qRgba(255, 0, 0, 255));
+            const QString path = dir.filePath(name);
+            image.save(path, "PNG");
+            return path;
+        };
+        QVERIFY(store.add(":gato:", picture("gato.png", 24, false)).isEmpty());
+        QVERIFY(!store.add(":gato:", picture("other.png", 24, false)).isEmpty());
+        QVERIFY(!store.add("dois gatos", picture("other.png", 24, false)).isEmpty());
+        QVERIFY(!store.add(":x:", dir.filePath("missing.png")).isEmpty());
+        // Too big to fetch in one stanza: shrunk.
+        QVERIFY(store.add(":big:", picture("big.png", 400, true)).isEmpty());
+        QCOMPARE(store.own().size(), 2);
+
+        const QHash<QString, QString> found = store.findOwn("olha :gato: e :big:");
+        QCOMPARE(found.size(), 2);
+        QVERIFY(found.value(":gato:").startsWith("sha1+"));
+        QVERIFY(found.value(":gato:").endsWith("@bob.xmpp.org"));
+        QString type;
+        const QByteArray big = store.dataOf(found.value(":big:"), &type);
+        QCOMPARE(type, QString("image/png"));
+        QCOMPARE(QImage::fromData(big).size(), QSize(64, 64));
+        QVERIFY(store.isOwn(found.value(":big:")));
+
+        // In an address it's part of it, not a smiley.
+        QVERIFY(store.findOwn("https://example.org/?a=:gato:&b=1").isEmpty());
+        QCOMPARE(SmileyStore::xhtmlFor("https://example.org/?a=:gato: :gato:", found).count("<img"), 1);
+
+        // What goes out, and what comes back from Pidgin: the same pictures.
+        const QString xhtml = SmileyStore::xhtmlFor("a<b :gato:\nfim", {{":gato:", found.value(":gato:")}});
+        QCOMPARE(xhtml, QString("<p>a&lt;b <img alt=\":gato:\" src=\"cid:%1\"/><br/>fim</p>").arg(found.value(":gato:")));
+        QXmppMessage sent({}, "bob@example.org", "a<b :gato:\nfim");
+        sent.setXhtml(xhtml);
+        QByteArray xml;
+        QXmlStreamWriter writer(&xml);
+        sent.toXml(&writer);
+        QDomDocument document;
+        QVERIFY(bool(document.setContent(xml, QDomDocument::ParseOption::UseNamespaceProcessing)));
+        QXmppMessage received;
+        received.parse(document.documentElement());
+        QCOMPARE(SmileyStore::imagesIn(received.xhtml()), (QHash<QString, QString>{{":gato:", found.value(":gato:")}}));
+
+        // The request for a picture, and the answer, as Pidgin reads them.
+        QXmppBitsOfBinaryIq request;
+        request.setType(QXmppIq::Get);
+        request.setCid(QXmppBitsOfBinaryContentId::fromContentId(found.value(":gato:")));
+        QByteArray requestXml;
+        QXmlStreamWriter requestWriter(&requestXml);
+        request.toXml(&requestWriter);
+        QVERIFY2(requestXml.contains("<data xmlns=\"urn:xmpp:bob\" cid=\"" + found.value(":gato:").toUtf8() + "\"></data>"), requestXml);
+
+        // A picture must match its cid's hash.
+        const QByteArray gif = "GIF89a not really";
+        QVERIFY(!store.store(SmileyStore::cidOf("something else"), gif));
+        QVERIFY(store.store(SmileyStore::cidOf(gif), gif));
+
+        store.remove(":big:");
+        QCOMPARE(store.own().size(), 1);
+        QVERIFY(!store.isOwn(found.value(":big:")));
+        SmileyStore again(dir.filePath("smileys"));
+        QCOMPARE(again.own().size(), 1);
+    }
+
+    void receivedCustomSmileysShowOnceThePictureIsHere() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("bob@example.org");
+
+        QImage image(20, 20, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        image.save(&buffer, "PNG");
+        const QString cid = SmileyStore::cidOf(png);
+
+        // As Pidgin sends it: the text keeps the shortcut.
+        QXmppMessage message("bob@example.org/pidgin", "alice@example.org", "oi :sapo:");
+        message.setType(QXmppMessage::Chat);
+        message.setId("p1");
+        message.setXhtml(QString("<p>oi <img alt=':sapo:' src='cid:%1'/></p>").arg(cid));
+        emit backend.client()->messageReceived(message);
+        QCOMPARE(backend.messages()->rowCount(), 1);
+        const QVariantMap smileys = backend.messages()->data(backend.messages()->index(0), MessageModel::SmileysRole).toMap();
+        QCOMPARE(smileys.value(":sapo:").toString(), cid);
+        // Until the picture comes, the text.
+        QVERIFY(!backend.formatMessage("oi :sapo:", "#1", "#2", smileys).contains("<img"));
+        QVERIFY(backend.smileys()->store(cid, png));
+        const QString html = backend.formatMessage("oi :sapo:", "#1", "#2", smileys);
+        QVERIFY(html.contains("<img"));
+        QVERIFY(html.contains("width=\"20\""));
+
+        // The history keeps them.
+        backend.openChat("carol@example.org");
+        backend.openChat("bob@example.org");
+        QCOMPARE(backend.messages()->data(backend.messages()->index(0), MessageModel::SmileysRole).toMap(), smileys);
+
+        // Pidgin only sends them to clients that say they take them.
+        auto *disco = backend.client()->findExtension<QXmppDiscoveryManager>();
+        const QStringList features = disco->capabilities().features();
+        QVERIFY(features.contains("urn:xmpp:bob"));
+        QVERIFY(features.contains("http://jabber.org/protocol/xhtml-im"));
     }
 
     void imagesFromKnownContactsGetPreviews() {

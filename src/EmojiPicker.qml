@@ -5,7 +5,8 @@ import QtQuick.Layouts
 // The emoji picker the Python Omajim had from GTK, beside the message field
 // and on reactions: the ones used last, the rest by section, or found by
 // name in English or Portuguese. A right-click on a hand or a person picks
-// the skin tone.
+// the skin tone. Opened for the message, it also has our own smileys,
+// Pidgin's custom smileys: their text goes in, and the picture with it.
 Popup {
     id: picker
 
@@ -14,11 +15,14 @@ Popup {
     // whoever opens it.
     property var onPick: null
     property Item opener: null
+    // Whether our own smileys are there: not for reactions, which are emoji.
+    property bool withSmileys: false
     // A press on the button that opened it closes it first; the click that
     // follows mustn't open it again.
     property double closedAt: 0
-    // -1 shows the recent ones.
+    // -1 shows the recent ones, -2 our smileys.
     property int section: 0
+    readonly property bool showingSmileys: section === -2 && !searching
     readonly property bool searching: searchField.text.trim() !== ""
     readonly property var shown: searching ? emojis.search(searchField.text)
                                : section < 0 ? emojis.recent : emojis.section(section)
@@ -38,12 +42,13 @@ Popup {
     ]
 
     // Opens over (or under, if there's no room) an item, calling pick with
-    // the emoji chosen.
-    function openAt(item, pick) {
+    // the emoji chosen, or the text of one of our smileys.
+    function openAt(item, pick, smileys) {
         if (opener === item && Date.now() - closedAt < 300)
             return
         onPick = pick
         opener = item
+        withSmileys = smileys === true
         const point = item.mapToItem(parent, 0, 0)
         x = Math.min(point.x, parent.width - width - 8)
         y = point.y - height - 6 >= 8 ? point.y - height - 6 : point.y + item.height + 6
@@ -57,6 +62,14 @@ Popup {
         opener = null
         if (pick)
             pick(emoji)
+    }
+
+    function chooseSmiley(shortcut) {
+        const pick = onPick
+        close()
+        opener = null
+        if (pick)
+            pick(shortcut)
     }
 
     function nameOf(item) {
@@ -128,11 +141,24 @@ Popup {
                     }
                 }
             }
+            IconButton {
+                Layout.fillWidth: true
+                implicitHeight: 32
+                visible: picker.withSmileys
+                iconName: "sticker"
+                description: qsTr("Your smileys")
+                checked: picker.showingSmileys
+                onClicked: {
+                    searchField.text = ""
+                    picker.section = -2
+                }
+            }
         }
 
         Label {
             Layout.fillWidth: true
             text: picker.searching ? (picker.shown.length === 0 ? qsTr("No emoji found") : "")
+                  : picker.showingSmileys ? qsTr("Your smileys")
                   : picker.section < 0 && picker.shown.length === 0 ? qsTr("Emoji you use show up here")
                   : picker.sections[picker.section + 1].title
             visible: text !== ""
@@ -140,10 +166,88 @@ Popup {
             font.pixelSize: 12
         }
 
+        // Ours, after a tile to add one; a right-click removes one.
+        GridView {
+            id: smileyGrid
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: picker.showingSmileys
+            clip: true
+            model: [{shortcut: "", source: ""}].concat(backend.smileys.own)
+            cellWidth: Math.floor(width / 5)
+            cellHeight: 64
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
+
+            delegate: Rectangle {
+                id: smileyCell
+                required property var modelData
+                readonly property bool adds: modelData.shortcut === ""
+                width: smileyGrid.cellWidth
+                height: smileyGrid.cellHeight
+                radius: Math.min(4, theme.radius)
+                color: smileyMouse.containsMouse ? picker.ui.hover : "transparent"
+
+                AppIcon {
+                    visible: smileyCell.adds
+                    anchors.centerIn: parent
+                    name: "plus"
+                    color: picker.ui.muted
+                }
+                Image {
+                    visible: !smileyCell.adds
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 6
+                    width: 36
+                    height: 36
+                    source: smileyCell.modelData.source
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                }
+                Label {
+                    visible: !smileyCell.adds
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 3
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    text: smileyCell.modelData.shortcut
+                    elide: Text.ElideRight
+                    color: picker.ui.muted
+                    font.pixelSize: 11
+                }
+                MouseArea {
+                    id: smileyMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    cursorShape: Qt.PointingHandCursor
+                    onContainsMouseChanged: {
+                        const name = smileyCell.adds ? qsTr("Add a smiley") : smileyCell.modelData.shortcut
+                        if (containsMouse)
+                            picker.hoveredName = name
+                        else if (picker.hoveredName === name)
+                            picker.hoveredName = ""
+                    }
+                    onClicked: mouse => {
+                        if (smileyCell.adds) {
+                            picker.close()
+                            smileyDialog.open()
+                        } else if (mouse.button === Qt.RightButton) {
+                            smileyMenu.shortcut = smileyCell.modelData.shortcut
+                            smileyMenu.popup()
+                        } else {
+                            picker.chooseSmiley(smileyCell.modelData.shortcut)
+                        }
+                    }
+                }
+            }
+        }
+
         GridView {
             id: grid
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: !picker.showingSmileys
             clip: true
             model: picker.shown
             cellWidth: Math.floor(width / 8)
@@ -273,6 +377,81 @@ Popup {
                     onClicked: picker.choose(modelData)
                 }
             }
+        }
+    }
+
+    AppMenu {
+        id: smileyMenu
+        property string shortcut
+        AppMenuItem {
+            text: qsTr("Remove %1").arg(smileyMenu.shortcut)
+            onTriggered: backend.smileys.remove(smileyMenu.shortcut)
+        }
+    }
+
+    // A new smiley: a picture and the text it stands for.
+    AppDialog {
+        id: smileyDialog
+        property string picture: ""
+
+        title: qsTr("New smiley")
+        subtitle: qsTr("Write its text in a message and Pidgin users see the picture; others see the text.")
+        acceptText: qsTr("Add")
+        acceptEnabled: picture !== "" && shortcutField.text.trim() !== ""
+        closeOnAccept: false
+        onAboutToShow: {
+            picture = ""
+            shortcutField.text = ""
+            smileyError.text = ""
+            shortcutField.forceActiveFocus()
+        }
+        onAccepted: {
+            smileyError.text = backend.smileys.add(shortcutField.text, picture)
+            if (smileyError.text === "")
+                close()
+        }
+
+        Connections {
+            target: backend
+            function onSmileyPicturePicked(path) { smileyDialog.picture = path }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            Rectangle {
+                implicitWidth: 56
+                implicitHeight: 56
+                radius: theme.radius
+                color: picker.ui.background
+                border.color: picker.ui.border
+                Image {
+                    anchors.centerIn: parent
+                    width: 44
+                    height: 44
+                    source: smileyDialog.picture === "" ? "" : "file://" + smileyDialog.picture
+                    fillMode: Image.PreserveAspectFit
+                }
+            }
+            AppButton {
+                text: smileyDialog.picture === "" ? qsTr("Choose a picture…") : qsTr("Another picture…")
+                onClicked: backend.chooseSmileyPicture()
+            }
+        }
+        AppTextField {
+            id: shortcutField
+            Layout.fillWidth: true
+            Layout.topMargin: 12
+            placeholderText: qsTr("Its text, like :party:")
+            onAccepted: smileyDialog.accept()
+        }
+        Label {
+            id: smileyError
+            Layout.fillWidth: true
+            Layout.topMargin: 8
+            visible: text !== ""
+            color: picker.ui.error
+            wrapMode: Text.Wrap
         }
     }
 }

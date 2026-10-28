@@ -20,6 +20,7 @@ HEADERS += \
     ../src/notifier.h \
     ../src/rosterstore.h \
     ../src/secretstore.h \
+    ../src/smileys.h \
     ../src/textformat.h \
     ../src/theme.h \
     ../src/translator.h \
@@ -39,6 +40,7 @@ SOURCES += \
     ../src/notifier.cpp \
     ../src/rosterstore.cpp \
     ../src/secretstore.cpp \
+    ../src/smileys.cpp \
     ../src/textformat.cpp \
     ../src/theme.cpp \
     ../src/translator.cpp \

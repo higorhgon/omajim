@@ -2,6 +2,8 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -142,6 +144,7 @@ qint64 History::add(HistoryEntry &entry) {
     query.addBindValue(entry.sender);
     query.addBindValue(entry.url);
     query.addBindValue(entry.replyId);
+    query.addBindValue(smileysColumn(entry.smileys));
     query.addBindValue(entry.forwarded ? 1 : 0);
     if (!query.exec()) {
         m_error = query.lastError().text();
