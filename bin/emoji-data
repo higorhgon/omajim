@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+# Writes src/emoji.tsv, the emoji picker's list, from the data GTK's own
+# picker uses (Unicode's emoji with CLDR names and keywords), so the picker
+# shows what the Python Omajim's showed, named in English and Portuguese.
+# Run it again when GTK's data gets new emoji; the app doesn't need GTK.
+#
+# One emoji per line: group, code points in hex (T where a skin tone goes,
+# S where it goes in place of the emoji presentation selector),
+# English name, Portuguese name, keywords in both, space-separated.
+
+import sys
+from pathlib import Path
+
+from gi.repository import Gio, GLib
+
+SOURCE = "/usr/share/gtk-4.0/emoji/pt.gresource"
+OUTPUT = Path(__file__).resolve().parent.parent / "src" / "emoji.tsv"
+# Skin tones and hair styles on their own; they only modify other emoji.
+COMPONENTS = 2
+# GTK marks where a skin tone goes with 0 (the emoji without a tone takes
+# the presentation selector there) or with the lightest tone (it takes
+# nothing).
+MARKS = {0: "S", 0x1F3FB: "T"}
+
+
+def clean(text: str) -> str:
+    return " ".join(text.replace("\t", " ").split())
+
+
+def main() -> int:
+    Gio.Resource.load(SOURCE)._register()
+    data = Gio.resources_lookup_data("/org/gtk/libgtk/emoji/pt.data", Gio.ResourceLookupFlags.NONE)
+    entries = GLib.Variant.new_from_bytes(GLib.VariantType("a(aussasasu)"), data, True).unpack()
+
+    lines = []
+    for codepoints, name, local_name, keywords, local_keywords, group in entries:
+        if group == COMPONENTS:
+            continue
+        sequence = " ".join(MARKS.get(point, f"{point:X}") for point in codepoints)
+        words = []
+        for word in [*keywords, *local_keywords]:
+            word = clean(word).lower()
+            if word and word not in words:
+                words.append(word)
+        lines.append("\t".join([str(group), sequence, clean(name), clean(local_name), " ".join(words)]))
+
+    OUTPUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"{len(lines)} emoji in {OUTPUT}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

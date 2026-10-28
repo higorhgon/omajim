@@ -98,6 +98,14 @@ Rectangle {
             composer.clear()
     }
 
+    // An emoji into the message, where the cursor is.
+    function pickEmojiForMessage() {
+        emojiPicker.openAt(emojiButton, emoji => {
+            composer.insert(composer.cursorPosition, emoji)
+            composer.forceActiveFocus()
+        })
+    }
+
     // Ctrl+C copies what's selected in the conversation. While the message
     // field has focus it claims Ctrl+C even with nothing selected in it, so
     // it hands the key on itself (below); this covers the rest.
@@ -368,6 +376,11 @@ Rectangle {
                 pickFrom = -1
             }
 
+            // A reaction from the emoji picker, opened over a line's bubble.
+            function pickReaction(item, messageId) {
+                emojiPicker.openAt(item, emoji => backend.addReaction(messageId, emoji))
+            }
+
             // The pointer, in this view's coordinates, moved while selecting
             // text or picking messages.
             function extendSelection(point) {
@@ -558,6 +571,15 @@ Rectangle {
                     }
                 }
 
+                IconButton {
+                    id: emojiButton
+                    Layout.alignment: Qt.AlignBottom
+                    iconName: "smile"
+                    description: qsTr("Insert an emoji (Ctrl+.)")
+                    checked: emojiPicker.visible && emojiPicker.opener === emojiButton
+                    onClicked: pane.pickEmojiForMessage()
+                }
+
                 // As tall as its text, centered in the frame, so the
                 // placeholder sits where the first line will; it grows with
                 // more lines and scrolls past the frame's height.
@@ -580,9 +602,15 @@ Rectangle {
                         onTextChanged: backend.setComposing(text.length > 0)
                         // Ctrl+C with nothing selected here copies what's
                         // selected in the conversation; Ctrl+V with a picture
-                        // or files in the clipboard offers to send them.
+                        // or files in the clipboard offers to send them;
+                        // Ctrl+. or Ctrl+; opens the emoji picker, as in GTK's
+                        // fields.
                         Keys.onPressed: event => {
-                            if (event.matches(StandardKey.Copy) && composer.selectedText === "" && pane.copySelection())
+                            if ((event.modifiers & Qt.ControlModifier)
+                                    && (event.key === Qt.Key_Period || event.key === Qt.Key_Semicolon)) {
+                                pane.pickEmojiForMessage()
+                                event.accepted = true
+                            } else if (event.matches(StandardKey.Copy) && composer.selectedText === "" && pane.copySelection())
                                 event.accepted = true
                             else if (event.matches(StandardKey.Paste) && pane.offerPaste())
                                 event.accepted = true
@@ -642,6 +670,10 @@ Rectangle {
                 }
             }
         }
+    }
+
+    EmojiPicker {
+        id: emojiPicker
     }
 
     AppDialog {

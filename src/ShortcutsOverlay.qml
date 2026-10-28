@@ -36,6 +36,7 @@ Popup {
             ["Shift+Enter", qsTr("New line in the message")],
             ["↑", qsTr("Correct your last message")],
             ["Esc", qsTr("Stop correcting")],
+            ["Ctrl+. / Ctrl+;", qsTr("Insert an emoji")],
             ["Shift+Click / Shift+Drag", qsTr("Select whole messages")],
             ["Ctrl+C", qsTr("Copy the selected messages")] ] },
         { title: qsTr("Files"), keys: [

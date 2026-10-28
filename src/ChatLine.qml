@@ -445,6 +445,26 @@ Item {
                         TapHandler { onTapped: backend.toggleReaction(line.messageId, chip.modelData.emoji) }
                     }
                 }
+                // Any other emoji, from the picker, as Gajim's reactions bar.
+                Rectangle {
+                    id: addChip
+                    implicitWidth: 34
+                    implicitHeight: 24
+                    radius: 12
+                    color: addHover.hovered ? line.ui.hover : line.ui.background
+                    border.color: line.ui.border
+                    AppIcon {
+                        anchors.centerIn: parent
+                        width: 15
+                        height: 15
+                        name: "smile-plus"
+                        color: line.ui.muted
+                    }
+                    HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
+                    ToolTip.visible: addHover.hovered
+                    ToolTip.text: qsTr("Add a reaction")
+                    TapHandler { onTapped: line.ListView.view.pickReaction(addChip, line.messageId) }
+                }
             }
 
             // When it was written, and whether it was edited or delivered.
@@ -546,6 +566,17 @@ Item {
         preventStealing: true
         property point pressedAt
         property bool dragged: false
+        // Shift held at the press: this drag picks whole messages, not text.
+        property bool picking: false
+        property bool wasSelected: false
+
+        // Over a part of the bubble with a click of its own.
+        function onControl(x, y) {
+            if (line.kind !== "text")
+                return true
+            const over = item => item.visible && item.contains(mapToItem(item, x, y))
+            return over(quote) || over(reactionRow)
+        }
 
         onPressed: mouse => {
             if (mouse.button === Qt.RightButton) {
@@ -554,6 +585,8 @@ Item {
                 return
             }
             const view = line.ListView.view
+            pressedAt = Qt.point(mouse.x, mouse.y)
+            dragged = false
             // Shift+click picks whole messages: from the last one clicked to
             // this, or, on one already picked, just leaves it out (on
             // release, as a drag from it keeps it). Dragging on picks every
@@ -566,27 +599,16 @@ Item {
                     backend.messages.selectRange(view.selectionAnchor >= 0 ? view.selectionAnchor : line.messageId,
                                                  line.messageId)
                 view.selectionAnchor = line.messageId
+                backend.messages.holdSelection()
+                view.startPicking(line.messageId)
                 mouse.accepted = true
                 return
             }
-        // Shift held at the press: this drag picks whole messages, not text.
-        property bool picking: false
-        property bool wasSelected: false
-
-        // Over a part of the bubble with a click of its own.
-        function onControl(x, y) {
-            if (line.kind !== "text")
-                return true
-            const over = item => item.visible && item.contains(mapToItem(item, x, y))
-            return over(quote) || over(reactionRow)
-        }
             view.selectionAnchor = line.messageId
             backend.messages.clearSelection()
             if (onControl(mouse.x, mouse.y)) {
                 // Buttons, files, quotes: theirs to handle.
                 view.clearTextSelection()
-            pressedAt = Qt.point(mouse.x, mouse.y)
-            dragged = false
                 mouse.accepted = false
                 return
             }
@@ -597,8 +619,6 @@ Item {
             view.startTextSelection(line.index, line.textPosition(atLine.x, atLine.y))
         }
         onPositionChanged: mouse => {
-                backend.messages.holdSelection()
-                view.startPicking(line.messageId)
             if (!pressed || mouse.buttons !== Qt.LeftButton)
                 return
             dragged = dragged || Math.abs(mouse.x - pressedAt.x) + Math.abs(mouse.y - pressedAt.y) > 4
@@ -608,6 +628,12 @@ Item {
         onReleased: mouse => {
             const view = line.ListView.view
             view.stopAutoScroll()
+            view.stopPicking()
+            if (picking) {
+                if (!dragged && wasSelected)
+                    backend.messages.toggleSelected(line.messageId)
+                return
+            }
             if (dragged || mouse.button !== Qt.LeftButton)
                 return
             // A click, not a drag: open the link under it, or drop the selection.
@@ -628,12 +654,6 @@ Item {
     }
 
     // Right-click: answer, react, copy.
-            view.stopPicking()
-            if (picking) {
-                if (!dragged && wasSelected)
-                    backend.messages.toggleSelected(line.messageId)
-                return
-            }
     AppMenu {
         id: lineMenu
         readonly property var quick: ["👍", "❤️", "😂", "😮", "😢", "🙏"]
@@ -661,6 +681,17 @@ Item {
                             backend.toggleReaction(line.messageId, modelData)
                             lineMenu.close()
                         }
+                    }
+                }
+                // The rest, from the emoji picker.
+                IconButton {
+                    width: 34
+                    height: 34
+                    iconName: "smile-plus"
+                    description: qsTr("More reactions")
+                    onClicked: {
+                        lineMenu.close()
+                        line.ListView.view.pickReaction(bubble, line.messageId)
                     }
                 }
             }

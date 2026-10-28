@@ -16,6 +16,7 @@
 #include <QUrl>
 
 #include "backend.h"
+#include "emojicatalog.h"
 #include "idlemonitor.h"
 #include "instance.h"
 #include "notifier.h"
@@ -83,6 +84,7 @@ int main(int argc, char *argv[]) {
     const QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/omajim";
     Backend backend(config, data, &filePicker, &secrets, &notifier);
     Tray tray(&backend);
+    EmojiCatalog emojis(QDir(config).filePath("omajim.conf"));
 
     // Text drawn by FreeType with the desktop's hinting, like every other app:
     // Qt Quick's default distance-field text smears small bold type at 1x.
@@ -95,6 +97,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.rootContext()->setContextProperty("tray", &tray);
+    engine.rootContext()->setContextProperty("emojis", &emojis);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

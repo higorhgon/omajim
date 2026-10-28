@@ -2108,6 +2108,14 @@ void Backend::cancelReply() {
 }
 
 void Backend::toggleReaction(qint64 messageId, const QString &emoji) {
+    react(messageId, emoji, true);
+}
+
+void Backend::addReaction(qint64 messageId, const QString &emoji) {
+    react(messageId, emoji, false);
+}
+
+void Backend::react(qint64 messageId, const QString &emoji, bool toggle) {
     const HistoryEntry entry = m_messages.entry(messageId);
     const QString target = targetId(entry);
     if (entry.id == 0 || target.isEmpty())
@@ -2122,6 +2130,8 @@ void Backend::toggleReaction(qint64 messageId, const QString &emoji) {
     for (const Reaction &reaction : m_history.reactions(entry.peer, target))
         if (reaction.sender == own)
             emojis = reaction.emojis;
+    if (emojis.contains(emoji) && !toggle)
+        return;
     if (!emojis.removeAll(emoji))
         emojis << emoji;
 

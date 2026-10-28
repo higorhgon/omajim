@@ -12,6 +12,7 @@ HEADERS += \
     src/avatarstore.h \
     src/backend.h \
     src/contactmodel.h \
+    src/emojicatalog.h \
     src/filepicker.h \
     src/files.h \
     src/firewall.h \
@@ -33,6 +34,7 @@ SOURCES += \
     src/avatarstore.cpp \
     src/backend.cpp \
     src/contactmodel.cpp \
+    src/emojicatalog.cpp \
     src/files.cpp \
     src/firewall.cpp \
     src/gajimimport.cpp \

@@ -134,6 +134,8 @@ public:
     Q_INVOKABLE void cancelReply();
     // Adds or takes back one of our reactions to a line (XEP-0444).
     Q_INVOKABLE void toggleReaction(qint64 messageId, const QString &emoji);
+    // Adds one from the emoji picker; one we already gave stays.
+    Q_INVOKABLE void addReaction(qint64 messageId, const QString &emoji);
     // The message field has text (or was just cleared); the contact sees
     // "typing" while it does.
     Q_INVOKABLE void setComposing(bool composing);
@@ -290,6 +292,7 @@ private:
     bool sendCorrection(const QString &body);
     // Fills in a line's quote and reactions on screen.
     void decorate(const HistoryEntry &entry);
+    void react(qint64 messageId, const QString &emoji, bool toggle);
     // Reactions and replies point at a message by its id, or in a room by
     // the id the room gave it.
     QString targetId(const HistoryEntry &entry) const;

@@ -35,6 +35,7 @@
 #include "avatarstore.h"
 #include "backend.h"
 #include "contactmodel.h"
+#include "emojicatalog.h"
 #include "filepicker.h"
 #include "files.h"
 #include "firewall.h"
@@ -926,7 +927,6 @@ private slots:
         QVERIFY(lines.at(0).endsWith("] Bob: first"));
         QVERIFY(lines.at(1).endsWith("] Bob: third"));
 
-        // Another conversation starts with nothing selected.
         // Shift+drag from the second line: the third stays picked, and going
         // back over a line takes it out again.
         messages->toggleSelected(id(0));
@@ -938,6 +938,7 @@ private slots:
         QVERIFY(!messages->data(messages->index(0), MessageModel::SelectedRole).toBool());
         QVERIFY(messages->data(messages->index(2), MessageModel::SelectedRole).toBool());
 
+        // Another conversation starts with nothing selected.
         backend.openChat("carol@example.org");
         QCOMPARE(messages->selectedCount(), 0);
     }
@@ -1466,6 +1467,45 @@ private slots:
         QVERIFY(menu.EventGroup({DBusMenuEvent{4, "clicked", QDBusVariant(0), 0}}).isEmpty());
         QCOMPARE(quit.count(), 1);
         QCOMPARE(menu.EventGroup({DBusMenuEvent{99, "clicked", QDBusVariant(0), 0}}), QList<int>{99});
+    }
+
+    void emojiCatalogFindsTonesAndRemembers() {
+        QTemporaryDir dir;
+        const QString settings = dir.filePath("omajim.conf");
+        EmojiCatalog catalog(settings, QFINDTESTDATA("../src/emoji.tsv"));
+        auto emojis = [](const QVariantList &items) {
+            QStringList list;
+            for (const QVariant &item : items)
+                list << item.toMap().value("emoji").toString();
+            return list;
+        };
+
+        // Every section has emoji; the first starts with the smileys.
+        for (int section = 0; section < EmojiCatalog::sectionCount; ++section)
+            QVERIFY(!catalog.section(section).isEmpty());
+        QCOMPARE(emojis(catalog.section(0)).first(), QString::fromUtf8("😀"));
+
+        // Found in Portuguese without accents, and in English.
+        QVERIFY(emojis(catalog.search("coracao vermelho")).contains(QString::fromUtf8("❤️")));
+        QCOMPARE(emojis(catalog.search("thumbs up")).first(), QString::fromUtf8("👍"));
+        QVERIFY(catalog.search("nada-disso-existe").isEmpty());
+
+        // A hand takes five tones, found again from any of them; a face none.
+        const QStringList tones = catalog.tones(QString::fromUtf8("👍"));
+        QCOMPARE(tones.size(), 5);
+        QCOMPARE(tones.first(), QString::fromUtf8("👍🏻"));
+        QCOMPARE(catalog.tones(tones.last()), tones);
+        QVERIFY(catalog.tones(QString::fromUtf8("😀")).isEmpty());
+        // Where the tone replaces the presentation selector, the plain one keeps it.
+        QCOMPARE(catalog.tones(QString::fromUtf8("✌️")).first(), QString::fromUtf8("✌🏻"));
+
+        // The last used first, with its tone, and kept for the next run.
+        catalog.use(QString::fromUtf8("😀"));
+        catalog.use(tones.at(2));
+        catalog.use(QString::fromUtf8("😀"));
+        QCOMPARE(emojis(catalog.recent()), (QStringList{QString::fromUtf8("😀"), tones.at(2)}));
+        EmojiCatalog again(settings, QFINDTESTDATA("../src/emoji.tsv"));
+        QCOMPARE(emojis(again.recent()), emojis(catalog.recent()));
     }
 
 private:
