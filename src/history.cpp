@@ -201,14 +201,20 @@ QList<HistoryEntry> History::recent(const QString &peer, int limit) const {
     return entries;
 }
 
-bool History::contains(const QString &peer, const QString &xmppId, const QString &archiveId) const {
+bool History::contains(const QString &peer, const QString &xmppId, const QString &archiveId,
+                       const QString &body) const {
     if (!isOpen() || (xmppId.isEmpty() && archiveId.isEmpty()))
         return false;
     QSqlQuery query(QSqlDatabase::database(m_connection));
-    query.prepare("SELECT 1 FROM messages WHERE peer = ? AND ((xmpp_id = ? AND xmpp_id <> '')"
-                  " OR (archive_id = ? AND archive_id <> '')) LIMIT 1");
+    // Without a text, the id alone (Gajim's import: its ids don't repeat,
+    // and a corrected line has the original's id and another text).
+    query.prepare(QStringLiteral("SELECT 1 FROM messages WHERE peer = ? AND ((xmpp_id = ? AND xmpp_id <> ''%1)"
+                                 " OR (archive_id = ? AND archive_id <> '')) LIMIT 1")
+                      .arg(body.isEmpty() ? QString() : QStringLiteral(" AND body = ?")));
     query.addBindValue(peer);
     query.addBindValue(xmppId);
+    if (!body.isEmpty())
+        query.addBindValue(body);
     query.addBindValue(archiveId);
     return query.exec() && query.next();
 }
@@ -228,8 +234,10 @@ bool History::markDelivered(const QString &peer, const QString &xmppId) {
     if (!isOpen() || xmppId.isEmpty())
         return false;
     QSqlQuery query(QSqlDatabase::database(m_connection));
+    // The newest with that id: an old id can come back after a restart.
     query.prepare("UPDATE messages SET delivered = 1, send_state = MAX(COALESCE(send_state, 1), 2)"
-                  " WHERE peer = ? AND xmpp_id = ? AND outgoing = 1");
+                  " WHERE id = (SELECT id FROM messages WHERE peer = ? AND xmpp_id = ? AND outgoing = 1"
+                  " ORDER BY stamp DESC, id DESC LIMIT 1)");
     query.addBindValue(peer);
     query.addBindValue(xmppId);
     return query.exec() && query.numRowsAffected() > 0;

@@ -339,7 +339,11 @@ private:
     void leaveAccount();
     void adoptGajim();
     void importGajimHistory(const QString &jid, History &history);
-    void fetchHistoryPage(const QString &account, const QDateTime &start, const QDateTime &end, const QString &after);
+    // A stretch of the server's archive, page after page; reach records how
+    // far back the history goes now.
+    void fetchHistoryPage(const QString &account, const QDateTime &start, const QDateTime &end, const QString &after,
+                          bool reach);
+    void recoverDroppedMessages();
     void notify(const QString &key, const QString &title, const QString &body);
     void pickFile(const QString &method, const QString &title);
     void setError(const QString &text);

@@ -83,7 +83,12 @@ public:
 
     qint64 add(HistoryEntry &entry);
     QList<HistoryEntry> recent(const QString &peer, int limit) const;
-    bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {}) const;
+    // Whether a message is here already: the same archive id (the server's,
+    // unique), or the same id with the same text. Ids alone repeat: QXmpp
+    // numbers them per run (qx1, qx2…), so after a restart a new message
+    // can carry an old one's id. Without a text, the id alone.
+    bool contains(const QString &peer, const QString &xmppId, const QString &archiveId = {},
+                  const QString &body = {}) const;
     // The same text at the same moment, for messages that came without ids.
     bool containsExact(const QString &peer, const QDateTime &stamp, const QString &body) const;
     // Many writes as one transaction, for imports.

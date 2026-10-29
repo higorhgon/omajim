@@ -2102,6 +2102,37 @@ private slots:
             QSKIP("Port 28011 is in use on this machine");
     }
 
+    void repeatedIdsFromARestartAreNotDropped() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        backend.openChat("jean@example.org");
+        // QXmpp numbers ids per run: after Jean restarts, "qx23" again.
+        auto incoming = [&](const QString &id, const QString &body, const QString &stanzaId = {}) {
+            QXmppMessage message("jean@example.org/omajim", "alice@example.org", body);
+            message.setType(QXmppMessage::Chat);
+            message.setId(id);
+            if (!stanzaId.isEmpty())
+                message.setStanzaIds({QXmppStanzaId{stanzaId, "alice@example.org"}});
+            emit backend.client()->messageReceived(message);
+        };
+        incoming("qx23", "oi", "a1");
+        incoming("qx23", "tudo bem?", "a2");
+        QCOMPARE(backend.messages()->rowCount(), 2);
+        // The same message twice (live, then from the archive) still once.
+        incoming("qx23", "tudo bem?", "a2");
+        incoming("qx23", "tudo bem?");
+        QCOMPARE(backend.messages()->rowCount(), 2);
+
+        // Ours go out with an id of their own, not QXmpp's numbering.
+        QVERIFY(backend.sendMessage("ok"));
+        const auto *messages = backend.messages();
+        const QString ours = messages->entry(messages->data(messages->index(2), MessageModel::IdRole).toLongLong()).xmppId;
+        QVERIFY2(!ours.startsWith("qx") && ours.size() >= 32, qPrintable(ours));
+    }
+
     void offlineMessagesWaitAndShowHowFarTheyGot() {
         QTemporaryDir dir;
         FakeSecretStore secrets;

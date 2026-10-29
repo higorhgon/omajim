@@ -322,6 +322,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             discoverProxy();
             refreshOwnVCard();
             sendPending();
+            recoverDroppedMessages();
             // The bookmarks bring their rooms back too, but a server without
             // bookmarks still has the rooms joined in this session.
             for (auto it = m_rooms.cbegin(); it != m_rooms.cend(); ++it)
@@ -1333,7 +1334,7 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
     entry.stamp = message.stamp().isValid() ? message.stamp().toUTC() : QDateTime::currentDateTimeUtc();
     if (!message.replaceId().isEmpty() && applyCorrection(entry, message.replaceId()))
         return true;
-    if (m_history.contains(entry.peer, entry.xmppId, entry.archiveId))
+    if (m_history.contains(entry.peer, entry.xmppId, entry.archiveId, entry.body))
         return false;
     if (addEntry(entry, delivery) <= 0)
         return false;
@@ -1403,6 +1404,21 @@ void Backend::syncArchive(bool firstPage) {
         });
 }
 
+void Backend::recoverDroppedMessages() {
+    // Up to 1.0.0.r54, a message whose id an older one had (QXmpp's ids
+    // start over on every run) was dropped as already here. The server's
+    // archive still has them: the last week, once, brings them in.
+    const QString key = "archive/" + m_jid + "/recoveredRepeatedIds";
+    if (m_settings.value(key).toBool() || m_historySyncing || !m_history.isOpen())
+        return;
+    m_settings.setValue(key, true);
+    m_historySyncing = true;
+    m_historySyncCount = 0;
+    emit historySyncChanged();
+    trace("archive: bringing back messages dropped for a repeated id");
+    fetchHistoryPage(m_jid, QDateTime::currentDateTimeUtc().addDays(-7), QDateTime::currentDateTimeUtc(), {}, false);
+}
+
 bool Backend::historyReaches(int days) const {
     const QString from = m_settings.value("archive/" + m_jid + "/from").toString();
     if (from == "all")
@@ -1424,17 +1440,17 @@ void Backend::syncHistory(int days) {
     m_historySyncCount = 0;
     emit historySyncChanged();
     trace(QStringLiteral("archive: syncing back %1 days").arg(days));
-    fetchHistoryPage(m_jid, start, end, {});
+    fetchHistoryPage(m_jid, start, end, {}, true);
 }
 
 void Backend::fetchHistoryPage(const QString &account, const QDateTime &start, const QDateTime &end,
-                               const QString &after) {
+                               const QString &after, bool reach) {
     QXmppResultSetQuery page;
     page.setMax(ArchivePageSize);
     if (!after.isEmpty())
         page.setAfter(after);
     m_mam->retrieveMessages({}, {}, {}, start, end, page)
-        .then(this, [this, account, start, end, after](QXmppMamManager::RetrieveResult &&result) {
+        .then(this, [this, account, start, end, after, reach](QXmppMamManager::RetrieveResult &&result) {
             if (account != m_jid) {
                 m_historySyncing = false;
                 emit historySyncChanged();
@@ -1454,10 +1470,12 @@ void Backend::fetchHistoryPage(const QString &account, const QDateTime &start, c
 
             const QString last = retrieved.result.resultSetReply().last();
             if (!retrieved.result.complete() && !last.isEmpty() && last != after) {
-                fetchHistoryPage(account, start, end, last);
+                fetchHistoryPage(account, start, end, last, reach);
                 return;
             }
-            m_settings.setValue("archive/" + m_jid + "/from", start.isValid() ? start.toString(Qt::ISODate) : QStringLiteral("all"));
+            if (reach)
+                m_settings.setValue("archive/" + m_jid + "/from",
+                                    start.isValid() ? start.toString(Qt::ISODate) : QStringLiteral("all"));
             m_historySyncing = false;
             emit historySyncChanged();
             trace(QStringLiteral("archive: %1 older messages").arg(m_historySyncCount));
@@ -1599,6 +1617,10 @@ bool Backend::sendMessage(const QString &text, const QString &xhtml) {
 
     QXmppMessage message({}, m_currentChat, body);
     message.setType(QXmppMessage::Chat);
+    // An id of its own: QXmpp's (qx1, qx2…) start over on every run, and a
+    // repeated one is taken for a message already there.
+    message.setId(QXmppUtils::generateStanzaUuid());
+    message.setOriginId(message.id());
     // Asks the other side to say it got it (XEP-0184) and when it's read
     // (XEP-0333).
     message.setReceiptRequested(true);
@@ -2248,7 +2270,7 @@ void Backend::ingestRoomMessage(const QString &roomJid, const QXmppMessage &mess
     entry.stamp = message.stamp().isValid() ? message.stamp().toUTC() : QDateTime::currentDateTimeUtc();
     if (!message.replaceId().isEmpty() && applyCorrection(entry, message.replaceId()))
         return;
-    if (m_history.contains(roomJid, entry.xmppId, entry.archiveId))
+    if (m_history.contains(roomJid, entry.xmppId, entry.archiveId, entry.body))
         return;
     if (addEntry(entry, delivery) > 0)
         fetchSmileys(entry, message.from());
