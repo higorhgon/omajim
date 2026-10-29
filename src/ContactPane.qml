@@ -237,6 +237,7 @@ Rectangle {
             Layout.rightMargin: 12
             implicitHeight: 36
             leftPadding: 34
+            rightPadding: text !== "" ? 34 : 12
             placeholderText: qsTr("Search contacts")
             onTextChanged: backend.contacts.filter = text
             Keys.onDownPressed: {
@@ -263,6 +264,22 @@ Rectangle {
                 height: 16
                 name: "search"
                 color: pane.ui.muted
+            }
+            // The search cleared at a click, as in ZapFast.
+            IconButton {
+                visible: search.text !== ""
+                anchors.right: parent.right
+                anchors.rightMargin: 4
+                anchors.verticalCenter: parent.verticalCenter
+                implicitWidth: 28
+                implicitHeight: 28
+                focusPolicy: Qt.NoFocus
+                iconName: "close"
+                description: qsTr("Clear the search (Esc)")
+                onClicked: {
+                    search.text = ""
+                    search.forceActiveFocus()
+                }
             }
         }
 
