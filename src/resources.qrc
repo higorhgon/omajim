@@ -16,6 +16,7 @@
         <file alias="ContactPane.qml">ContactPane.qml</file>
         <file alias="IconButton.qml">IconButton.qml</file>
         <file alias="Main.qml">Main.qml</file>
+        <file alias="NewSmileyDialog.qml">NewSmileyDialog.qml</file>
         <file alias="PreferencesDialog.qml">PreferencesDialog.qml</file>
         <file alias="PresenceDot.qml">PresenceDot.qml</file>
         <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>

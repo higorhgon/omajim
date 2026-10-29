@@ -31,9 +31,9 @@ public:
 
     // Our shortcuts in a text, to their cid.
     QHash<QString, QString> findOwn(const QString &text) const;
-    bool isOwn(const QString &cid) const;
+    Q_INVOKABLE bool isOwn(const QString &cid) const;
     // The picture of a cid, if it's here.
-    QString pathOf(const QString &cid) const;
+    Q_INVOKABLE QString pathOf(const QString &cid) const;
     QByteArray dataOf(const QString &cid, QString *type) const;
     QSize sizeOf(const QString &cid) const;
     // Keeps a picture that arrived; false when its cid's hash doesn't match.

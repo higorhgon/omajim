@@ -438,6 +438,11 @@ Rectangle {
                 emojiPicker.openAt(item, emoji => backend.addReaction(messageId, emoji))
             }
 
+            // A smiley of a message, to keep as ours.
+            function addToSmileys(path, shortcut) {
+                newSmileyDialog.offer(path, shortcut)
+            }
+
             // The pointer, in this view's coordinates, moved while selecting
             // text or picking messages.
             function extendSelection(point) {
@@ -997,6 +1002,11 @@ Rectangle {
 
     EmojiPicker {
         id: emojiPicker
+        newSmiley: newSmileyDialog
+    }
+
+    NewSmileyDialog {
+        id: newSmileyDialog
     }
 
     // Where to forward the picked messages, as ZapFast asks: the recent

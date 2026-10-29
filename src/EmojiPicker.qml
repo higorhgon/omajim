@@ -17,6 +17,9 @@ Popup {
     property Item opener: null
     // Whether our own smileys are there: not for reactions, which are emoji.
     property bool withSmileys: false
+    // Where a new one of ours is made (NewSmileyDialog), set by whoever
+    // has the picker.
+    property var newSmiley: null
     // A press on the button that opened it closes it first; the click that
     // follows mustn't open it again.
     property double closedAt: 0
@@ -231,7 +234,7 @@ Popup {
                     onClicked: mouse => {
                         if (smileyCell.adds) {
                             picker.close()
-                            smileyDialog.open()
+                            picker.newSmiley.open()
                         } else if (mouse.button === Qt.RightButton) {
                             smileyMenu.shortcut = smileyCell.modelData.shortcut
                             smileyMenu.popup()
@@ -386,72 +389,6 @@ Popup {
         AppMenuItem {
             text: qsTr("Remove %1").arg(smileyMenu.shortcut)
             onTriggered: backend.smileys.remove(smileyMenu.shortcut)
-        }
-    }
-
-    // A new smiley: a picture and the text it stands for.
-    AppDialog {
-        id: smileyDialog
-        property string picture: ""
-
-        title: qsTr("New smiley")
-        subtitle: qsTr("Write its text in a message and Pidgin users see the picture; others see the text.")
-        acceptText: qsTr("Add")
-        acceptEnabled: picture !== "" && shortcutField.text.trim() !== ""
-        closeOnAccept: false
-        onAboutToShow: {
-            picture = ""
-            shortcutField.text = ""
-            smileyError.text = ""
-            shortcutField.forceActiveFocus()
-        }
-        onAccepted: {
-            smileyError.text = backend.smileys.add(shortcutField.text, picture)
-            if (smileyError.text === "")
-                close()
-        }
-
-        Connections {
-            target: backend
-            function onSmileyPicturePicked(path) { smileyDialog.picture = path }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-            Rectangle {
-                implicitWidth: 56
-                implicitHeight: 56
-                radius: theme.radius
-                color: picker.ui.background
-                border.color: picker.ui.border
-                Image {
-                    anchors.centerIn: parent
-                    width: 44
-                    height: 44
-                    source: smileyDialog.picture === "" ? "" : "file://" + smileyDialog.picture
-                    fillMode: Image.PreserveAspectFit
-                }
-            }
-            AppButton {
-                text: smileyDialog.picture === "" ? qsTr("Choose a picture…") : qsTr("Another picture…")
-                onClicked: backend.chooseSmileyPicture()
-            }
-        }
-        AppTextField {
-            id: shortcutField
-            Layout.fillWidth: true
-            Layout.topMargin: 12
-            placeholderText: qsTr("Its text, like :party:")
-            onAccepted: smileyDialog.accept()
-        }
-        Label {
-            id: smileyError
-            Layout.fillWidth: true
-            Layout.topMargin: 8
-            visible: text !== ""
-            color: picker.ui.error
-            wrapMode: Text.Wrap
         }
     }
 }

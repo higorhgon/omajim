@@ -29,6 +29,15 @@ Item {
     required property var reply
     required property var reactions
     required property var smileys
+    // The picture, when the message is one custom smiley and nothing else.
+    readonly property string sticker: {
+        backend.smileys.revision
+        const texts = Object.keys(smileys || {})
+        if (kind !== "text" || texts.length !== 1 || body.trim() !== texts[0])
+            return ""
+        const path = backend.smileys.pathOf(smileys[texts[0]])
+        return path === "" ? "" : "file://" + path
+    }
 
     readonly property var ui: theme.colors
 
@@ -135,6 +144,8 @@ Item {
         // times its height, and the list, placing it at the end, would keep
         // recreating it as it shrinks, without end.
         width: Math.min(line.width * 0.72, line.kind === "file" ? 420
+                        : line.sticker !== "" ? Math.max(stickerImage.Layout.preferredWidth, Math.ceil(stampRow.implicitWidth) + 2,
+                                                         reactionRow.implicitWidth) + 28
                         : measure.implicitWidth <= 0 ? line.width * 0.72
                         : Math.max(Math.ceil(measure.implicitWidth) + 2, Math.ceil(senderMeasure.implicitWidth) + 2,
                                    line.reply && line.reply.id ? 220 : 64, reactionRow.implicitWidth,
@@ -218,11 +229,28 @@ Item {
                 }
             }
 
+            // A message that's a custom smiley alone, large, as ZapFast shows
+            // a sticker.
+            Image {
+                id: stickerImage
+                visible: line.sticker !== ""
+                source: line.sticker
+                // Up to 160 a side, keeping its shape (from the picture's own
+                // size: an Image's implicit one follows what it's given).
+                readonly property real fit: sourceSize.width > 0
+                                            ? Math.min(160 / sourceSize.width, 160 / sourceSize.height) : 0
+                Layout.preferredWidth: Math.round(sourceSize.width * fit)
+                Layout.preferredHeight: Math.round(sourceSize.height * fit)
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+            }
+
             // Escaped and linkified in C++; a link opens in the browser.
             TextEdit {
                 id: bodyText
                 Layout.fillWidth: true
-                visible: line.kind === "text"
+                visible: line.kind === "text" && line.sticker === ""
                 text: {
                     // Again when a custom smiley's picture arrives.
                     backend.smileys.revision
@@ -754,13 +782,31 @@ Item {
         }
     }
 
-    // Right-click: answer, react, edit, copy.
+    // An item of the line's menu keeping a smiley it has as ours.
+    component KeepSmiley: AppMenuItem {
+        property int slot
+        readonly property var smiley: lineMenu.received[slot]
+        visible: smiley !== undefined
+        height: visible ? implicitHeight : 0
+        text: smiley ? qsTr("Add %1 to your smileys").arg(smiley.text) : ""
+        onTriggered: line.ListView.view.addToSmileys(smiley.path, smiley.text)
+    }
+
+    // Right-click: answer, react, edit, copy, keep a smiley.
     AppMenu {
         id: lineMenu
         readonly property var quick: ["👍", "❤️", "😂", "😮", "😢", "🙏"]
         // Ours, text, and recent enough; asked as it opens, since it expires.
         property bool editable: false
-        onAboutToShow: editable = backend.canEdit(line.messageId)
+        // Custom smileys in it, with their picture here, not ours yet.
+        property var received: []
+        onAboutToShow: {
+            editable = backend.canEdit(line.messageId)
+            const smileys = line.smileys || {}
+            received = Object.keys(smileys)
+                .map(text => ({text: text, path: backend.smileys.pathOf(smileys[text]), own: backend.smileys.isOwn(smileys[text])}))
+                .filter(smiley => smiley.path !== "" && !smiley.own)
+        }
 
         Item {
             implicitWidth: emojiRow.implicitWidth + 12
@@ -816,5 +862,14 @@ Item {
             enabled: line.kind === "text"
             onTriggered: backend.copyText(line.body)
         }
+        AppMenuSeparator {
+            visible: lineMenu.received.length > 0
+            height: visible ? implicitHeight : 0
+        }
+        // One per smiley (up to three), fixed items shown as needed: items a
+        // Menu gets afterwards draw but don't take the pointer.
+        KeepSmiley { slot: 0 }
+        KeepSmiley { slot: 1 }
+        KeepSmiley { slot: 2 }
     }
 }
