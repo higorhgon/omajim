@@ -314,6 +314,7 @@
   "There's no session D-Bus, so the file chooser can't open.": "Não há D-Bus de sessão, então o seletor de arquivos não pode abrir.",
   "They declined": "A pessoa recusou",
   "They'll be asked to share their status with you.": "A pessoa vai receber um pedido para compartilhar o status com você.",
+  "This animated smiley is over %1 KB, too big to send; pick a smaller one.": "Esta figurinha animada passa de %1 KB, grande demais para enviar; escolha uma menor.",
   "This message can't be answered: it has no id to point at.": "Não dá para responder a esta mensagem: ela não tem um id para apontar.",
   "Through the server": "Pelo servidor",
   "To the tray": "Para a bandeja",

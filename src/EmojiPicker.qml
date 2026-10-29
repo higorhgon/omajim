@@ -14,6 +14,9 @@ Popup {
     // What to do with the emoji picked, and what it was opened from; set by
     // whoever opens it.
     property var onPick: null
+    // What to do with one of our smileys picked: for the message, it goes
+    // out at once, a sticker of its own.
+    property var onSmiley: null
     property Item opener: null
     // Whether our own smileys are there: not for reactions, which are emoji.
     property bool withSmileys: false
@@ -45,13 +48,15 @@ Popup {
     ]
 
     // Opens over (or under, if there's no room) an item, calling pick with
-    // the emoji chosen, or the text of one of our smileys.
-    function openAt(item, pick, smileys) {
+    // the emoji chosen; with sendSmiley, our smileys show too, and picking
+    // one calls it with its text.
+    function openAt(item, pick, sendSmiley) {
         if (opener === item && Date.now() - closedAt < 300)
             return
         onPick = pick
+        onSmiley = sendSmiley || null
         opener = item
-        withSmileys = smileys === true
+        withSmileys = !!sendSmiley
         const point = item.mapToItem(parent, 0, 0)
         x = Math.min(point.x, parent.width - width - 8)
         y = point.y - height - 6 >= 8 ? point.y - height - 6 : point.y + item.height + 6
@@ -68,11 +73,11 @@ Popup {
     }
 
     function chooseSmiley(shortcut) {
-        const pick = onPick
+        const send = onSmiley
         close()
         opener = null
-        if (pick)
-            pick(shortcut)
+        if (send)
+            send(shortcut)
     }
 
     function nameOf(item) {
@@ -197,7 +202,8 @@ Popup {
                     name: "plus"
                     color: picker.ui.muted
                 }
-                Image {
+                // A GIF or WebP plays here too.
+                AnimatedImage {
                     visible: !smileyCell.adds
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: 6

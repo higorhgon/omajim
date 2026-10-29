@@ -10,7 +10,8 @@ pkgdesc='Cliente XMPP para o Omarchy, com transferência de arquivos SI (Pidgin)
 arch=('x86_64' 'aarch64')
 url='https://github.com/higorhgon/omajim'
 license=('MIT')
-depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qxmpp' 'libsecret' 'xdg-desktop-portal' 'wayland')
+# qt6-imageformats reads WebP, smileys included.
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qt6-imageformats' 'qxmpp' 'libsecret' 'xdg-desktop-portal' 'wayland')
 makedepends=('gcc' 'make' 'git' 'wayland-protocols')
 provides=('omajim' 'omajim-qt')
 # O pacote desta reescrita enquanto ela estava na branch qt.

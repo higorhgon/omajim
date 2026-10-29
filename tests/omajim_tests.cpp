@@ -38,6 +38,8 @@
 #include <QTcpSocket>
 #include <QCryptographicHash>
 #include <QImage>
+#include <QImageReader>
+#include <QRandomGenerator>
 
 #include "accounts.h"
 #include "avatarstore.h"
@@ -1130,9 +1132,10 @@ private slots:
         SmileyStore store(dir.filePath("smileys"));
         auto picture = [&](const QString &name, int side, bool noisy) {
             QImage image(side, side, QImage::Format_ARGB32);
+            QRandomGenerator noise(7);
             for (int y = 0; y < side; ++y)
                 for (int x = 0; x < side; ++x)
-                    image.setPixel(x, y, noisy ? qRgba(x * 7 % 256, y * 13 % 256, (x * y) % 256, 255) : qRgba(255, 0, 0, 255));
+                    image.setPixel(x, y, noisy ? (noise.generate() | 0xff000000) : qRgba(255, 0, 0, 255));
             const QString path = dir.filePath(name);
             image.save(path, "PNG");
             return path;
@@ -1141,8 +1144,38 @@ private slots:
         QVERIFY(!store.add(":gato:", picture("other.png", 24, false)).isEmpty());
         QVERIFY(!store.add("dois gatos", picture("other.png", 24, false)).isEmpty());
         QVERIFY(!store.add(":x:", dir.filePath("missing.png")).isEmpty());
-        // Too big to fetch in one stanza: shrunk.
-        QVERIFY(store.add(":big:", picture("big.png", 400, true)).isEmpty());
+        // Too big to fetch in one stanza (Prosody takes 256 KB): a still
+        // picture is shrunk to a sticker's size...
+        QVERIFY(QFileInfo(picture("big.png", 400, true)).size() > 150 * 1024);
+        QVERIFY(store.add(":big:", dir.filePath("big.png")).isEmpty());
+        QCOMPARE(store.own().size(), 2);
+        // ...an animation, which would stop, is turned down; a smaller one
+        // goes as it is, still moving.
+        auto animated = [&](const QString &name, int padding) {
+            // Two frames of one pixel, padded with a comment to the size wanted.
+            QByteArray data = QByteArray("GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff", 19);
+            data += QByteArray("\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00", 19);
+            const QByteArray frame("\x21\xf9\x04\x00\x0a\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00", 23);
+            data += frame + frame;
+            data += QByteArray("\x21\xfe", 2);
+            for (int left = padding; left > 0; left -= 255)
+                data += char(std::min(left, 255)) + QByteArray(std::min(left, 255), 'x');
+            data += QByteArray("\x00\x3b", 2);
+            QFile file(dir.filePath(name));
+            file.open(QIODevice::WriteOnly);
+            file.write(data);
+            return file.fileName();
+        };
+        const QString heavy = animated("heavy.gif", 160 * 1024);
+        QImageReader moving(heavy);
+        QVERIFY(moving.supportsAnimation() && moving.imageCount() == 2);
+        QVERIFY(store.add(":pesado:", heavy).contains("150"));
+        const QString light = animated("light.gif", 1000);
+        QVERIFY(store.add(":leve:", light).isEmpty());
+        QFile lightFile(light);
+        lightFile.open(QIODevice::ReadOnly);
+        QCOMPARE(store.dataOf(store.findOwn(":leve:").value(":leve:"), nullptr), lightFile.readAll());
+        store.remove(":leve:");
         QCOMPARE(store.own().size(), 2);
 
         const QHash<QString, QString> found = store.findOwn("olha :gato: e :big:");
@@ -1152,7 +1185,7 @@ private slots:
         QString type;
         const QByteArray big = store.dataOf(found.value(":big:"), &type);
         QCOMPARE(type, QString("image/png"));
-        QCOMPARE(QImage::fromData(big).size(), QSize(64, 64));
+        QCOMPARE(QImage::fromData(big).size(), QSize(160, 160));
         QVERIFY(store.isOwn(found.value(":big:")));
 
         // In an address it's part of it, not a smiley.

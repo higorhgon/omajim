@@ -25,11 +25,12 @@
 #include <QDomElement>
 #include <algorithm>
 
-// A picture goes as it is up to this, so an animated GIF stays one; a larger
-// one is shrunk, since the other side fetches it in a single stanza and
-// servers cap those (ejabberd at 64 KB).
-static const qint64 KeptAsIs = 32 * 1024;
-static const int ShrunkSide = 64;
+// A picture goes as it is up to this, so an animated GIF or WebP stays one.
+// The other side fetches it in a single stanza, base64 and all, and servers
+// cap those: Prosody, ours, at 256 KB from a client (c2s_stanza_size_limit).
+static const qint64 KeptAsIs = 150 * 1024;
+// A still picture over that is shrunk to the size a sticker shows at.
+static const int ShrunkSide = 160;
 
 SmileyStore::SmileyStore(const QString &directory, QObject *parent) : QObject(parent), m_directory(directory) {
     QFile file(QDir(directory).filePath("own.json"));
@@ -78,6 +79,10 @@ QString SmileyStore::add(const QString &shortcut, const QString &path) {
     if (image.isNull())
         return tr("%1 isn't a picture.").arg(QFileInfo(path).fileName());
     if (data.size() > KeptAsIs) {
+        // Qt reads every frame of an animation but writes only one: shrunk,
+        // it would stop moving, so it's turned down instead.
+        if (reader.supportsAnimation() && reader.imageCount() > 1)
+            return tr("This animated smiley is over %1 KB, too big to send; pick a smaller one.").arg(KeptAsIs / 1024);
         QByteArray shrunk;
         QBuffer out(&shrunk);
         out.open(QIODevice::WriteOnly);

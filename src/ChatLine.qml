@@ -230,8 +230,8 @@ Item {
             }
 
             // A message that's a custom smiley alone, large, as ZapFast shows
-            // a sticker.
-            Image {
+            // a sticker; a GIF or WebP plays.
+            AnimatedImage {
                 id: stickerImage
                 visible: line.sticker !== ""
                 source: line.sticker

@@ -150,7 +150,18 @@ Rectangle {
 
     // An emoji into the message, where the cursor is.
     function pickEmojiForMessage() {
-        emojiPicker.openAt(emojiButton, emoji => pane.insertInComposer(emoji), true)
+        emojiPicker.openAt(emojiButton, emoji => pane.insertInComposer(emoji), pane.sendSmiley)
+    }
+
+    // One of our smileys goes out at once, a message of its own, as a
+    // sticker; while correcting a message it goes in the field instead.
+    function sendSmiley(shortcut) {
+        if (backend.editing) {
+            insertInComposer(shortcut)
+        } else if (backend.sendMessage(shortcut)) {
+            messages.toEnd()
+            composer.forceActiveFocus()
+        }
     }
 
     // Ctrl+C copies what's selected in the conversation. While the message

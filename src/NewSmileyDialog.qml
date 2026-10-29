@@ -48,7 +48,7 @@ AppDialog {
             radius: theme.radius
             color: smileyDialog.ui.background
             border.color: smileyDialog.ui.border
-            Image {
+            AnimatedImage {
                 anchors.centerIn: parent
                 width: 44
                 height: 44
