@@ -106,7 +106,7 @@ janela: seus contatos à esquerda e a conversa à direita.
   iniciar uma segunda cópia.
 
 Esta é a reescrita do Omajim. O cliente anterior, em Python e GTK e baseado
-no Gajim, continua na branch `main`.
+no Gajim, continua na branch `python`.
 
 ## Atalhos
 
@@ -158,12 +158,13 @@ uma notificação avisa quando um arquivo direto termina de chegar.
 
 ## Instalação
 
-O pacote `omajim-qt` sai do [arch-repo](https://github.com/higorhgon/arch-repo),
-a cada commit nesta branch. Ele substitui o `omajim-git` (o Omajim em Python):
-os dois instalam o comando `omajim`, então fica um ou outro.
+O pacote `omajim-git` sai do [arch-repo](https://github.com/higorhgon/arch-repo),
+a cada commit na `main`. Ele substitui o Omajim em Python, que tinha o mesmo
+nome, e o antigo `omajim-qt`: quem tem um deles instalado recebe este no
+`pacman -Syu`.
 
 ```sh
-sudo pacman -S omajim-qt
+sudo pacman -S omajim-git
 ```
 
 ## Desenvolvimento

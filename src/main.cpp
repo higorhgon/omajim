@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
     qputenv("QT_QPA_PLATFORMTHEME", "generic");
     QGuiApplication app(argc, argv);
     app.setApplicationName("omajim");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion("1.0.0");
 
     // Matches the window to omajim.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.

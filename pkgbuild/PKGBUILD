@@ -1,7 +1,10 @@
 # Maintainer: Higor Henrique Prata Gonçalves <higorlhp2@gmail.com>
 
-pkgname=omajim-qt
-pkgver=0.1.0
+pkgname=omajim-git
+# O Omajim em Python tinha este nome, na versão 2.6 do Gajim: a epoch faz
+# a 1.0 desta reescrita valer mais que ela.
+epoch=1
+pkgver=1.0.0
 pkgrel=1
 pkgdesc='Cliente XMPP para o Omarchy, com transferência de arquivos SI (Pidgin)'
 arch=('x86_64' 'aarch64')
@@ -9,16 +12,17 @@ url='https://github.com/higorhgon/omajim'
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'qxmpp' 'libsecret' 'xdg-desktop-portal' 'wayland')
 makedepends=('gcc' 'make' 'git' 'wayland-protocols')
-provides=('omajim')
-# O Omajim em Python instala o mesmo comando e o mesmo ícone: um ou outro.
-conflicts=('omajim-git')
+provides=('omajim' 'omajim-qt')
+# O pacote desta reescrita enquanto ela estava na branch qt.
+conflicts=('omajim-qt')
+replaces=('omajim-qt')
 source=()
 sha256sums=()
 
 # Uma versão por commit, para o arch-repo recompilar a cada mudança.
 pkgver() {
   cd "$startdir/.."
-  printf "0.1.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  printf "1.0.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
