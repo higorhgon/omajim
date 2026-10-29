@@ -12,7 +12,7 @@
 // Every column a HistoryEntry carries, in the order read() takes them.
 static const QString Columns = QStringLiteral(
     "id, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id, archive_id, delivered, sender, url,"
-    " edited, correction_id, reply_id, smileys, forwarded, xhtml");
+    " edited, correction_id, reply_id, smileys, forwarded, xhtml, send_state, peer");
 
 static QString smileysColumn(const QHash<QString, QString> &smileys) {
     if (smileys.isEmpty())
@@ -47,6 +47,9 @@ static HistoryEntry read(const QSqlQuery &query, const QString &peer) {
         entry.smileys.insert(it.key(), it.value().toString());
     entry.forwarded = query.value(17).toInt() != 0;
     entry.xhtml = query.value(18).toString();
+    // From before the states, delivered meant received; the rest went out.
+    entry.sendState = query.value(19).isNull() ? (entry.delivered ? HistoryEntry::Delivered : HistoryEntry::Sent)
+                                               : query.value(19).toInt();
     return entry;
 }
 
@@ -92,7 +95,8 @@ bool History::open(const QString &path) {
                                " reply_id TEXT,"
                                " smileys TEXT,"
                                " forwarded INTEGER NOT NULL DEFAULT 0,"
-                               " xhtml TEXT)") &&
+                               " xhtml TEXT,"
+                               " send_state INTEGER)") &&
                     query.exec("CREATE INDEX IF NOT EXISTS messages_peer ON messages (peer, stamp)") &&
                     query.exec("CREATE TABLE IF NOT EXISTS roster ("
                                " jid TEXT PRIMARY KEY,"
@@ -125,7 +129,8 @@ bool History::open(const QString &path) {
                                                    {"reply_id", "TEXT"},
                                                    {"smileys", "TEXT"},
                                                    {"forwarded", "INTEGER NOT NULL DEFAULT 0"},
-                                                   {"xhtml", "TEXT"}};
+                                                   {"xhtml", "TEXT"},
+                                                   {"send_state", "INTEGER"}};
     for (const auto &[name, type] : added) {
         if (!columns.contains(name) && !query.exec(QStringLiteral("ALTER TABLE messages ADD COLUMN %1 %2").arg(name, type))) {
             m_error = query.lastError().text();
@@ -149,8 +154,8 @@ qint64 History::add(HistoryEntry &entry) {
 
     QSqlQuery query(QSqlDatabase::database(m_connection));
     query.prepare("INSERT INTO messages (peer, outgoing, kind, body, stamp, file_path, file_size, state, xmpp_id,"
-                  " archive_id, delivered, sender, url, reply_id, smileys, forwarded, xhtml)"
-                  " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                  " archive_id, delivered, sender, url, reply_id, smileys, forwarded, xhtml, send_state)"
+                  " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     query.addBindValue(entry.peer);
     query.addBindValue(entry.outgoing ? 1 : 0);
     query.addBindValue(entry.kind);
@@ -168,6 +173,7 @@ qint64 History::add(HistoryEntry &entry) {
     query.addBindValue(smileysColumn(entry.smileys));
     query.addBindValue(entry.forwarded ? 1 : 0);
     query.addBindValue(entry.xhtml);
+    query.addBindValue(entry.outgoing ? entry.sendState : int(HistoryEntry::Sent));
     if (!query.exec()) {
         m_error = query.lastError().text();
         return 0;
@@ -222,10 +228,54 @@ bool History::markDelivered(const QString &peer, const QString &xmppId) {
     if (!isOpen() || xmppId.isEmpty())
         return false;
     QSqlQuery query(QSqlDatabase::database(m_connection));
-    query.prepare("UPDATE messages SET delivered = 1 WHERE peer = ? AND xmpp_id = ? AND outgoing = 1");
+    query.prepare("UPDATE messages SET delivered = 1, send_state = MAX(COALESCE(send_state, 1), 2)"
+                  " WHERE peer = ? AND xmpp_id = ? AND outgoing = 1");
     query.addBindValue(peer);
     query.addBindValue(xmppId);
     return query.exec() && query.numRowsAffected() > 0;
+}
+
+void History::setSendState(qint64 id, int state) {
+    if (!isOpen())
+        return;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("UPDATE messages SET send_state = ? WHERE id = ?");
+    query.addBindValue(state);
+    query.addBindValue(id);
+    query.exec();
+}
+
+QDateTime History::markReadUpTo(const QString &peer, const QString &xmppId) {
+    if (!isOpen() || xmppId.isEmpty())
+        return {};
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    query.prepare("SELECT stamp FROM messages WHERE peer = ? AND outgoing = 1 AND (xmpp_id = ? OR correction_id = ?)"
+                  " ORDER BY stamp DESC LIMIT 1");
+    query.addBindValue(peer);
+    query.addBindValue(xmppId);
+    query.addBindValue(xmppId);
+    if (!query.exec() || !query.next())
+        return {};
+    const qint64 stamp = query.value(0).toLongLong();
+    query.prepare("UPDATE messages SET send_state = 3, delivered = 1 WHERE peer = ? AND outgoing = 1 AND stamp <= ?"
+                  " AND COALESCE(send_state, 1) >= 1");
+    query.addBindValue(peer);
+    query.addBindValue(stamp);
+    query.exec();
+    return QDateTime::fromMSecsSinceEpoch(stamp, QTimeZone::UTC);
+}
+
+QList<HistoryEntry> History::pending() const {
+    QList<HistoryEntry> entries;
+    if (!isOpen())
+        return entries;
+    QSqlQuery query(QSqlDatabase::database(m_connection));
+    if (!query.exec(QStringLiteral("SELECT %1 FROM messages WHERE outgoing = 1 AND send_state = 0 ORDER BY stamp, id")
+                        .arg(Columns)))
+        return entries;
+    while (query.next())
+        entries << read(query, query.value(20).toString());
+    return entries;
 }
 
 void History::setLink(qint64 id, const QString &url, const QString &xmppId) {
@@ -571,5 +621,5 @@ HistoryEntry History::byId(qint64 id) const {
     if (!query.exec() || !query.next())
         return {};
     // The peer comes after the usual columns.
-    return read(query, query.value(19).toString());
+    return read(query, query.value(20).toString());
 }

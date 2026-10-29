@@ -59,6 +59,8 @@ class Backend : public QObject {
     Q_PROPERTY(bool notifications READ notifications WRITE setNotifications NOTIFY notificationsChanged)
     Q_PROPERTY(bool textSmileys READ textSmileys WRITE setTextSmileys NOTIFY textSmileysChanged)
     Q_PROPERTY(QString closeAction READ closeAction WRITE setCloseAction NOTIFY closeActionChanged)
+    // Telling contacts when we've read their messages (XEP-0333).
+    Q_PROPERTY(bool sendReadMarkers READ sendReadMarkers WRITE setSendReadMarkers NOTIFY sendReadMarkersChanged)
     Q_PROPERTY(bool historySyncing READ historySyncing NOTIFY historySyncChanged)
     Q_PROPERTY(int historySyncCount READ historySyncCount NOTIFY historySyncChanged)
     Q_PROPERTY(QString connectionState READ connectionState NOTIFY connectionStateChanged)
@@ -126,6 +128,8 @@ public:
     void setTextSmileys(bool on);
     QString closeAction() const;
     void setCloseAction(const QString &action);
+    bool sendReadMarkers() const;
+    void setSendReadMarkers(bool on);
     bool historySyncing() const { return m_historySyncing; }
     int historySyncCount() const { return m_historySyncCount; }
     // Where Gajim (and the Python Omajim) keep settings and history, to
@@ -310,6 +314,7 @@ signals:
     void notificationsChanged();
     void textSmileysChanged();
     void closeActionChanged();
+    void sendReadMarkersChanged();
     void historySyncChanged();
     void smileyPicturePicked(const QString &path);
 
@@ -407,6 +412,10 @@ private:
     void applyReaction(const QString &peer, const QString &sender, const QXmppMessageReaction &reaction);
     void quoteReply(QXmppMessage &message, HistoryEntry &entry);
     void attachSmileys(QXmppMessage &message, HistoryEntry &entry, const QString &xhtml = {}) const;
+    void sendTracked(QXmppMessage &&message, qint64 id);
+    void setSendState(qint64 id, int state);
+    void sendPending();
+    void markRead(const QString &peer);
     QHash<QString, QString> receivedSmileys(const QXmppMessage &message, const QString &body);
     void fetchSmileys(const HistoryEntry &entry, const QString &from);
     bool trustsCertificateOf(const QList<QSslError> &errors) const;
@@ -432,6 +441,10 @@ private:
     std::unique_ptr<AvatarStore> m_avatars;
     QSet<QString> m_fetchingAvatars;
     SmileyStore *m_smileys = nullptr;
+    // Ours on the way to the server, by history id.
+    QSet<qint64> m_sending;
+    // The newest message of theirs that asks to be told when read, by peer.
+    QHash<QString, QString> m_markable;
     QSet<QString> m_fetchingSmileys;
     QXmppMucManagerV2 *m_muc = nullptr;
     QXmppPepBookmarkManager *m_bookmarks = nullptr;

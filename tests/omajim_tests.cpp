@@ -2102,16 +2102,60 @@ private slots:
             QSKIP("Port 28011 is in use on this machine");
     }
 
-    void backendWontSendWhileOffline() {
+    void offlineMessagesWaitAndShowHowFarTheyGot() {
         QTemporaryDir dir;
         FakeSecretStore secrets;
         Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
         backend.setStatus("offline");
         backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
         backend.openChat("bob@example.org");
-        QVERIFY(!backend.sendMessage("hi"));
-        QVERIFY(!backend.errorText().isEmpty());
-        QCOMPARE(backend.messages()->rowCount(), 0);
+        // Offline, it waits to go out (a clock), kept for the next connection.
+        QVERIFY(backend.sendMessage("first"));
+        QVERIFY(backend.sendMessage("second"));
+        QVERIFY(backend.errorText().isEmpty());
+        auto *messages = backend.messages();
+        QCOMPARE(messages->rowCount(), 2);
+        QCOMPARE(messages->data(messages->index(0), MessageModel::SendStateRole).toInt(), int(HistoryEntry::Pending));
+        const QString firstId = messages->entry(messages->data(messages->index(0), MessageModel::IdRole).toLongLong()).xmppId;
+        const QString secondId = messages->entry(messages->data(messages->index(1), MessageModel::IdRole).toLongLong()).xmppId;
+
+        // Sent (as if the server took them), then their receipt, then read:
+        // a read marker covers every one before it.
+        History history;
+        QVERIFY(history.open(dir.filePath("data/accounts/alice@example.org/history.sqlite")));
+        QCOMPARE(history.pending().size(), 2);
+        for (const HistoryEntry &entry : history.pending())
+            history.setSendState(entry.id, HistoryEntry::Sent);
+        QVERIFY(history.pending().isEmpty());
+        backend.openChat("carol@example.org");
+        backend.openChat("bob@example.org");
+        QCOMPARE(messages->data(messages->index(1), MessageModel::SendStateRole).toInt(), int(HistoryEntry::Sent));
+
+        QXmppMessage received("bob@example.org/pc", "alice@example.org");
+        received.setType(QXmppMessage::Chat);
+        received.setMarker(QXmppMessage::Received);
+        received.setMarkerId(firstId);
+        emit backend.client()->messageReceived(received);
+        QCOMPARE(messages->data(messages->index(0), MessageModel::SendStateRole).toInt(), int(HistoryEntry::Delivered));
+        QCOMPARE(messages->data(messages->index(1), MessageModel::SendStateRole).toInt(), int(HistoryEntry::Sent));
+
+        QXmppMessage read("bob@example.org/pc", "alice@example.org");
+        read.setType(QXmppMessage::Chat);
+        read.setMarker(QXmppMessage::Displayed);
+        read.setMarkerId(secondId);
+        emit backend.client()->messageReceived(read);
+        QCOMPARE(messages->data(messages->index(0), MessageModel::SendStateRole).toInt(), int(HistoryEntry::Read));
+        QCOMPARE(messages->data(messages->index(1), MessageModel::SendStateRole).toInt(), int(HistoryEntry::Read));
+        // Markers make no lines, and the history keeps the states.
+        QCOMPARE(messages->rowCount(), 2);
+        backend.openChat("carol@example.org");
+        backend.openChat("bob@example.org");
+        QCOMPARE(messages->data(messages->index(1), MessageModel::SendStateRole).toInt(), int(HistoryEntry::Read));
+
+        // Telling them when we read theirs can be turned off.
+        QVERIFY(backend.sendReadMarkers());
+        backend.setSendReadMarkers(false);
+        QVERIFY(!backend.sendReadMarkers());
     }
 
     void trayIconShowsNewMessagesFirst() {

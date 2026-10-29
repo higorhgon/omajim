@@ -36,6 +36,7 @@ public:
         SmileysRole,
         ForwardedRole,
         XhtmlRole,
+        SendStateRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);
@@ -49,6 +50,9 @@ public:
     void updateFile(qint64 id, const QString &state, const QString &filePath);
     void setProgress(qint64 id, double progress);
     void markDelivered(const QString &xmppId);
+    void setSendState(qint64 id, int state);
+    // Ours up to that moment, read on the other side.
+    void markReadUpTo(const QDateTime &stamp);
     void setLink(qint64 id, const QString &url, const QString &xmppId);
     void applyCorrection(qint64 id, const QString &body, const QString &xhtml = {});
     // A picture to show for a file line, as a local path; not kept in the

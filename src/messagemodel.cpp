@@ -30,6 +30,7 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case EditedRole: return entry.edited;
     case ForwardedRole: return entry.forwarded;
     case XhtmlRole: return entry.xhtml;
+    case SendStateRole: return entry.sendState;
     case SelectedRole: return m_selected.contains(entry.id);
     case ReplyRole: return m_replies.value(entry.id);
     case ReactionsRole: return m_reactions.value(entry.id);
@@ -52,7 +53,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
             {UrlRole, "url"}, {EditedRole, "edited"},
             {PreviewRole, "preview"}, {RouteRole, "route"}, {SelectedRole, "selected"},
-            {ReplyRole, "reply"}, {ReactionsRole, "reactions"}, {SmileysRole, "smileys"}, {ForwardedRole, "forwarded"}, {XhtmlRole, "xhtml"}};
+            {ReplyRole, "reply"}, {ReactionsRole, "reactions"}, {SmileysRole, "smileys"}, {ForwardedRole, "forwarded"}, {XhtmlRole, "xhtml"}, {SendStateRole, "sendState"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
@@ -96,8 +97,29 @@ void MessageModel::markDelivered(const QString &xmppId) {
     for (int row = m_entries.size() - 1; row >= 0; --row) {
         if (m_entries.at(row).outgoing && m_entries.at(row).xmppId == xmppId) {
             m_entries[row].delivered = true;
-            emit dataChanged(index(row), index(row), {DeliveredRole});
+            m_entries[row].sendState = std::max(m_entries.at(row).sendState, int(HistoryEntry::Delivered));
+            emit dataChanged(index(row), index(row), {DeliveredRole, SendStateRole});
             return;
+        }
+    }
+}
+
+void MessageModel::setSendState(qint64 id, int state) {
+    const int row = rowOf(id);
+    if (row < 0 || m_entries.at(row).sendState == state)
+        return;
+    m_entries[row].sendState = state;
+    emit dataChanged(index(row), index(row), {SendStateRole});
+}
+
+void MessageModel::markReadUpTo(const QDateTime &stamp) {
+    for (int row = 0; row < m_entries.size(); ++row) {
+        HistoryEntry &entry = m_entries[row];
+        if (entry.outgoing && entry.stamp <= stamp && entry.sendState >= HistoryEntry::Sent &&
+            entry.sendState < HistoryEntry::Read) {
+            entry.sendState = HistoryEntry::Read;
+            entry.delivered = true;
+            emit dataChanged(index(row), index(row), {DeliveredRole, SendStateRole});
         }
     }
 }

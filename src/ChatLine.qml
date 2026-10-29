@@ -18,6 +18,8 @@ Item {
     required property string transferState
     required property double progress
     required property bool delivered
+    // 0 waiting, 1 sent, 2 delivered, 3 read (HistoryEntry::SendState).
+    required property int sendState
     required property string sender
     required property string url
     required property bool edited
@@ -537,16 +539,22 @@ Item {
                     font.pixelSize: 11
                     font.italic: true
                 }
-                // The other side's client confirmed it arrived (XEP-0184).
+                // How far ours got, as ZapFast shows it: a clock while it
+                // waits to go out, one check once the server has it, two
+                // once the other side does, two in the accent once read.
                 AppIcon {
                     id: deliveredMark
-                    visible: line.outgoing && line.delivered
-                    implicitWidth: 13
-                    implicitHeight: 13
-                    name: "check"
-                    color: line.ui.accent
+                    visible: line.outgoing
+                    implicitWidth: 15
+                    implicitHeight: 15
+                    name: line.sendState === 0 ? "delivery-pending" : line.sendState === 1 ? "delivery-tick" : "delivery-ticks"
+                    // Read in ZapFast's blue, for dark themes or light ones.
+                    color: line.sendState === 3 ? (line.ui.background.hslLightness < 0.5 ? "#53bdeb" : "#027eb5")
+                                                : line.ui.muted
                     ToolTip.visible: line.pointerOver(deliveredMark)
-                    ToolTip.text: qsTr("Delivered")
+                    ToolTip.text: line.sendState === 0 ? qsTr("Waiting to be sent")
+                                : line.sendState === 1 ? qsTr("Sent to the server")
+                                : line.sendState === 2 ? qsTr("Received") : qsTr("Read")
                 }
             }
         }

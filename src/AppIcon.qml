@@ -21,6 +21,11 @@ Item {
         "users": "M9 4.5A3.5 3.5 0 1 0 9 11.5A3.5 3.5 0 1 0 9 4.5 M2.5 20C2.5 16.5 5.2 14.5 9 14.5C12.8 14.5 15.5 16.5 15.5 20 M15.5 4.8A3.3 3.3 0 0 1 15.5 11.2 M18 14.8C20.2 15.5 21.5 17.3 21.5 20",
         "more": "M12 5.2A0.8 0.8 0 1 0 12 6.8A0.8 0.8 0 1 0 12 5.2 M12 11.2A0.8 0.8 0 1 0 12 12.8A0.8 0.8 0 1 0 12 11.2 M12 17.2A0.8 0.8 0 1 0 12 18.8A0.8 0.8 0 1 0 12 17.2",
         "check": "M5 12.5L10 17.5L19 7",
+        // A message's state, as ZapFast draws it (assets/icons/delivery-tick
+        // and delivery-ticks, MIT; the clock is Lucide's, as there).
+        "delivery-pending": "M12 2A10 10 0 1 0 12 22A10 10 0 1 0 12 2 M12 6V12L16 14",
+        "delivery-tick": "M4.75 13L9.25 17.5L19.25 6.5",
+        "delivery-ticks": "M1.5 13L6 17.5L16 6.5 M11.2 16.2L12.5 17.5L22.5 6.5",
         "chevron-down": "M6 9L12 15L18 9",
         "chevron-right": "M9 6L15 12L9 18",
         "chevron-up": "M6 15L12 9L18 15",

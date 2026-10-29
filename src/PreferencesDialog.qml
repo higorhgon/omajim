@@ -17,6 +17,7 @@ AppDialog {
         xaRow.field.text = backend.xaMinutes
         notificationsBox.checked = backend.notifications
         textSmileysBox.checked = backend.textSmileys
+        readMarkersBox.checked = backend.sendReadMarkers
         closeChoice.value = backend.closeAction
         syncChoice.value = [30, 90, 365, -1].find(days => !backend.historyReaches(days)) ?? -1
     }
@@ -25,6 +26,7 @@ AppDialog {
         backend.xaMinutes = parseInt(xaRow.field.text)
         backend.notifications = notificationsBox.checked
         backend.textSmileys = textSmileysBox.checked
+        backend.sendReadMarkers = readMarkersBox.checked
         backend.closeAction = closeChoice.value
     }
 
@@ -139,6 +141,12 @@ AppDialog {
     }
 
     Section { text: qsTr("Messages").toUpperCase() }
+    AppCheckBox {
+        id: readMarkersBox
+        Layout.leftMargin: -6
+        Layout.fillWidth: true
+        text: qsTr("Let contacts know when I've read their messages")
+    }
     AppCheckBox {
         id: textSmileysBox
         Layout.leftMargin: -6

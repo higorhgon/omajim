@@ -321,6 +321,7 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
             syncArchive(m_settings.value("archive/" + m_jid + "/last").toString().isEmpty());
             discoverProxy();
             refreshOwnVCard();
+            sendPending();
             // The bookmarks bring their rooms back too, but a server without
             // bookmarks still has the rooms joined in this session.
             for (auto it = m_rooms.cbegin(); it != m_rooms.cend(); ++it)
@@ -611,8 +612,10 @@ void Backend::setWindowActive(bool active) {
     if (active == m_windowActive)
         return;
     m_windowActive = active;
-    if (active && !m_currentChat.isEmpty())
+    if (active && !m_currentChat.isEmpty()) {
         m_contacts.clearUnread(m_currentChat);
+        markRead(m_currentChat);
+    }
     emit windowActiveChanged();
 }
 
@@ -713,6 +716,8 @@ void Backend::leaveAccount() {
     m_invitations.clear();
     m_typing.clear();
     m_chatStatePeers.clear();
+    m_markable.clear();
+    m_sending.clear();
     m_fetchingAvatars.clear();
     m_proxy.clear();
     m_syncing = false;
@@ -1281,6 +1286,19 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
         applyReaction(peer, from, *reaction);
         return true;
     }
+    // The other side got (XEP-0333's "received") or read one of ours, and
+    // with it every one before. Ours from another device say nothing of them.
+    if (message.marker() != QXmppMessage::NoMarker && from != m_jid && !message.markedId().isEmpty()) {
+        if (message.marker() == QXmppMessage::Displayed || message.marker() == QXmppMessage::Acknowledged) {
+            const QDateTime stamp = m_history.markReadUpTo(from, message.markedId());
+            if (stamp.isValid() && from == m_currentChat)
+                m_messages.markReadUpTo(stamp);
+        } else if (m_history.markDelivered(from, message.markedId()) && from == m_currentChat) {
+            m_messages.markDelivered(message.markedId());
+        }
+        if (message.body().isEmpty())
+            return true;
+    }
     if (message.body().isEmpty())
         return false;
 
@@ -1320,6 +1338,11 @@ bool Backend::ingest(const QXmppMessage &message, Delivery delivery) {
     if (addEntry(entry, delivery) <= 0)
         return false;
     fetchSmileys(entry, message.from());
+    // Theirs asking to be told when read: told as soon as it's seen.
+    if (delivery == Delivery::Live && !entry.outgoing && message.isMarkable() && !m_rooms.contains(entry.peer)) {
+        m_markable.insert(entry.peer, entry.xmppId);
+        markRead(entry.peer);
+    }
     return true;
 }
 
@@ -1463,6 +1486,7 @@ void Backend::openChat(const QString &jid) {
     if (bare == m_currentChat) {
         if (m_windowActive)
             m_contacts.clearUnread(bare);
+        markRead(bare);
         emit currentChatReselected();
         return;
     }
@@ -1484,6 +1508,7 @@ void Backend::openChat(const QString &jid) {
     }
     if (m_windowActive)
         m_contacts.clearUnread(bare);
+    markRead(bare);
     if (m_rooms.contains(bare))
         enterRoom(bare);
     emit currentChatChanged();
@@ -1527,7 +1552,10 @@ bool Backend::sendMessage(const QString &text, const QString &xhtml) {
     const QString body = text.trimmed();
     if (body.isEmpty() || m_currentChat.isEmpty())
         return false;
-    if (!m_client->isAuthenticated()) {
+    // A correction or a room needs the connection; a message to someone
+    // waits for it.
+    const bool connected = m_client->isAuthenticated();
+    if (!connected && (editing() || m_rooms.contains(m_currentChat))) {
         setError(tr("You're offline, so the message wasn't sent."));
         return false;
     }
@@ -1556,19 +1584,25 @@ bool Backend::sendMessage(const QString &text, const QString &xhtml) {
             entry.forwarded = true;
             markForwarded(message);
         }
+        entry.sendState = HistoryEntry::Pending;
+        const qint64 id = addEntry(entry);
         const QString name = currentChatName();
-        room->sendMessage(message).then(this, [this, name](QXmpp::Result<> &&result) {
+        room->sendMessage(message).then(this, [this, name, id](QXmpp::Result<> &&result) {
             if (auto *error = std::get_if<QXmppError>(&result))
                 setError(tr("The message to %1 wasn't sent: %2").arg(name, error->description));
+            else
+                setSendState(id, HistoryEntry::Sent);
         });
-        addEntry(entry);
         cancelReply();
         return true;
     }
 
     QXmppMessage message({}, m_currentChat, body);
     message.setType(QXmppMessage::Chat);
+    // Asks the other side to say it got it (XEP-0184) and when it's read
+    // (XEP-0333).
     message.setReceiptRequested(true);
+    message.setMarkable(true);
     if (m_chatStatePeers.contains(m_currentChat))
         message.setState(QXmppMessage::Active);
     m_sentState = QXmppMessage::Active;
@@ -1584,14 +1618,85 @@ bool Backend::sendMessage(const QString &text, const QString &xhtml) {
         entry.forwarded = true;
         markForwarded(message);
     }
-    const QString peer = m_currentChat;
-    m_client->send(std::move(message)).then(this, [this, peer](QXmpp::SendResult &&result) {
-        if (std::holds_alternative<QXmppError>(result))
-            setError(tr("The message to %1 wasn't sent: %2").arg(peer, std::get<QXmppError>(result).description));
-    });
-    addEntry(entry);
+    // Waiting until the server has it; offline, until there's a connection.
+    entry.sendState = HistoryEntry::Pending;
+    const qint64 id = addEntry(entry);
+    if (connected)
+        sendTracked(std::move(message), id);
     cancelReply();
     return true;
+}
+
+void Backend::sendTracked(QXmppMessage &&message, qint64 id) {
+    if (id == 0)
+        return;
+    m_sending.insert(id);
+    m_client->send(std::move(message)).then(this, [this, id](QXmpp::SendResult &&result) {
+        m_sending.remove(id);
+        // Not sent: it stays waiting, and goes again on the next connection.
+        if (std::holds_alternative<QXmppError>(result))
+            return;
+        setSendState(id, HistoryEntry::Sent);
+    });
+}
+
+void Backend::setSendState(qint64 id, int state) {
+    const HistoryEntry entry = m_history.byId(id);
+    // A later state (received, read) may have come first.
+    if (entry.id == 0 || entry.sendState >= state)
+        return;
+    m_history.setSendState(id, state);
+    if (entry.peer == m_currentChat)
+        m_messages.setSendState(id, state);
+}
+
+void Backend::sendPending() {
+    // What was written while offline, in the order it was written.
+    const QList<HistoryEntry> waiting = m_history.pending();
+    for (const HistoryEntry &entry : waiting) {
+        if (m_sending.contains(entry.id) || m_rooms.contains(entry.peer))
+            continue;
+        QXmppMessage message({}, entry.peer, entry.body);
+        message.setType(QXmppMessage::Chat);
+        // The same id, so its receipt and read marker find it.
+        message.setId(entry.xmppId);
+        message.setReceiptRequested(true);
+        message.setMarkable(true);
+        if (!entry.xhtml.isEmpty())
+            message.setXhtml(entry.xhtml);
+        else if (!entry.smileys.isEmpty())
+            message.setXhtml(SmileyStore::xhtmlFor(entry.body, entry.smileys));
+        if (entry.forwarded)
+            markForwarded(message);
+        if (!entry.replyId.isEmpty())
+            message.setReply(QXmpp::Reply{entry.peer, entry.replyId});
+        sendTracked(std::move(message), entry.id);
+    }
+}
+
+bool Backend::sendReadMarkers() const {
+    return m_settings.value("ui/readMarkers", true).toBool();
+}
+
+void Backend::setSendReadMarkers(bool on) {
+    if (on == sendReadMarkers())
+        return;
+    m_settings.setValue("ui/readMarkers", on);
+    emit sendReadMarkersChanged();
+}
+
+void Backend::markRead(const QString &peer) {
+    // Seen: the conversation on screen, the window in front.
+    if (peer != m_currentChat || !m_windowActive || !m_client->isAuthenticated())
+        return;
+    const QString id = m_markable.take(peer);
+    if (id.isEmpty() || !sendReadMarkers())
+        return;
+    QXmppMessage marker({}, peer);
+    marker.setType(QXmppMessage::Chat);
+    marker.setMarker(QXmppMessage::Displayed);
+    marker.setMarkerId(id);
+    m_client->send(std::move(marker));
 }
 
 void Backend::handleChatState(const QString &peer, int state) {

@@ -25,6 +25,12 @@ struct HistoryEntry {
     QString archiveId;
     // An outgoing message the other side confirmed (XEP-0184).
     bool delivered = false;
+    // How far one of ours got, as ZapFast shows it: waiting to go out
+    // (Pending, kept to send once connected), taken by the server (Sent,
+    // XEP-0198), on the other side (Delivered, XEP-0184), read there (Read,
+    // XEP-0333).
+    enum SendState { Pending = 0, Sent = 1, Delivered = 2, Read = 3 };
+    int sendState = Sent;
     // In a group chat, the nickname of whoever wrote it.
     QString sender;
     // A file shared through the server (XEP-0363/0066): where it can be fetched.
@@ -85,6 +91,12 @@ public:
     void commitBatch();
     void updateFile(qint64 id, const QString &state, const QString &filePath);
     bool markDelivered(const QString &peer, const QString &xmppId);
+    void setSendState(qint64 id, int state);
+    // The other side read one of ours: it and every one before it are read.
+    // The stamp of that line, or invalid when it isn't here.
+    QDateTime markReadUpTo(const QString &peer, const QString &xmppId);
+    // Ours still waiting to go out, oldest first.
+    QList<HistoryEntry> pending() const;
     // The line a correction points to, by its own id or its last
     // correction's; id 0 when there's none.
     HistoryEntry findCorrectable(const QString &peer, const QString &xmppId) const;
