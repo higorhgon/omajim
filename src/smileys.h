@@ -66,7 +66,8 @@ private:
 
 // Hands our smileys to whoever got a message with them and asks for the
 // picture (XEP-0231), and tells Pidgin we take its custom smileys: it only
-// sends them to clients with Bits of Binary and XHTML-IM.
+// sends them to clients with Bits of Binary and XHTML-IM (the latter QXmpp
+// announces itself).
 class SmileyResponder : public QXmppClientExtension {
 public:
     explicit SmileyResponder(SmileyStore *store) : m_store(store) {}

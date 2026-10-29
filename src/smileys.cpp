@@ -239,7 +239,10 @@ QHash<QString, QString> SmileyStore::imagesIn(const QString &xhtml) {
 }
 
 QStringList SmileyResponder::discoveryFeatures() const {
-    return {QStringLiteral("urn:xmpp:bob"), QStringLiteral("http://jabber.org/protocol/xhtml-im")};
+    // XHTML-IM QXmpp announces already; twice, Pidgin's check of our
+    // capabilities' hash fails (it counts both, QXmpp one) and it takes us
+    // for a client without smileys.
+    return {QStringLiteral("urn:xmpp:bob")};
 }
 
 bool SmileyResponder::handleStanza(const QDomElement &stanza) {

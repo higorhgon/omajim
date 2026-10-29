@@ -1236,6 +1236,9 @@ private slots:
         const QStringList features = disco->capabilities().features();
         QVERIFY(features.contains("urn:xmpp:bob"));
         QVERIFY(features.contains("http://jabber.org/protocol/xhtml-im"));
+        // Each once: Pidgin hashes the list as it comes, and a feature twice
+        // gives a hash other than ours, so it drops all of our capabilities.
+        QCOMPARE(QSet<QString>(features.cbegin(), features.cend()).size(), features.size());
     }
 
     void imagesFromKnownContactsGetPreviews() {
