@@ -1724,6 +1724,53 @@ private slots:
         QCOMPARE(backend.status(), QString("dnd"));
     }
 
+    void daysAreNamedAsTheyGetOlder() {
+        const QLocale previous;
+        QLocale::setDefault(QLocale("pt_BR"));
+        const QDate today(2026, 10, 30);
+        const QString format("dd/MM/yyyy");
+        QCOMPARE(Backend::relativeDay(today, today, format), Backend::tr("Today"));
+        QCOMPARE(Backend::relativeDay(today.addDays(-1), today, format), Backend::tr("Yesterday"));
+        QCOMPARE(Backend::relativeDay(today.addDays(-2), today, format), QString("Quarta-feira"));
+        QCOMPARE(Backend::relativeDay(today.addDays(-6), today, format), QString("Sábado"));
+        // A week ago is the same weekday as today, so it takes the date.
+        QCOMPARE(Backend::relativeDay(today.addDays(-7), today, format), QString("23/10/2026"));
+        // A clock behind the server's can put a message in the future.
+        QCOMPARE(Backend::relativeDay(today.addDays(1), today, format), QString("31/10/2026"));
+        QLocale::setDefault(previous);
+    }
+
+    void dateFormatIsKeptAndFollowsTheSystemByDefault() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        {
+            Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+            QCOMPARE(backend.dateFormat(), QString());
+            QCOMPARE(backend.dateExample(""),
+                     QLocale::system().toString(QDate(2026, 12, 31), QLocale::ShortFormat));
+            QSignalSpy changed(&backend, &Backend::dateFormatChanged);
+            backend.setDateFormat("bogus");
+            QCOMPARE(changed.count(), 0);
+            backend.setDateFormat("yyyy-MM-dd");
+            QCOMPARE(changed.count(), 1);
+            QCOMPARE(backend.dateExample(backend.dateFormat()), QString("2026-12-31"));
+            QCOMPARE(backend.dateText(QDateTime(QDate(2026, 3, 9), QTime(12, 0))), QString("2026-03-09"));
+        }
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        QCOMPARE(backend.dateFormat(), QString("yyyy-MM-dd"));
+        QVERIFY(backend.dateFormats().contains(""));
+    }
+
+    void linesCarryTheirLocalDay() {
+        MessageModel model;
+        HistoryEntry entry;
+        entry.id = 1;
+        entry.stamp = QDateTime(QDate(2026, 10, 30), QTime(23, 30));
+        model.reset({entry});
+        const int role = model.roleNames().key("day");
+        QCOMPARE(model.data(model.index(0), role).toString(), QString("2026-10-30"));
+    }
+
     void textAcrossMessagesCopiesAsATranscript() {
         QTemporaryDir dir;
         FakeSecretStore secrets;

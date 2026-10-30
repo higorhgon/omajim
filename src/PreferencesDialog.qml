@@ -19,6 +19,7 @@ AppDialog {
         textSmileysBox.checked = backend.textSmileys
         readMarkersBox.checked = backend.sendReadMarkers
         closeChoice.value = backend.closeAction
+        dateChoice.value = backend.dateFormat
         syncChoice.value = [30, 90, 365, -1].find(days => !backend.historyReaches(days)) ?? -1
     }
     onAccepted: {
@@ -28,6 +29,7 @@ AppDialog {
         backend.textSmileys = textSmileysBox.checked
         backend.sendReadMarkers = readMarkersBox.checked
         backend.closeAction = closeChoice.value
+        backend.dateFormat = dateChoice.value
     }
 
     component Section: Label {
@@ -64,94 +66,127 @@ AppDialog {
         }
     }
 
-    Section { text: qsTr("Automatic away").toUpperCase() }
-    MinutesRow {
-        id: awayRow
-        label: qsTr("Away after")
-    }
-    MinutesRow {
-        id: xaRow
-        label: qsTr("Not available after")
-    }
-    Label {
+    // Scrolls when the window is too short for it all, so Save stays in
+    // reach; the room left out is the dialog's title, buttons and margins.
+    Flickable {
         Layout.fillWidth: true
-        text: qsTr("Minutes without using the computer; 0 turns a step off.")
-        color: dialog.ui.muted
-        font.pixelSize: 12
-        wrapMode: Text.Wrap
-    }
+        Layout.preferredHeight: Math.min(contentHeight, (dialog.parent ? dialog.parent.height : 720) - 196)
+        contentHeight: sections.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {}
 
-    Section { text: qsTr("Closing the window").toUpperCase() }
-    AppSegmented {
-        id: closeChoice
-        Layout.fillWidth: true
-        options: [{label: qsTr("To the tray"), value: "tray", enabled: tray.available},
-                  {label: qsTr("Minimize"), value: "minimize"},
-                  {label: qsTr("Quit"), value: "quit"}]
-    }
-    Label {
-        Layout.fillWidth: true
-        text: closeChoice.value === "tray" ? qsTr("Omajim stays connected; the tray icon brings it back.")
-            : closeChoice.value === "minimize" ? qsTr("Stays connected, minimized; only shows on a floating layout with a dock.")
-            : qsTr("Disconnects and closes Omajim.")
-        color: dialog.ui.muted
-        font.pixelSize: 12
-        wrapMode: Text.Wrap
-    }
+        ColumnLayout {
+            id: sections
+            width: parent.width
+            spacing: 10
 
-    Section { text: qsTr("Notifications").toUpperCase() }
-    AppCheckBox {
-        id: notificationsBox
-        Layout.leftMargin: -6
-        Layout.fillWidth: true
-        text: qsTr("Notify me of new messages (never while Busy)")
-    }
+            Section { text: qsTr("Automatic away").toUpperCase() }
+            MinutesRow {
+                id: awayRow
+                label: qsTr("Away after")
+            }
+            MinutesRow {
+                id: xaRow
+                label: qsTr("Not available after")
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Minutes without using the computer; 0 turns a step off.")
+                color: dialog.ui.muted
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
 
-    Section { text: qsTr("History on the server").toUpperCase() }
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: 10
-        AppSegmented {
-            id: syncChoice
-            Layout.fillWidth: true
-            // Gajim's choices; those the history already reaches are off.
-            options: [30, 90, 365, -1].map(days => ({
-                label: days === 30 ? qsTr("1 month") : days === 90 ? qsTr("3 months")
-                     : days === 365 ? qsTr("1 year") : qsTr("Everything"),
-                value: days,
-                enabled: !backend.historySyncing && !backend.historyReaches(days)
-            }))
+            Section { text: qsTr("Closing the window").toUpperCase() }
+            AppSegmented {
+                id: closeChoice
+                Layout.fillWidth: true
+                options: [{label: qsTr("To the tray"), value: "tray", enabled: tray.available},
+                          {label: qsTr("Minimize"), value: "minimize"},
+                          {label: qsTr("Quit"), value: "quit"}]
+            }
+            Label {
+                Layout.fillWidth: true
+                text: closeChoice.value === "tray" ? qsTr("Omajim stays connected; the tray icon brings it back.")
+                    : closeChoice.value === "minimize" ? qsTr("Stays connected, minimized; only shows on a floating layout with a dock.")
+                    : qsTr("Disconnects and closes Omajim.")
+                color: dialog.ui.muted
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
+
+            Section { text: qsTr("Date format").toUpperCase() }
+            AppSegmented {
+                id: dateChoice
+                Layout.fillWidth: true
+                options: backend.dateFormats().map(format => ({
+                    label: format === "" ? qsTr("System") : backend.dateExample(format),
+                    value: format
+                }))
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("System follows this computer's language and region: %1.").arg(backend.dateExample(""))
+                color: dialog.ui.muted
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
+
+            Section { text: qsTr("Notifications").toUpperCase() }
+            AppCheckBox {
+                id: notificationsBox
+                Layout.leftMargin: -6
+                Layout.fillWidth: true
+                text: qsTr("Notify me of new messages (never while Busy)")
+            }
+
+            Section { text: qsTr("History on the server").toUpperCase() }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                AppSegmented {
+                    id: syncChoice
+                    Layout.fillWidth: true
+                    // Gajim's choices; those the history already reaches are off.
+                    options: [30, 90, 365, -1].map(days => ({
+                        label: days === 30 ? qsTr("1 month") : days === 90 ? qsTr("3 months")
+                             : days === 365 ? qsTr("1 year") : qsTr("Everything"),
+                        value: days,
+                        enabled: !backend.historySyncing && !backend.historyReaches(days)
+                    }))
+                }
+                AppButton {
+                    text: qsTr("Synchronize")
+                    enabled: backend.connectionState === "online" && !backend.historySyncing
+                             && !backend.historyReaches(syncChoice.value)
+                    onClicked: backend.syncHistory(syncChoice.value)
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                text: backend.historySyncing ? qsTr("Synchronizing… %n messages so far.", "", backend.historySyncCount)
+                    : backend.historyReaches(-1) ? qsTr("All of the server's history is here.")
+                    : backend.connectionState !== "online" ? qsTr("Only while connected.")
+                    : qsTr("Brings older messages from the server's archive. The first sign-in brings the last week.")
+                color: dialog.ui.muted
+                font.pixelSize: 12
+                wrapMode: Text.Wrap
+            }
+
+            Section { text: qsTr("Messages").toUpperCase() }
+            AppCheckBox {
+                id: readMarkersBox
+                Layout.leftMargin: -6
+                Layout.fillWidth: true
+                text: qsTr("Let contacts know when I've read their messages")
+            }
+            AppCheckBox {
+                id: textSmileysBox
+                Layout.leftMargin: -6
+                Layout.fillWidth: true
+                text: qsTr("Show text smileys like :) and :beer: as emoji")
+            }
         }
-        AppButton {
-            text: qsTr("Synchronize")
-            enabled: backend.connectionState === "online" && !backend.historySyncing
-                     && !backend.historyReaches(syncChoice.value)
-            onClicked: backend.syncHistory(syncChoice.value)
-        }
     }
-    Label {
-        Layout.fillWidth: true
-        text: backend.historySyncing ? qsTr("Synchronizing… %n messages so far.", "", backend.historySyncCount)
-            : backend.historyReaches(-1) ? qsTr("All of the server's history is here.")
-            : backend.connectionState !== "online" ? qsTr("Only while connected.")
-            : qsTr("Brings older messages from the server's archive. The first sign-in brings the last week.")
-        color: dialog.ui.muted
-        font.pixelSize: 12
-        wrapMode: Text.Wrap
-    }
-
-    Section { text: qsTr("Messages").toUpperCase() }
-    AppCheckBox {
-        id: readMarkersBox
-        Layout.leftMargin: -6
-        Layout.fillWidth: true
-        text: qsTr("Let contacts know when I've read their messages")
-    }
-    AppCheckBox {
-        id: textSmileysBox
-        Layout.leftMargin: -6
-        Layout.fillWidth: true
-        text: qsTr("Show text smileys like :) and :beer: as emoji")
-    }
-
 }

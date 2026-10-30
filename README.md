@@ -32,6 +32,11 @@ janela: seus contatos à esquerda e a conversa à direita.
   ZapFast, e a conversa rola junto perto das bordas. Ctrl+C copia o trecho;
   se ele atravessa várias mensagens, cada uma vem com horário e nome:
   `[27/10/2026 14:33] Ana: texto`.
+- A conversa é separada por dias: Hoje, Ontem, o dia da semana e, antes
+  disso, a data. O formato da data, que também vale na lista de conversas e
+  ao copiar mensagens, se escolhe nas preferências; o padrão segue o idioma
+  e a região do computador. Ao rolar, o dia da mensagem do topo fica
+  flutuando até chegar ao separador dele, como no ZapFast.
 - Ctrl+F busca no histórico inteiro da conversa, sem ligar para acentos;
   Enter e Shift+Enter passam pelos resultados, trazendo as mensagens
   antigas quando preciso.

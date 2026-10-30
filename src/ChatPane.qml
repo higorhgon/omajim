@@ -8,6 +8,23 @@ Rectangle {
     id: pane
 
     readonly property var ui: theme.colors
+
+    // A day of the conversation, named as its separator names it.
+    component DayChip: Rectangle {
+        property string day
+        width: dayText.implicitWidth + 24
+        height: dayText.implicitHeight + 8
+        radius: Math.min(height / 2, theme.radius)
+        color: pane.ui.panel
+        border.color: pane.ui.border
+        Label {
+            id: dayText
+            anchors.centerIn: parent
+            text: translator.language, backend.today, backend.dateFormat, backend.dayLabel(parent.day)
+            color: pane.ui.muted
+            font.pixelSize: 12
+        }
+    }
     color: ui.background
 
     // Copies what's selected in the conversation: whole messages picked with
@@ -524,7 +541,10 @@ Rectangle {
                 if (atRealEnd())
                     endFirst = firstShown
             }
-            onContentYChanged: measureBar()
+            onContentYChanged: {
+                measureBar()
+                updateFloatingDay()
+            }
             ScrollBar {
                 id: messagesBar
                 // Declared in the list, it would land in its content.
@@ -571,6 +591,74 @@ Rectangle {
                 }
             }
             delegate: ChatLine {}
+            section.property: "day"
+            section.delegate: Item {
+                id: daySeparator
+                required property string section
+                width: messages.width
+                height: messages.daySeparatorHeight
+                DayChip {
+                    anchors.centerIn: parent
+                    day: daySeparator.section
+                }
+            }
+            readonly property int daySeparatorHeight: 40
+
+            // The day of the top line, over the conversation while scrolling
+            // once that day's separator has gone off the top, as ZapFast has
+            // it; empty with the separator on screen. Following new lines at
+            // the end isn't scrolling.
+            property string floatingDay: ""
+            function updateFloatingDay() {
+                if (moving || !followEnd || messagesBar.pressed)
+                    floatingDayHold.restart()
+                if (!floatingDayHold.running)
+                    return
+                let row = indexAt(width / 2, contentY)
+                // Between two lines or over a separator, the line below counts.
+                if (row < 0)
+                    row = indexAt(width / 2, contentY + spacing + daySeparatorHeight)
+                const item = row >= 0 ? itemAtIndex(row) : null
+                if (!item) {
+                    floatingDay = ""
+                    return
+                }
+                const day = item.ListView.section
+                const separatorShown = item.ListView.previousSection !== day
+                                       && item.y - daySeparatorHeight >= contentY
+                floatingDay = separatorShown ? "" : day
+            }
+            Timer {
+                id: floatingDayHold
+                interval: 1000
+                // At once when scrolling starts, fading only on the way out.
+                onRunningChanged: {
+                    floatingDayFade.stop()
+                    if (running)
+                        floatingDayChip.opacity = 1
+                    else
+                        floatingDayFade.start()
+                }
+            }
+            DayChip {
+                id: floatingDayChip
+                objectName: "floatingDay"
+                // Declared in the list, it would land in its content.
+                Component.onCompleted: parent = messages
+                anchors.top: parent.top
+                anchors.topMargin: 8
+                anchors.horizontalCenter: parent.horizontalCenter
+                z: 3
+                day: messages.floatingDay
+                visible: day !== ""
+                opacity: 0
+                NumberAnimation on opacity {
+                    id: floatingDayFade
+                    running: false
+                    to: 0
+                    duration: 250
+                }
+            }
 
             // The conversation stays at its end, as lines come and as they
             // settle into their height (a line laid out after it's placed
@@ -617,7 +705,11 @@ Rectangle {
             }
             Connections {
                 target: backend
-                function onCurrentChatChanged() { Qt.callLater(messages.toEnd) }
+                function onCurrentChatChanged() {
+                    floatingDayHold.stop()
+                    messages.floatingDay = ""
+                    Qt.callLater(messages.toEnd)
+                }
                 function onCurrentChatReselected() { messages.toEnd() }
             }
 

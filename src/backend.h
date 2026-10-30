@@ -3,6 +3,8 @@
 #include <functional>
 
 #include <QColor>
+#include <QDate>
+#include <QDateTime>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -62,6 +64,9 @@ class Backend : public QObject {
     Q_PROPERTY(bool notifications READ notifications WRITE setNotifications NOTIFY notificationsChanged)
     Q_PROPERTY(bool textSmileys READ textSmileys WRITE setTextSmileys NOTIFY textSmileysChanged)
     Q_PROPERTY(QString closeAction READ closeAction WRITE setCloseAction NOTIFY closeActionChanged)
+    // Empty for the system's own format.
+    Q_PROPERTY(QString dateFormat READ dateFormat WRITE setDateFormat NOTIFY dateFormatChanged)
+    Q_PROPERTY(QDate today READ today NOTIFY todayChanged)
     // Telling contacts when we've read their messages (XEP-0333).
     Q_PROPERTY(bool sendReadMarkers READ sendReadMarkers WRITE setSendReadMarkers NOTIFY sendReadMarkersChanged)
     Q_PROPERTY(bool historySyncing READ historySyncing NOTIFY historySyncChanged)
@@ -133,6 +138,18 @@ public:
     void setTextSmileys(bool on);
     QString closeAction() const;
     void setCloseAction(const QString &action);
+    QString dateFormat() const;
+    void setDateFormat(const QString &format);
+    QDate today() const { return m_today; }
+    Q_INVOKABLE QStringList dateFormats() const;
+    // A date as the preferences show it, in the format given.
+    Q_INVOKABLE QString dateExample(const QString &format) const;
+    Q_INVOKABLE QString dateText(const QDateTime &stamp) const;
+    // The separator of a day (yyyy-MM-dd): "Today", "Yesterday", the
+    // weekday for the rest of the week, then the date.
+    Q_INVOKABLE QString dayLabel(const QString &day) const;
+    static QString formatDate(const QDate &date, const QString &format);
+    static QString relativeDay(const QDate &day, const QDate &today, const QString &format);
     bool sendReadMarkers() const;
     void setSendReadMarkers(bool on);
     bool historySyncing() const { return m_historySyncing; }
@@ -337,6 +354,8 @@ signals:
     void notificationsChanged();
     void textSmileysChanged();
     void closeActionChanged();
+    void dateFormatChanged();
+    void todayChanged();
     void sendReadMarkersChanged();
     void historySyncChanged();
     void smileyPicturePicked(const QString &path);
@@ -513,6 +532,7 @@ private:
     QSet<QString> m_chatStatePeers;
     QTimer *m_typingExpiry = nullptr;
     QTimer *m_pauseTimer = nullptr;
+    QDate m_today = QDate::currentDate();
     int m_sentState = 0;
 
     History m_history;

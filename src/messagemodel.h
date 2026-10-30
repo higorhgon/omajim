@@ -37,6 +37,7 @@ public:
         ForwardedRole,
         XhtmlRole,
         SendStateRole,
+        DayRole,
     };
 
     explicit MessageModel(QObject *parent = nullptr);

@@ -517,14 +517,9 @@ Item {
                 spacing: 4
 
                 Label {
-                    // Today's lines show the time only; older ones the date too.
+                    // The date is in the day's separator.
                     // Reading translator.language re-renders on a language switch.
-                    text: {
-                        translator.language
-                        const today = new Date().toDateString() === line.stamp.toDateString()
-                        return today ? line.stamp.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
-                                     : line.stamp.toLocaleString(Qt.locale(), Locale.ShortFormat)
-                    }
+                    text: translator.language, line.stamp.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
                     color: line.ui.muted
                     font.pixelSize: 11
                 }

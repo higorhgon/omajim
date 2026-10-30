@@ -476,12 +476,13 @@ Rectangle {
                                 visible: !pane.searching && text !== ""
                                 text: {
                                     translator.language
+                                    backend.dateFormat
                                     const stamp = row.lastActivity
                                     if (!stamp || isNaN(stamp.getTime()) || row.lastMessage === "")
                                         return ""
                                     return new Date().toDateString() === stamp.toDateString()
                                            ? stamp.toLocaleTimeString(Qt.locale(), Locale.ShortFormat)
-                                           : stamp.toLocaleDateString(Qt.locale(), Locale.ShortFormat)
+                                           : backend.dateText(stamp)
                                 }
                                 color: row.selected ? row.ink : pane.ui.muted
                                 opacity: row.selected ? 0.75 : 1

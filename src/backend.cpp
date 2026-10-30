@@ -294,6 +294,19 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
     m_pauseTimer->setSingleShot(true);
     m_pauseTimer->setInterval(5000);
     connect(m_pauseTimer, &QTimer::timeout, this, [this] { sendChatState(QXmppMessage::Paused); });
+
+    // Timers stop while suspended, so it checks the date instead of
+    // waiting for midnight.
+    auto *dayTimer = new QTimer(this);
+    dayTimer->setInterval(60000);
+    connect(dayTimer, &QTimer::timeout, this, [this] {
+        const QDate today = QDate::currentDate();
+        if (today == m_today)
+            return;
+        m_today = today;
+        emit todayChanged();
+    });
+    dayTimer->start();
     m_transfers = m_client->addNewExtension<QXmppTransferManager>();
     if (auto *socks = m_transfers->findChild<QXmppSocksServer *>()) {
         socks->close();
@@ -570,6 +583,55 @@ void Backend::setCloseAction(const QString &action) {
         return;
     m_settings.setValue("ui/closeAction", action);
     emit closeActionChanged();
+}
+
+static const QStringList knownDateFormats{"", "dd/MM/yyyy", "MM/dd/yyyy", "yyyy-MM-dd", "d MMM yyyy"};
+
+QString Backend::dateFormat() const {
+    const QString format = m_settings.value("ui/dateFormat").toString();
+    return knownDateFormats.contains(format) ? format : QString();
+}
+
+void Backend::setDateFormat(const QString &format) {
+    if (!knownDateFormats.contains(format) || format == dateFormat())
+        return;
+    m_settings.setValue("ui/dateFormat", format);
+    emit dateFormatChanged();
+}
+
+QStringList Backend::dateFormats() const {
+    return knownDateFormats;
+}
+
+QString Backend::formatDate(const QDate &date, const QString &format) {
+    return format.isEmpty() ? QLocale::system().toString(date, QLocale::ShortFormat)
+                            : QLocale().toString(date, format);
+}
+
+QString Backend::dateExample(const QString &format) const {
+    // Day 31, so day and month can't be taken for each other.
+    return formatDate(QDate(2026, 12, 31), format);
+}
+
+QString Backend::dateText(const QDateTime &stamp) const {
+    return formatDate(stamp.toLocalTime().date(), dateFormat());
+}
+
+QString Backend::relativeDay(const QDate &day, const QDate &today, const QString &format) {
+    const qint64 days = day.daysTo(today);
+    if (days == 0)
+        return tr("Today");
+    if (days == 1)
+        return tr("Yesterday");
+    if (days > 1 && days < 7) {
+        const QString weekday = QLocale().standaloneDayName(day.dayOfWeek());
+        return weekday.left(1).toUpper() + weekday.mid(1);
+    }
+    return formatDate(day, format);
+}
+
+QString Backend::dayLabel(const QString &day) const {
+    return relativeDay(QDate::fromString(day, Qt::ISODate), m_today, dateFormat());
 }
 
 bool Backend::textSmileys() const {
@@ -3037,8 +3099,10 @@ void Backend::setAlias(const QString &jid, const QString &alias) {
 }
 
 // One message as a transcript line, with the text given or its own.
-static QString transcriptLine(const HistoryEntry &entry, const QString &who, const QString &text) {
-    const QString when = QLocale().toString(entry.stamp.toLocalTime(), QLocale::ShortFormat);
+static QString transcriptLine(const HistoryEntry &entry, const QString &who, const QString &text,
+                              const QString &dateFormat) {
+    const QDateTime stamp = entry.stamp.toLocalTime();
+    const QString when = Backend::formatDate(stamp.date(), dateFormat) + ' ' + QLocale().toString(stamp.time(), QLocale::ShortFormat);
     return who.isEmpty() ? QStringLiteral("[%1] %2").arg(when, text) : QStringLiteral("[%1] %2: %3").arg(when, who, text);
 }
 
@@ -3057,7 +3121,7 @@ QString Backend::selectedMessagesText() const {
         const QString who = authorOf(entry);
         const QString text = entry.kind == "file" ? (entry.url.isEmpty() ? tr("File: %1").arg(entry.body) : entry.url)
                                                   : entry.body;
-        lines << transcriptLine(entry, who, text);
+        lines << transcriptLine(entry, who, text, dateFormat());
     }
     return lines.join('\n');
 }
@@ -3079,7 +3143,7 @@ QString Backend::transcriptText(const QVariantList &parts) const {
         if (entry.kind == "file")
             text = QStringLiteral("[%1]").arg(tr("File: %1").arg(entry.body));
         if (!text.isEmpty())
-            lines << transcriptLine(entry, who, text);
+            lines << transcriptLine(entry, who, text, dateFormat());
     }
     return lines.join('\n');
 }
@@ -3110,7 +3174,8 @@ void Backend::forwardSelected(const QString &jid) {
     QStringList headers;
     for (const HistoryEntry &original : entries)
         headers << transcriptLine(original, authorOf(original),
-                                  "\n" + (original.kind == "text" ? original.body : tr("File: %1").arg(original.body)))
+                                  "\n" + (original.kind == "text" ? original.body : tr("File: %1").arg(original.body)),
+                                  dateFormat())
                        .replace(": \n", ":\n");
     m_messages.clearSelection();
     openChat(jid);

@@ -31,6 +31,8 @@ QVariant MessageModel::data(const QModelIndex &index, int role) const {
     case ForwardedRole: return entry.forwarded;
     case XhtmlRole: return entry.xhtml;
     case SendStateRole: return entry.sendState;
+    // The local day, which the conversation's day separators group by.
+    case DayRole: return entry.stamp.toLocalTime().date().toString(Qt::ISODate);
     case SelectedRole: return m_selected.contains(entry.id);
     case ReplyRole: return m_replies.value(entry.id);
     case ReactionsRole: return m_reactions.value(entry.id);
@@ -53,7 +55,7 @@ QHash<int, QByteArray> MessageModel::roleNames() const {
             {DeliveredRole, "delivered"}, {SenderRole, "sender"},
             {UrlRole, "url"}, {EditedRole, "edited"},
             {PreviewRole, "preview"}, {RouteRole, "route"}, {SelectedRole, "selected"},
-            {ReplyRole, "reply"}, {ReactionsRole, "reactions"}, {SmileysRole, "smileys"}, {ForwardedRole, "forwarded"}, {XhtmlRole, "xhtml"}, {SendStateRole, "sendState"}};
+            {ReplyRole, "reply"}, {ReactionsRole, "reactions"}, {SmileysRole, "smileys"}, {ForwardedRole, "forwarded"}, {XhtmlRole, "xhtml"}, {SendStateRole, "sendState"}, {DayRole, "day"}};
 }
 
 void MessageModel::reset(const QList<HistoryEntry> &entries) {
