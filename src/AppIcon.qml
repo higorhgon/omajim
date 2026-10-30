@@ -22,8 +22,9 @@ Item {
         "more": "M12 5.2A0.8 0.8 0 1 0 12 6.8A0.8 0.8 0 1 0 12 5.2 M12 11.2A0.8 0.8 0 1 0 12 12.8A0.8 0.8 0 1 0 12 11.2 M12 17.2A0.8 0.8 0 1 0 12 18.8A0.8 0.8 0 1 0 12 17.2",
         "check": "M5 12.5L10 17.5L19 7",
         // A message's state, as ZapFast draws it (assets/icons/delivery-tick
-        // and delivery-ticks, MIT; the clock is Lucide's, as there).
-        "delivery-pending": "M12 2A10 10 0 1 0 12 22A10 10 0 1 0 12 2 M12 6V12L16 14",
+        // and delivery-ticks, MIT; the clock is Lucide's, as there, drawn
+        // only as tall as the checks so it doesn't stand out beside them).
+        "delivery-pending": "M12 5.5A6.5 6.5 0 1 0 12 18.5A6.5 6.5 0 1 0 12 5.5 M12 8.5V12L14.5 13.3",
         "delivery-tick": "M4.75 13L9.25 17.5L19.25 6.5",
         "delivery-ticks": "M1.5 13L6 17.5L16 6.5 M11.2 16.2L12.5 17.5L22.5 6.5",
         "chevron-down": "M6 9L12 15L18 9",
