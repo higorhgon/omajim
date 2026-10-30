@@ -13,7 +13,6 @@ Rectangle {
     // The Contacts tab, if it was on, comes back with the whole sidebar.
     property bool browsedBefore: false
     signal aliasRequested(string jid, string alias, string rosterName)
-    signal groupRequested(string jid, string name, string group)
     // A search lists every contact and room; otherwise only the open
     // conversations show.
     readonly property bool searching: search.text.trim() !== ""
@@ -426,12 +425,8 @@ Rectangle {
                         text: qsTr("Set a nickname…")
                         onTriggered: pane.aliasRequested(row.jid, row.alias, row.rosterName)
                     }
-                    AppMenuItem {
-                        visible: !row.isRoom
-                        height: visible ? implicitHeight : 0
-                        text: qsTr("Move to group…")
-                        onTriggered: pane.groupRequested(row.jid, row.name, row.group)
-                    }
+                    // No moving people between groups: here they're the
+                    // company's departments, set on the server.
                     AppMenuItem {
                         visible: !pane.searching
                         height: visible ? implicitHeight : 0

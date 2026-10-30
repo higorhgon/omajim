@@ -3122,22 +3122,6 @@ QString Backend::savePastedImage() {
     return path;
 }
 
-void Backend::setContactGroup(const QString &jid, const QString &group) {
-    const QString bare = normalizedJid(jid);
-    if (!m_client->isAuthenticated()) {
-        setError(tr("You're offline, so the contact can't be moved."));
-        return;
-    }
-    const QString name = group.trimmed();
-    const QSet<QString> groups = name.isEmpty() ? QSet<QString>() : QSet<QString>{name};
-    m_roster->updateRosterGroups(bare, groups).then(this, [this, bare](QXmppRosterManager::Result &&result) {
-        if (auto *error = std::get_if<QXmppError>(&result))
-            setError(tr("%1 couldn't be moved: %2").arg(m_contacts.nameOf(bare), error->description));
-    });
-    // The roster push from the server confirms it; show it right away.
-    m_contacts.setGroups(bare, QStringList(groups.begin(), groups.end()));
-}
-
 void Backend::setShowAllContacts(bool show) {
     if (show == m_contacts.browsing())
         return;

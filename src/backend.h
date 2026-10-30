@@ -270,9 +270,6 @@ public:
     // A name for a contact on this computer only; empty goes back to the
     // roster's name.
     Q_INVOKABLE void setAlias(const QString &jid, const QString &alias);
-    // Moves a contact to a roster group on the server; empty takes it out
-    // of every group.
-    Q_INVOKABLE void setContactGroup(const QString &jid, const QString &group);
     Q_INVOKABLE void acceptRequest(const QString &jid);
     // Joins a group chat and keeps it as a bookmark on the server, so it's
     // there on the next sign-in too.

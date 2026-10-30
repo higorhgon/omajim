@@ -482,12 +482,6 @@ ApplicationWindow {
 
                 ContactPane {
                     id: contactPane
-                    onGroupRequested: (jid, name, group) => {
-                        groupDialog.jid = jid
-                        groupDialog.name = name
-                        groupField.text = group
-                        groupDialog.open()
-                    }
                     onAliasRequested: (jid, alias, rosterName) => {
                         aliasDialog.jid = jid
                         aliasDialog.rosterName = rosterName
@@ -579,42 +573,6 @@ ApplicationWindow {
                 placeholderText: qsTr("Room password (optional)")
                 echoMode: TextInput.Password
                 onAccepted: joinRoomDialog.accept()
-            }
-        }
-
-        AppDialog {
-            id: groupDialog
-            property string jid
-            property string name
-            title: qsTr("Move %1 to a group").arg(name)
-            subtitle: qsTr("The group is kept on your server, so your other devices see it too.")
-            acceptText: qsTr("Move")
-            onOpened: {
-                groupField.forceActiveFocus()
-                groupField.selectAll()
-            }
-            onAccepted: backend.setContactGroup(jid, groupField.text)
-
-            AppTextField {
-                id: groupField
-                Layout.fillWidth: true
-                placeholderText: qsTr("Group name (empty for none)")
-                onAccepted: groupDialog.accept()
-            }
-            // The groups there are, one click away.
-            Flow {
-                Layout.fillWidth: true
-                spacing: 6
-                Repeater {
-                    model: groupDialog.visible ? backend.contacts.allGroups() : []
-                    delegate: AppButton {
-                        required property string modelData
-                        implicitHeight: 30
-                        flat: groupField.text !== modelData
-                        text: modelData
-                        onClicked: groupField.text = modelData
-                    }
-                }
             }
         }
 
