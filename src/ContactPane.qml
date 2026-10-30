@@ -361,6 +361,7 @@ Rectangle {
             keyNavigationEnabled: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
+            SmoothWheel { view: list }
 
             Keys.onReturnPressed: backend.openChat(backend.contacts.jidAt(currentIndex))
 
@@ -576,6 +577,7 @@ Rectangle {
             spacing: 4
             model: pane.collapsed ? backend.contacts : null
             boundsBehavior: Flickable.StopAtBounds
+            SmoothWheel { view: rail }
 
             delegate: Item {
                 id: railItem

@@ -363,6 +363,9 @@ Rectangle {
             bottomMargin: 16
             model: backend.messages
             boundsBehavior: Flickable.StopAtBounds
+            // Lines just out of view are laid out ahead, so they don't
+            // shift the conversation as they scroll in.
+            cacheBuffer: 1200
             // The message a Shift+click range starts from.
             property var selectionAnchor: -1
 
@@ -487,9 +490,85 @@ Rectangle {
                 target: backend
                 function onCurrentChatChanged() { messages.clearTextSelection() }
             }
-            ScrollBar.vertical: ScrollBar {
+            // The bar measures the conversation in lines, not pixels: the
+            // list only guesses the height of lines it hasn't laid out, and
+            // a bar from that guess grows and shrinks while scrolling. Its
+            // size stays the same for the whole conversation, as lines
+            // differ too much in height for "lines on screen" to say it;
+            // where it is says which line is at the top.
+            property real firstShown: 0
+            // The line at the top once scrolled to the end: the bar's end.
+            property real endFirst: 0
+            property int countBefore: 0
+            function rowPlace(y) {
+                // Between two lines, the one just below counts.
+                let row = indexAt(width / 2, y)
+                if (row < 0)
+                    row = indexAt(width / 2, y + spacing)
+                const item = row >= 0 ? itemAtIndex(row) : null
+                if (!item)
+                    return y <= originY ? 0 : count
+                return row + Math.max(0, Math.min(1, (y - item.y) / Math.max(1, item.height + spacing)))
+            }
+            // At the end, the last line laid out: not the end as guessed.
+            function atRealEnd() {
+                return distanceToEnd < 1 && (count === 0 || itemAtIndex(count - 1) !== null)
+            }
+            function measureBar() {
+                // Lines that came while away from the end push it on.
+                if (count !== countBefore) {
+                    endFirst = Math.max(0, endFirst + count - countBefore)
+                    countBefore = count
+                }
+                firstShown = atYBeginning ? 0 : rowPlace(contentY)
+                if (atRealEnd())
+                    endFirst = firstShown
+            }
+            onContentYChanged: measureBar()
+            ScrollBar {
                 id: messagesBar
+                // Declared in the list, it would land in its content.
+                Component.onCompleted: parent = messages
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                orientation: Qt.Vertical
+                // Shown while scrolling or under the pointer, as the list's
+                // own bar is.
+                active: hovered || pressed || shownLately.running
+                readonly property bool fits: messages.atYBeginning && messages.atYEnd
+                // As if each line took 60 px: about a screen's worth.
+                size: fits ? 1 : Math.min(1, Math.max(0.05, messages.height / (Math.max(1, messages.count) * 60)))
+                readonly property real done: messages.endFirst > 0 ? Math.min(1, messages.firstShown / messages.endFirst) : 1
+                Binding on position {
+                    when: !messagesBar.pressed
+                    value: messages.distanceToEnd < 1 && messages.endFirst === messages.firstShown ? 1 - messagesBar.size : (1 - messagesBar.size) * messagesBar.done
+                }
+                // Dragged: to the line at that place, and the part of it.
+                onPositionChanged: {
+                    if (!pressed)
+                        return
+                    messages.followEnd = false
+                    if (position >= 1 - size - 0.001) {
+                        messages.toEnd()
+                        return
+                    }
+                    const place = position / Math.max(0.001, 1 - size) * messages.endFirst
+                    const row = Math.min(messages.count - 1, Math.floor(place))
+                    messages.positionViewAtIndex(row, ListView.Beginning)
+                    const item = messages.itemAtIndex(row)
+                    if (item)
+                        messages.contentY += (place - row) * (item.height + messages.spacing)
+                }
                 onPressedChanged: if (!pressed) messages.followEnd = messages.distanceToEnd < 24
+                Timer {
+                    id: shownLately
+                    interval: 900
+                }
+                Connections {
+                    target: messages
+                    function onContentYChanged() { shownLately.restart() }
+                }
             }
             delegate: ChatLine {}
 
@@ -514,22 +593,28 @@ Rectangle {
             }
             onFollowEndChanged: if (!followEnd) countWhenLeft = count
             // The wheel scrolls without "movement ended": up leaves the end,
-            // down to it follows again. Only watched; the list scrolls.
-            MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.NoButton
-                onWheel: wheel => {
-                    wheel.accepted = false
-                    if (wheel.angleDelta.y > 0 || wheel.pixelDelta.y > 0)
-                        messages.followEnd = false
-                    else
-                        Qt.callLater(() => messages.followEnd = messages.distanceToEnd < 24)
-                }
+            // down to it follows again.
+            SmoothWheel {
+                view: messages
+                onScrolled: up => { if (up) messages.followEnd = false }
+                onSettled: messages.followEnd = messages.distanceToEnd < 24
             }
             onMovementEnded: followEnd = distanceToEnd < 24
-            onCountChanged: if (followEnd) Qt.callLater(toEnd)
-            onContentHeightChanged: if (followEnd) Qt.callLater(toEnd)
-            onHeightChanged: if (followEnd) Qt.callLater(toEnd)
+            onCountChanged: {
+                measureBar()
+                if (followEnd)
+                    Qt.callLater(toEnd)
+            }
+            onContentHeightChanged: {
+                measureBar()
+                if (followEnd)
+                    Qt.callLater(toEnd)
+            }
+            onHeightChanged: {
+                measureBar()
+                if (followEnd)
+                    Qt.callLater(toEnd)
+            }
             Connections {
                 target: backend
                 function onCurrentChatChanged() { Qt.callLater(messages.toEnd) }
