@@ -40,6 +40,7 @@
 #include <QXmppMucManagerV2.h>
 #include <QXmppPepBookmarkManager.h>
 #include <QXmppPubSubManager.h>
+#include <QXmppPingIq.h>
 #include <QXmppXmlElement.h>
 #include <QXmppBitsOfBinaryContentId.h>
 #include <QXmppBitsOfBinaryDataList.h>
@@ -329,8 +330,11 @@ Backend::Backend(const QString &configDirectory, const QString &dataDirectory, F
                 if (it->autojoin)
                     enterRoom(it.key());
         }
-        if (state == QXmppClient::DisconnectedState)
+        if (state == QXmppClient::DisconnectedState) {
             m_joiningRooms.clear();
+            // Whatever was on its way unconfirmed goes again on reconnecting.
+            m_sending.clear();
+        }
         emit connectionStateChanged();
     });
     connect(m_client.get(), &QXmppClient::errorOccurred, this, [this](const QXmppError &error) {
@@ -1654,11 +1658,27 @@ void Backend::sendTracked(QXmppMessage &&message, qint64 id) {
         return;
     m_sending.insert(id);
     m_client->send(std::move(message)).then(this, [this, id](QXmpp::SendResult &&result) {
-        m_sending.remove(id);
         // Not sent: it stays waiting, and goes again on the next connection.
-        if (std::holds_alternative<QXmppError>(result))
+        if (std::holds_alternative<QXmppError>(result)) {
+            m_sending.remove(id);
             return;
-        setSendState(id, HistoryEntry::Sent);
+        }
+        // The server confirmed it (Stream Management, XEP-0198).
+        if (std::get<QXmpp::SendSuccess>(result).acknowledged) {
+            m_sending.remove(id);
+            setSendState(id, HistoryEntry::Sent);
+            return;
+        }
+        // Only written to the connection, which without a network takes a
+        // while to notice it's gone. A ping to the server (XEP-0199) answered
+        // says it got the message: the stream delivers in order.
+        QXmppPingIq ping;
+        ping.setTo(QXmppUtils::jidToDomain(m_jid));
+        m_client->sendIq(std::move(ping)).then(this, [this, id](QXmppClient::IqResult &&answer) {
+            m_sending.remove(id);
+            if (std::holds_alternative<QDomElement>(answer))
+                setSendState(id, HistoryEntry::Sent);
+        });
     });
 }
 
