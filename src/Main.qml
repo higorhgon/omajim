@@ -366,10 +366,23 @@ ApplicationWindow {
                 description: qsTr("Add a contact (Ctrl+N)")
                 onClicked: addContactDialog.open()
             }
+            // Group chats: joining one, or creating one of ours.
             IconButton {
+                id: roomsButton
                 iconName: "users"
-                description: qsTr("Join a group chat (Ctrl+J)")
-                onClicked: joinRoomDialog.open()
+                description: qsTr("Group chats")
+                checked: roomsMenu.visible
+                onClicked: roomsMenu.toggle(roomsButton, 0, roomsButton.height + 4)
+
+                AppMenu {
+                    id: roomsMenu
+                    AppMenuItem { text: qsTr("Join a group chat…"); hint: "Ctrl+J"; onTriggered: joinRoomDialog.open() }
+                    AppMenuItem {
+                        text: qsTr("Create a group chat…")
+                        enabled: backend.roomService !== ""
+                        onTriggered: roomSettingsDialog.openToCreate()
+                    }
+                }
             }
             IconButton {
                 id: moreButton
@@ -505,6 +518,10 @@ ApplicationWindow {
 
         PreferencesDialog {
             id: preferencesDialog
+        }
+
+        RoomSettingsDialog {
+            id: roomSettingsDialog
         }
 
         AccountsDialog {

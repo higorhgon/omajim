@@ -7,6 +7,7 @@
 #include <QMimeDatabase>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QClipboard>
 #include <QDBusConnection>
@@ -41,6 +42,7 @@
 #include <QXmppPepBookmarkManager.h>
 #include <QXmppPubSubManager.h>
 #include <QXmppPingIq.h>
+#include <QXmppMucForms.h>
 #include <QXmppXmlElement.h>
 #include <QXmppBitsOfBinaryContentId.h>
 #include <QXmppBitsOfBinaryDataList.h>
@@ -725,6 +727,8 @@ void Backend::leaveAccount() {
     m_sending.clear();
     m_fetchingAvatars.clear();
     m_proxy.clear();
+    m_roomService.clear();
+    emit roomServiceChanged();
     m_syncing = false;
     m_silentSync = false;
     m_historySyncing = false;
@@ -2340,6 +2344,290 @@ void Backend::leaveRoom(const QString &jid) {
         closeChat();
 }
 
+// --- Rooms we own or moderate ------------------------------------------
+
+// The settings a room is created or changed with, from the window's
+// {name, description, access: open|members|password, password, listed,
+// persistent}.
+static void applyRoomSettings(QXmppMucRoomConfig &config, const QVariantMap &settings) {
+    config.setName(settings.value("name").toString().trimmed());
+    config.setDescription(settings.value("description").toString().trimmed());
+    const QString access = settings.value("access").toString();
+    config.setMembersOnly(access == "members");
+    config.setPasswordProtected(access == "password");
+    config.setPassword(access == "password" ? settings.value("password").toString() : QString());
+    config.setPublic(settings.value("listed").toBool());
+    config.setPersistent(settings.value("persistent").toBool());
+}
+
+static QString roleName(QXmpp::Muc::Role role) {
+    switch (role) {
+    case QXmpp::Muc::Role::Moderator: return QStringLiteral("moderator");
+    case QXmpp::Muc::Role::Participant: return QStringLiteral("participant");
+    case QXmpp::Muc::Role::Visitor: return QStringLiteral("visitor");
+    default: return QStringLiteral("none");
+    }
+}
+
+static QString affiliationName(QXmpp::Muc::Affiliation affiliation) {
+    switch (affiliation) {
+    case QXmpp::Muc::Affiliation::Owner: return QStringLiteral("owner");
+    case QXmpp::Muc::Affiliation::Admin: return QStringLiteral("admin");
+    case QXmpp::Muc::Affiliation::Member: return QStringLiteral("member");
+    case QXmpp::Muc::Affiliation::Outcast: return QStringLiteral("outcast");
+    default: return QStringLiteral("none");
+    }
+}
+
+QString Backend::roomAddressFor(const QString &name) const {
+    // "Suporte TI" -> "suporte-ti": letters without accents, digits, dashes.
+    QString local = name.normalized(QString::NormalizationForm_D).toLower();
+    local.remove(QRegularExpression("[\\x{0300}-\\x{036f}]"));
+    local.replace(QRegularExpression("[^a-z0-9._-]+"), "-");
+    local.remove(QRegularExpression("^-+|-+$"));
+    return local;
+}
+
+bool Backend::createRoom(const QVariantMap &settings) {
+    if (!m_client->isAuthenticated()) {
+        setError(tr("You're offline, so the room can't be created."));
+        return false;
+    }
+    if (m_roomService.isEmpty()) {
+        setError(tr("Your server has no group chat service to create rooms on."));
+        return false;
+    }
+    const QString local = settings.value("address").toString().trimmed().toLower();
+    if (!QRegularExpression("^[a-z0-9._-]+$").match(local).hasMatch()) {
+        setError(tr("The room's address can have only letters without accents, digits, dots and dashes."));
+        return false;
+    }
+    const QString jid = local + "@" + m_roomService;
+    if (m_rooms.contains(jid)) {
+        openChat(jid);
+        return true;
+    }
+    const QString nickname = !m_ownNickname.isEmpty() ? m_ownNickname : QXmppUtils::jidToUser(m_jid);
+    const QString name = settings.value("name").toString().trimmed();
+    const QString account = m_jid;
+    // A room that exists already is joined, not taken over.
+    m_muc->isMucRoom(jid).then(this, [this, account, jid, nickname, name, settings](QXmpp::Result<bool> &&exists) {
+        if (account != m_jid)
+            return;
+        if (auto *known = std::get_if<bool>(&exists); known && *known) {
+            setError(tr("There's a room at %1 already: Join a group chat enters it.").arg(jid));
+            return;
+        }
+        // Entering a room that doesn't exist creates it, ours, locked until
+        // its settings are in (XEP-0045 §10.1).
+        m_muc->joinRoom(jid, nickname).then(this, [this, account, jid, nickname, name, settings](
+                                                     QXmpp::Result<QXmppMucRoomV2> &&joined) {
+            if (account != m_jid)
+                return;
+            if (auto *error = std::get_if<QXmppError>(&joined)) {
+                setError(tr("The room couldn't be created: %1").arg(error->description));
+                return;
+            }
+            auto room = std::get<QXmppMucRoomV2>(std::move(joined));
+            room.requestRoomConfig().then(this, [this, account, jid, nickname, name, settings, room](
+                                                    QXmpp::Result<QXmppMucRoomConfig> &&form) mutable {
+                if (account != m_jid)
+                    return;
+                QXmppMucRoomConfig config;
+                if (auto *current = std::get_if<QXmppMucRoomConfig>(&form))
+                    config = *current;
+                applyRoomSettings(config, settings);
+                room.setRoomConfig(config).then(this, [this, account, jid, nickname, name, settings](QXmpp::Result<> &&set) {
+                    if (account != m_jid)
+                        return;
+                    if (auto *error = std::get_if<QXmppError>(&set)) {
+                        setError(tr("The room was created, but its settings weren't saved: %1").arg(error->description));
+                        return;
+                    }
+                    trace("muc: created " + jid);
+                    const QString password = settings.value("access") == "password" ? settings.value("password").toString() : QString();
+                    addRoom(jid, {name.isEmpty() ? QXmppUtils::jidToUser(jid) : name, nickname, password, true});
+                    saveBookmark(jid);
+                    openChat(jid);
+                });
+            });
+        });
+    });
+    return true;
+}
+
+QVariantList Backend::roomParticipants() const {
+    QVariantList list;
+    auto room = m_muc->findRoom(m_currentChat);
+    if (!m_rooms.contains(m_currentChat) || !room || !room->joined().value())
+        return list;
+    const QString self = room->nickname().value();
+    const auto participants = room->participants();
+    for (const QXmppMucParticipant &participant : participants)
+        list << QVariantMap{{"nickname", participant.nickname().value()},
+                            {"jid", QXmppUtils::jidToBareJid(participant.jid().value())},
+                            {"role", roleName(participant.role().value())},
+                            {"affiliation", affiliationName(participant.affiliation().value())},
+                            {"self", participant.nickname().value() == self}};
+    QCollator collator;
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    std::sort(list.begin(), list.end(), [&](const QVariant &a, const QVariant &b) {
+        return collator.compare(a.toMap().value("nickname").toString(), b.toMap().value("nickname").toString()) < 0;
+    });
+    return list;
+}
+
+QVariantMap Backend::roomPowers() const {
+    auto room = m_muc->findRoom(m_currentChat);
+    if (!m_rooms.contains(m_currentChat) || !room || !room->joined().value())
+        return {};
+    return {{"setRoles", room->canSetRoles().value()},
+            {"setAffiliations", room->canSetAffiliations().value()},
+            {"configure", room->canConfigureRoom().value()},
+            {"changeSubject", room->canChangeSubject().value()}};
+}
+
+// Something a moderator does to one in the room, reported if it fails.
+template<typename Run>
+static void onParticipant(std::optional<QXmppMucRoomV2> room, const QString &nickname, Run run) {
+    if (!room)
+        return;
+    const auto participants = room->participants();
+    for (const QXmppMucParticipant &participant : participants)
+        if (participant.nickname().value() == nickname) {
+            run(*room, participant);
+            return;
+        }
+}
+
+void Backend::reportModeration(QXmppTask<QXmpp::Result<>> &&task, const QString &what) {
+    task.then(this, [this, what](QXmpp::Result<> &&result) {
+        if (auto *error = std::get_if<QXmppError>(&result))
+            setError(tr("%1 didn't work: %2").arg(what, error->description));
+        else if (!m_currentChat.isEmpty())
+            emit participantsChanged();
+    });
+}
+
+void Backend::kickParticipant(const QString &nickname, const QString &reason) {
+    onParticipant(m_muc->findRoom(m_currentChat), nickname, [&](QXmppMucRoomV2 &room, const QXmppMucParticipant &who) {
+        reportModeration(room.setRole(who, QXmpp::Muc::Role::None, reason), tr("Removing %1").arg(nickname));
+    });
+}
+
+void Backend::banParticipant(const QString &nickname, const QString &reason) {
+    onParticipant(m_muc->findRoom(m_currentChat), nickname, [&](QXmppMucRoomV2 &room, const QXmppMucParticipant &who) {
+        const QString jid = QXmppUtils::jidToBareJid(who.jid().value());
+        // A ban is by address: without it (a room that hides them), nothing to ban.
+        if (jid.isEmpty()) {
+            setError(tr("%1's address isn't visible in this room, so they can't be banned.").arg(nickname));
+            return;
+        }
+        reportModeration(room.setAffiliation(jid, QXmpp::Muc::Affiliation::Outcast, reason), tr("Banning %1").arg(nickname));
+    });
+}
+
+void Backend::setModerator(const QString &nickname, bool moderator) {
+    onParticipant(m_muc->findRoom(m_currentChat), nickname, [&](QXmppMucRoomV2 &room, const QXmppMucParticipant &who) {
+        reportModeration(room.setRole(who, moderator ? QXmpp::Muc::Role::Moderator : QXmpp::Muc::Role::Participant),
+                         moderator ? tr("Making %1 a moderator").arg(nickname) : tr("Taking moderation from %1").arg(nickname));
+    });
+}
+
+void Backend::setMember(const QString &nickname, bool member) {
+    onParticipant(m_muc->findRoom(m_currentChat), nickname, [&](QXmppMucRoomV2 &room, const QXmppMucParticipant &who) {
+        const QString jid = QXmppUtils::jidToBareJid(who.jid().value());
+        if (jid.isEmpty()) {
+            setError(tr("%1's address isn't visible in this room.").arg(nickname));
+            return;
+        }
+        reportModeration(room.setAffiliation(jid, member ? QXmpp::Muc::Affiliation::Member : QXmpp::Muc::Affiliation::None),
+                         member ? tr("Making %1 a member").arg(nickname) : tr("Taking membership from %1").arg(nickname));
+    });
+}
+
+void Backend::requestRoomSettings() {
+    auto room = m_muc->findRoom(m_currentChat);
+    if (!room)
+        return;
+    const QString jid = m_currentChat;
+    room->requestRoomConfig().then(this, [this, jid](QXmpp::Result<QXmppMucRoomConfig> &&result) {
+        if (auto *error = std::get_if<QXmppError>(&result)) {
+            setError(tr("The room's settings couldn't be read: %1").arg(error->description));
+            return;
+        }
+        const auto &config = std::get<QXmppMucRoomConfig>(result);
+        const QString access = config.isPasswordProtected().value_or(false) ? "password"
+                             : config.isMembersOnly().value_or(false) ? "members" : "open";
+        QString subject;
+        if (auto room = m_muc->findRoom(jid))
+            subject = room->subject().value();
+        emit roomSettingsRead(QVariantMap{{"room", jid}, {"name", config.name()}, {"description", config.description()},
+                                          {"access", access}, {"password", config.password()},
+                                          {"listed", config.isPublic().value_or(false)},
+                                          {"persistent", config.isPersistent().value_or(false)}, {"subject", subject}});
+    });
+}
+
+void Backend::configureRoom(const QVariantMap &settings) {
+    auto room = m_muc->findRoom(m_currentChat);
+    if (!room)
+        return;
+    const QString jid = m_currentChat;
+    const QString subject = settings.value("subject").toString().trimmed();
+    if (room->canChangeSubject().value() && subject != room->subject().value())
+        reportModeration(room->setSubject(subject), tr("Changing the subject"));
+    if (!room->canConfigureRoom().value())
+        return;
+    room->requestRoomConfig().then(this, [this, jid, settings](QXmpp::Result<QXmppMucRoomConfig> &&result) {
+        auto room = m_muc->findRoom(jid);
+        if (!room)
+            return;
+        QXmppMucRoomConfig config;
+        if (auto *current = std::get_if<QXmppMucRoomConfig>(&result))
+            config = *current;
+        applyRoomSettings(config, settings);
+        reportModeration(room->setRoomConfig(config), tr("Saving the room's settings"));
+        // The name shows in the sidebar and the bookmark at once.
+        const QString name = settings.value("name").toString().trimmed();
+        if (!name.isEmpty() && m_rooms.contains(jid)) {
+            m_rooms[jid].name = name;
+            m_rooms[jid].password = settings.value("access") == "password" ? settings.value("password").toString() : QString();
+            m_contacts.upsertRoom(jid, name);
+            saveBookmark(jid);
+        }
+    });
+}
+
+void Backend::inviteToRoom(const QString &jid, const QString &reason) {
+    auto room = m_muc->findRoom(m_currentChat);
+    const QString bare = normalizedJid(jid);
+    if (!room || bare.isEmpty())
+        return;
+    QXmpp::Muc::Invite invite;
+    invite.setTo(bare);
+    invite.setReason(reason.trimmed());
+    const QString name = m_contacts.nameOf(bare);
+    room->inviteUser(invite).then(this, [this, name](QXmpp::SendResult &&result) {
+        if (auto *error = std::get_if<QXmppError>(&result))
+            setError(tr("%1 wasn't invited: %2").arg(name, error->description));
+    });
+}
+
+void Backend::destroyRoom(const QString &reason) {
+    auto room = m_muc->findRoom(m_currentChat);
+    if (!room || !room->canConfigureRoom().value())
+        return;
+    const QString jid = m_currentChat;
+    room->destroyRoom(reason.trimmed()).then(this, [this, jid](QXmpp::Result<> &&result) {
+        if (auto *error = std::get_if<QXmppError>(&result)) {
+            setError(tr("The room couldn't be closed: %1").arg(error->description));
+            return;
+        }
+        leaveRoom(jid);
+    });
+}
+
 void Backend::addInvitation(const QString &room, const QString &from, const QString &reason, const QString &password,
                             bool mediated) {
     const QString jid = room.toLower();
@@ -2719,10 +3007,16 @@ void Backend::discoverProxy() {
             return;
         for (const QXmppDiscoItem &item : std::get<QList<QXmppDiscoItem>>(result)) {
             disco->info(item.jid()).then(this, [this, account, jid = item.jid()](QXmpp::Result<QXmppDiscoInfo> &&info) {
-                if (account != m_jid || !m_proxy.isEmpty() || !std::holds_alternative<QXmppDiscoInfo>(info))
+                if (account != m_jid || !std::holds_alternative<QXmppDiscoInfo>(info))
                     return;
                 for (const QXmppDiscoIdentity &identity : std::get<QXmppDiscoInfo>(info).identities()) {
-                    if (identity.category() == "proxy" && identity.type() == "bytestreams") {
+                    // The server's room service (Prosody's conference.*), for new rooms.
+                    if (identity.category() == "conference" && identity.type() == "text" && m_roomService.isEmpty()) {
+                        m_roomService = jid;
+                        emit roomServiceChanged();
+                        trace("muc: service " + jid);
+                    }
+                    if (identity.category() == "proxy" && identity.type() == "bytestreams" && m_proxy.isEmpty()) {
                         m_proxy = jid;
                         m_transfers->setProxy(jid);
                         trace("si: proxy " + jid);

@@ -16,6 +16,9 @@
 #include <QVariantList>
 #include <memory>
 
+#include <QXmppTask.h>
+#include <QXmppError.h>
+
 #include "avatarstore.h"
 #include "contactmodel.h"
 #include "history.h"
@@ -80,6 +83,8 @@ class Backend : public QObject {
     Q_PROPERTY(bool currentChatTyping READ currentChatTyping NOTIFY typingChanged)
     Q_PROPERTY(bool currentChatIsRoom READ currentChatIsRoom NOTIFY currentChatChanged)
     Q_PROPERTY(QStringList currentRoomParticipants READ currentRoomParticipants NOTIFY participantsChanged)
+    // The server's room service (conference.*), where new rooms go.
+    Q_PROPERTY(QString roomService READ roomService NOTIFY roomServiceChanged)
     Q_PROPERTY(QVariantList invitations READ invitations NOTIFY invitationsChanged)
     Q_PROPERTY(bool serverUploadAvailable READ serverUploadAvailable NOTIFY uploadSupportChanged)
     Q_PROPERTY(bool editing READ editing NOTIFY editingChanged)
@@ -150,6 +155,7 @@ public:
     bool currentChatTyping() const { return m_typing.contains(m_currentChat); }
     bool currentChatIsRoom() const { return m_rooms.contains(m_currentChat); }
     QStringList currentRoomParticipants() const;
+    QString roomService() const { return m_roomService; }
     QVariantList invitations() const { return m_invitations; }
     bool serverUploadAvailable() const;
     bool editing() const { return m_editing.id != 0; }
@@ -275,6 +281,24 @@ public:
     // there on the next sign-in too.
     Q_INVOKABLE bool joinRoom(const QString &jid, const QString &nickname, const QString &password = {});
     Q_INVOKABLE void leaveRoom(const QString &jid);
+    // A room of ours on the server's service: {name, address, description,
+    // access: open|members|password, password, listed, persistent}.
+    Q_INVOKABLE bool createRoom(const QVariantMap &settings);
+    Q_INVOKABLE QString roomAddressFor(const QString &name) const;
+    // The open room's people, {nickname, jid, role, affiliation, self}, and
+    // what we may do there, {setRoles, setAffiliations, configure,
+    // changeSubject}.
+    Q_INVOKABLE QVariantList roomParticipants() const;
+    Q_INVOKABLE QVariantMap roomPowers() const;
+    Q_INVOKABLE void kickParticipant(const QString &nickname, const QString &reason);
+    Q_INVOKABLE void banParticipant(const QString &nickname, const QString &reason);
+    Q_INVOKABLE void setModerator(const QString &nickname, bool moderator);
+    Q_INVOKABLE void setMember(const QString &nickname, bool member);
+    // The open room's settings, answered by roomSettingsRead; and changed.
+    Q_INVOKABLE void requestRoomSettings();
+    Q_INVOKABLE void configureRoom(const QVariantMap &settings);
+    Q_INVOKABLE void inviteToRoom(const QString &jid, const QString &reason);
+    Q_INVOKABLE void destroyRoom(const QString &reason);
     Q_INVOKABLE void acceptInvitation(int index);
     Q_INVOKABLE void declineInvitation(int index);
     Q_INVOKABLE void refuseRequest(const QString &jid);
@@ -303,6 +327,8 @@ signals:
     void ownNicknameChanged();
     // A notification was clicked; the window should come forward.
     void raiseRequested();
+    void roomServiceChanged();
+    void roomSettingsRead(const QVariantMap &settings);
     void currentChatReselected();
     void accountsChanged();
     void enabledChanged();
@@ -417,6 +443,7 @@ private:
     void setSendState(qint64 id, int state);
     void sendPending();
     void markRead(const QString &peer);
+    void reportModeration(QXmppTask<QXmpp::Result<>> &&task, const QString &what);
     QHash<QString, QString> receivedSmileys(const QXmppMessage &message, const QString &body);
     void fetchSmileys(const HistoryEntry &entry, const QString &from);
     bool trustsCertificateOf(const QList<QSslError> &errors) const;
@@ -464,6 +491,7 @@ private:
     QSet<QString> m_knownContacts;
     QString m_pickMethod = QStringLiteral("server");
     QString m_proxy;
+    QString m_roomService;
     QString m_saveSource;
     HistoryEntry m_editing;
     bool m_sidebarCollapsed = false;

@@ -285,36 +285,10 @@ Rectangle {
                 text: qsTr("%n people", "", backend.currentRoomParticipants.length)
                 onClicked: participantsPopup.open()
 
-                Popup {
+                RoomPanel {
                     id: participantsPopup
                     y: parent.height + 4
                     x: parent.width - width
-                    width: 240
-                    height: Math.min(360, participantList.contentHeight + 12)
-                    padding: 6
-                    background: Rectangle {
-                        radius: theme.radius
-                        color: pane.ui.panel
-                        border.color: pane.ui.border
-                    }
-                    ListView {
-                        id: participantList
-                        anchors.fill: parent
-                        clip: true
-                        model: backend.currentRoomParticipants
-                        ScrollBar.vertical: ScrollBar {}
-                        delegate: Label {
-                            required property string modelData
-                            width: ListView.view.width
-                            height: 30
-                            leftPadding: 10
-                            verticalAlignment: Text.AlignVCenter
-                            text: modelData
-                            color: pane.ui.foreground
-                            font.pixelSize: 13
-                            elide: Text.ElideRight
-                        }
-                    }
                 }
             }
         }

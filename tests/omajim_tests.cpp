@@ -2133,6 +2133,24 @@ private slots:
         QVERIFY2(!ours.startsWith("qx") && ours.size() >= 32, qPrintable(ours));
     }
 
+    void roomsAreCreatedWithAnAddressFromTheirName() {
+        QTemporaryDir dir;
+        FakeSecretStore secrets;
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        // Letters without accents, digits, dashes.
+        QCOMPARE(backend.roomAddressFor("Suporte TI"), QString("suporte-ti"));
+        QCOMPARE(backend.roomAddressFor("  Ação Ágil — 2026!  "), QString("acao-agil-2026"));
+        QCOMPARE(backend.roomAddressFor("devs.backend_01"), QString("devs.backend_01"));
+        // Offline, or with no room service found, nothing is created.
+        backend.setStatus("offline");
+        backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
+        QVERIFY(!backend.createRoom({{"name", "Suporte"}, {"address", "suporte"}, {"access", "open"}, {"persistent", true}}));
+        QVERIFY(!backend.errorText().isEmpty());
+        // Not in a room: no people, no powers.
+        QVERIFY(backend.roomParticipants().isEmpty());
+        QVERIFY(backend.roomPowers().isEmpty());
+    }
+
     void offlineMessagesWaitAndShowHowFarTheyGot() {
         QTemporaryDir dir;
         FakeSecretStore secrets;

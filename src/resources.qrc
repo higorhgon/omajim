@@ -19,6 +19,8 @@
         <file alias="NewSmileyDialog.qml">NewSmileyDialog.qml</file>
         <file alias="PreferencesDialog.qml">PreferencesDialog.qml</file>
         <file alias="PresenceDot.qml">PresenceDot.qml</file>
+        <file alias="RoomPanel.qml">RoomPanel.qml</file>
+        <file alias="RoomSettingsDialog.qml">RoomSettingsDialog.qml</file>
         <file alias="ShortcutsOverlay.qml">ShortcutsOverlay.qml</file>
         <file alias="SignInView.qml">SignInView.qml</file>
         <file alias="TextContextMenu.qml">TextContextMenu.qml</file>
