@@ -267,8 +267,11 @@ Item {
                 persistentSelection: true
                 wrapMode: TextEdit.Wrap
                 color: line.ui.foreground
-                selectionColor: line.ui.selection
-                selectedTextColor: line.ui.selectionText
+                // The accent, as text selections go in most apps: the theme's
+                // own selection color is a gray for terminals, close to the
+                // bubbles' and lost on them.
+                selectionColor: line.ui.accent
+                selectedTextColor: line.ui.accentText
                 font.pixelSize: 14
             }
 
