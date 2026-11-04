@@ -47,6 +47,9 @@ MouseArea {
     Component.onCompleted: parent = view
     anchors.fill: parent
     acceptedButtons: Qt.NoButton
+    // A MouseArea is born with an arrow of its own, and over the list this
+    // one would be the pointer's always: no cursor, so the lines' show.
+    cursorShape: undefined
     onWheel: event => {
         if (event.modifiers & Qt.ControlModifier) {
             event.accepted = false
