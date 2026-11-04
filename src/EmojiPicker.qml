@@ -28,6 +28,8 @@ Popup {
     property double closedAt: 0
     // -1 shows the recent ones, -2 our smileys.
     property int section: 0
+    // The composer's last tab, to open on it again; null until one is left.
+    property var composerSection: null
     readonly property bool showingSmileys: section === -2 && !searching
     readonly property bool searching: searchField.text.trim() !== ""
     readonly property var shown: searching ? emojis.search(searchField.text)
@@ -99,13 +101,16 @@ Popup {
 
     onAboutToShow: {
         searchField.text = ""
-        section = emojis.recent.length > 0 ? -1 : 0
+        section = withSmileys && composerSection !== null ? composerSection
+                : emojis.recent.length > 0 ? -1 : 0
         grid.currentIndex = -1
         searchField.forceActiveFocus()
     }
     onClosed: {
         tonePopup.close()
         closedAt = Date.now()
+        if (withSmileys)
+            composerSection = section
     }
 
     contentItem: ColumnLayout {
