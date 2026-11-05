@@ -446,8 +446,9 @@ Rectangle {
             // started and where the pointer is now, as {row, pos}.
             property var textStart: null
             property var textEnd: null
-            // After a double click the drag goes by whole words: the word
-            // clicked, as {row, start, end}, stays in; null otherwise.
+            // After a double or triple click the drag goes by whole words:
+            // the word or line clicked, as {row, start, end}, stays in; null
+            // otherwise.
             property var wordAnchor: null
             property point lastPointer
             property real scrollSpeed: 0

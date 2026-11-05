@@ -655,6 +655,23 @@ Item {
         return {start: start, end: end}
     }
 
+    // The line around a position, as {start, end}: from the break before it
+    // to the one after, not counting the breaks; a long line that wraps
+    // stays one line, as in ZapFast.
+    function lineAt(pos) {
+        if (line.kind !== "text")
+            return {start: pos, end: pos}
+        const text = bodyText.getText(0, bodyText.length)
+        // Rich text breaks lines and paragraphs with separators of its own.
+        const isBreak = c => c === "\n" || c === " " || c === " "
+        let start = pos, end = pos
+        while (start > 0 && !isBreak(text[start - 1]))
+            --start
+        while (end < text.length && !isBreak(text[end]))
+            ++end
+        return {start: start, end: end}
+    }
+
     // The plain text between two positions; end -1 runs to the end.
     function textBetween(start, end) {
         return line.kind === "text" ? bodyText.getText(start, end < 0 ? bodyText.length : end) : ""
@@ -692,6 +709,18 @@ Item {
         // Shift held at the press: this drag picks whole messages, not text.
         property bool picking: false
         property bool wasSelected: false
+        // When and where the last double click was, so a press right after
+        // it, close by, makes a triple click.
+        property real doubleClickedTime: 0
+        property point doubleClickedAt
+
+        function isTripleClick(mouse) {
+            const quick = Date.now() - doubleClickedTime <= Qt.styleHints.mouseDoubleClickInterval
+            const near = Math.abs(mouse.x - doubleClickedAt.x) + Math.abs(mouse.y - doubleClickedAt.y)
+                         <= Qt.styleHints.mouseDoubleClickDistance
+            doubleClickedTime = 0
+            return quick && near
+        }
 
         // Over a part of the bubble with a click of its own.
         function onControl(x, y) {
@@ -768,11 +797,19 @@ Item {
                 mouse.accepted = false
                 return
             }
+            const atLine = mapToItem(line, mouse.x, mouse.y)
+            const pos = line.textPosition(atLine.x, atLine.y)
+            // The third click picks the whole line under it, as in ZapFast;
+            // a drag on goes by whole words, as after a double click.
+            if (isTripleClick(mouse)) {
+                const whole = line.lineAt(pos)
+                view.startWordSelection(line.index, whole.start, whole.end)
+                return
+            }
             // Anywhere else on a text's bubble: the start of a selection that
             // may run on into other messages, as in ZapFast. Beside or around
             // the text it starts at the nearest character.
-            const atLine = mapToItem(line, mouse.x, mouse.y)
-            view.startTextSelection(line.index, line.textPosition(atLine.x, atLine.y))
+            view.startTextSelection(line.index, pos)
         }
         onPositionChanged: mouse => {
             if (!pressed || mouse.buttons !== Qt.LeftButton)
@@ -807,6 +844,8 @@ Item {
             bodyText.cursorPosition = line.textPosition(atLine.x, atLine.y)
             bodyText.selectWord()
             line.ListView.view.startWordSelection(line.index, bodyText.selectionStart, bodyText.selectionEnd)
+            doubleClickedTime = Date.now()
+            doubleClickedAt = Qt.point(mouse.x, mouse.y)
         }
     }
 
