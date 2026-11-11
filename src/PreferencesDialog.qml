@@ -21,6 +21,7 @@ AppDialog {
         closeChoice.value = backend.closeAction
         dateChoice.value = backend.dateFormat
         schemeChoice.value = theme.scheme
+        updatesBox.checked = updater.enabled
         syncChoice.value = [30, 90, 365, -1].find(days => !backend.historyReaches(days)) ?? -1
     }
     onAccepted: {
@@ -31,6 +32,8 @@ AppDialog {
         backend.sendReadMarkers = readMarkersBox.checked
         backend.closeAction = closeChoice.value
         backend.dateFormat = dateChoice.value
+        if (updater.supported)
+            updater.enabled = updatesBox.checked
         if (!theme.followsOmarchy)
             theme.scheme = schemeChoice.value
     }
@@ -191,6 +194,19 @@ AppDialog {
                 color: dialog.ui.muted
                 font.pixelSize: 12
                 wrapMode: Text.Wrap
+            }
+
+            // Only where Omajim updates itself; a package comes from pacman.
+            Section {
+                visible: updater.supported
+                text: qsTr("Updates").toUpperCase()
+            }
+            AppCheckBox {
+                id: updatesBox
+                visible: updater.supported
+                Layout.leftMargin: -6
+                Layout.fillWidth: true
+                text: qsTr("Look for new versions on GitHub once a day")
             }
 
             Section { text: qsTr("Messages").toUpperCase() }

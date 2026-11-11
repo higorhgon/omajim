@@ -28,6 +28,7 @@ HEADERS += \
     ../src/textformat.h \
     ../src/theme.h \
     ../src/translator.h \
+    ../src/updater.h \
     ../src/tray.h
 
 SOURCES += \
@@ -52,4 +53,5 @@ SOURCES += \
     ../src/textformat.cpp \
     ../src/theme.cpp \
     ../src/translator.cpp \
+    ../src/updater.cpp \
     ../src/tray.cpp

@@ -208,6 +208,13 @@ As [releases](https://github.com/higorhgon/omajim/releases) trazem:
 - `omajim-<versão>-windows-x64-setup.exe`: o instalador do Windows; ou o
   `.zip`, que roda sem instalar. A senha fica no Gerenciador de Credenciais.
 
+O AppImage e o Windows procuram versões novas nas releases uma vez por dia e
+avisam na janela. **Atualizar e reiniciar** baixa o arquivo, confere com o
+`SHA256SUMS` da release e o instala: o AppImage troca o próprio arquivo, o
+Windows instalado roda o instalador novo em silêncio. O `.zip` só abre a
+página da release. Dá para desligar em Preferências → Atualizações; o pacote
+do Arch não procura, porque quem o atualiza é o pacman.
+
 A release é gerada à mão, pelo workflow **Release** (Actions → Release → Run
 workflow). Para gerar o AppImage na própria máquina, com docker ou podman:
 

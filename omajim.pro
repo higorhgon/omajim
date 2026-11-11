@@ -31,7 +31,8 @@ HEADERS += \
     src/smileys.h \
     src/textformat.h \
     src/theme.h \
-    src/translator.h
+    src/translator.h \
+    src/updater.h
 
 SOURCES += \
     src/main.cpp \
@@ -52,7 +53,8 @@ SOURCES += \
     src/smileys.cpp \
     src/textformat.cpp \
     src/theme.cpp \
-    src/translator.cpp
+    src/translator.cpp \
+    src/updater.cpp
 
 RESOURCES += src/resources.qrc
 
@@ -89,7 +91,7 @@ SOURCES += src/idlemonitor_win.cpp src/instance_win.cpp src/notifier_win.cpp src
     src/winfilepicker.cpp src/wintray.cpp
 RESOURCES += src/windows.qrc
 # Gerenciador de Credenciais e GetLastInputInfo.
-LIBS += -ladvapi32 -luser32
+LIBS += -ladvapi32 -luser32 -lshell32
 # Ícone do .exe; sem console atrás da janela.
 RC_ICONS = packaging/windows/omajim.ico
 CONFIG += windows

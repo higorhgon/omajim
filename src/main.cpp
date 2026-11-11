@@ -33,6 +33,7 @@
 #include "notifier.h"
 #include "secretstore.h"
 #include "theme.h"
+#include "updater.h"
 #include "translator.h"
 #ifdef Q_OS_WIN
 #include "winfilepicker.h"
@@ -131,6 +132,8 @@ int main(int argc, char *argv[]) {
     QObject::connect(&accounts, &Accounts::currentChanged, &tray, [&] { tray.setBackend(accounts.current()); });
     QObject::connect(&tray, &Tray::statusRequested, &accounts, &Accounts::setStatus);
     EmojiCatalog emojis(QDir(config).filePath("omajim.conf"));
+    // New versions from GitHub, for the AppImage and the Windows builds.
+    Updater updater(QDir(config).filePath("omajim.conf"));
     Composer composer;
     LinkHints linkHints;
 
@@ -143,6 +146,7 @@ int main(int argc, char *argv[]) {
     QObject::connect(&translator, &Translator::changed, &tray, &Tray::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
+    engine.rootContext()->setContextProperty("updater", &updater);
     engine.rootContext()->setContextProperty("accounts", &accounts);
     // "backend" is the account on screen; switching accounts swaps it, and
     // every binding to it follows.
@@ -173,6 +177,8 @@ int main(int argc, char *argv[]) {
     // exit(), not quit(): quit() asks the window to close first, and closing
     // it only hides it while the tray shows, which calls the quit off.
     QObject::connect(&tray, &Tray::quitRequested, &app, [] { QCoreApplication::exit(0); });
+    // The new version opens by itself once this one has closed.
+    QObject::connect(&updater, &Updater::restartRequested, &app, [] { QCoreApplication::exit(0); });
 
     // Away after a while without using the computer, as Gajim does; 0 turns
     // a step off. Watched anew when the preferences change the times.

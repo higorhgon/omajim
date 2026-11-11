@@ -466,6 +466,52 @@ ApplicationWindow {
             anchors.fill: parent
             spacing: 0
 
+            // A new version on GitHub: a line in the accent, with the button
+            // that installs it (or opens its page, for the portable build).
+            Rectangle {
+                Layout.fillWidth: true
+                visible: updater.available
+                implicitHeight: updateRow.implicitHeight + 20
+                color: Qt.tint(win.ui.panel, Qt.alpha(win.ui.accent, 0.10))
+
+                Rectangle {
+                    width: 3
+                    height: parent.height
+                    color: win.ui.accent
+                }
+
+                RowLayout {
+                    id: updateRow
+                    anchors.fill: parent
+                    anchors.leftMargin: win.inset
+                    anchors.rightMargin: win.inset - 8
+                    spacing: 10
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: updater.state === "downloading" ? qsTr("Downloading Omajim %1… %2%").arg(updater.latestVersion).arg(Math.round(updater.progress * 100))
+                            : updater.state === "installing" ? qsTr("Installing Omajim %1…").arg(updater.latestVersion)
+                            : updater.state === "failed" ? qsTr("Omajim %1 couldn't be installed: %2").arg(updater.latestVersion).arg(updater.errorText)
+                            : qsTr("Omajim %1 is available.").arg(updater.latestVersion)
+                        color: win.ui.foreground
+                        wrapMode: Text.Wrap
+                    }
+                    AppButton {
+                        visible: updater.state === "idle" || updater.state === "failed"
+                        primary: true
+                        text: !updater.canInstall ? qsTr("Download")
+                            : updater.state === "failed" ? qsTr("Try again") : qsTr("Update and restart")
+                        onClicked: updater.update()
+                    }
+                    IconButton {
+                        visible: updater.state === "idle" || updater.state === "failed"
+                        iconName: "close"
+                        description: qsTr("Not now")
+                        onClicked: updater.dismiss()
+                    }
+                }
+            }
+
             // What went wrong, in the window: a line in the theme's error
             // color, with the action that fixes it when there is one.
             Rectangle {

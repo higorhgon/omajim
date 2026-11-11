@@ -71,3 +71,11 @@ Name: "{autostartup}\Omajim"; Filename: "{app}\omajim.exe"; Tasks: autostart
 
 [Run]
 Filename: "{app}\omajim.exe"; Description: "{cm:LaunchAfter}"; Flags: nowait postinstall skipifsilent
+; Uma atualização feita pelo próprio Omajim (/relaunch=1) o reabre no fim.
+Filename: "{app}\omajim.exe"; Flags: nowait runasoriginaluser; Check: RelaunchRequested
+
+[Code]
+function RelaunchRequested: Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;

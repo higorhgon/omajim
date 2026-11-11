@@ -39,6 +39,10 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QCryptographicHash>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QImage>
 #include <QImageReader>
 #include <QRandomGenerator>
@@ -63,6 +67,7 @@
 #include "textformat.h"
 #include "theme.h"
 #include "translator.h"
+#include "updater.h"
 #include "tray.h"
 
 // Hands out whatever the test put in, without touching the real keyring.
@@ -170,6 +175,90 @@ private slots:
         QCOMPARE(url, QUrl::fromLocalFile(path).toString());
         QCOMPARE(Backend::localPath(url), path);
         QVERIFY(Backend::fileUrl({}).isEmpty());
+    }
+
+    void updaterComparesVersionsAndReadsChecksums() {
+        QVERIFY(Updater::isNewer("v1.1.0", "1.0.0"));
+        QVERIFY(Updater::isNewer("1.0.10", "1.0.9"));
+        QVERIFY(!Updater::isNewer("v1.0.0", "1.0.0"));
+        QVERIFY(!Updater::isNewer("v0.9.0", "1.0.0"));
+        QVERIFY(!Updater::isNewer("nightly", "1.0.0"));
+
+        const QByteArray sums = QByteArray(64, 'a') + "  omajim-1.1.0-x86_64.AppImage\n"
+                              + QByteArray(64, 'B') + " *omajim-1.1.0-windows-x64-setup.exe\n";
+        QCOMPARE(Updater::listedHash(sums, "omajim-1.1.0-x86_64.AppImage"), QString(64, 'a'));
+        QCOMPARE(Updater::listedHash(sums, "omajim-1.1.0-windows-x64-setup.exe"), QString(64, 'b'));
+        QVERIFY(Updater::listedHash(sums, "other").isEmpty());
+    }
+
+    void updaterFindsANewReleaseAndReplacesTheAppImage() {
+        QTemporaryDir dir;
+        const QString image = dir.filePath("Omajim.AppImage");
+        write(image, "old");
+        const QByteArray fresh = "#!/bin/sh\nexit 0\n";
+        write(dir.filePath("new.AppImage"), fresh);
+        const QString hash = QCryptographicHash::hash(fresh, QCryptographicHash::Sha256).toHex();
+        auto release = [&](const QString &version, const QString &listed) {
+            write(dir.filePath("SHA256SUMS"), (listed + "  omajim-" + version + "-x86_64.AppImage\n").toUtf8());
+            const QJsonObject object{
+                {"tag_name", "v" + version},
+                {"html_url", "https://example.invalid/release"},
+                {"assets", QJsonArray{
+                    QJsonObject{{"name", "omajim-" + version + "-x86_64.AppImage"},
+                                {"browser_download_url", QUrl::fromLocalFile(dir.filePath("new.AppImage")).toString()}},
+                    QJsonObject{{"name", "SHA256SUMS"},
+                                {"browser_download_url", QUrl::fromLocalFile(dir.filePath("SHA256SUMS")).toString()}}}}};
+            write(dir.filePath("latest.json"), QJsonDocument(object).toJson());
+        };
+        const QString api = QUrl::fromLocalFile(dir.filePath("latest.json")).toString();
+        const QString settings = dir.filePath("omajim.conf");
+
+        // The same version as running: nothing to offer.
+        release("1.0.0", hash);
+        {
+            Updater same(Updater::Kind::AppImage, settings, api, "1.0.0");
+            same.check();
+            QTest::qWait(200);
+            QVERIFY(!same.available());
+        }
+
+        release("1.1.0", QString(64, '0'));
+        qputenv("APPIMAGE", image.toUtf8());
+        Updater updater(Updater::Kind::AppImage, settings, api, "1.0.0");
+        QVERIFY(updater.enabled());
+        updater.check();
+        QTRY_VERIFY(updater.available());
+        QCOMPARE(updater.latestVersion(), QString("1.1.0"));
+
+        // A file that doesn't match the sums is thrown away.
+        updater.update();
+        QTRY_COMPARE(updater.state(), QString("failed"));
+        QVERIFY(!QFile::exists(image + ".new"));
+        QCOMPARE(readAll(image), QByteArray("old"));
+
+        // One that matches takes the AppImage's place, runnable.
+        release("1.1.0", hash);
+        QSignalSpy restart(&updater, &Updater::restartRequested);
+        updater.update();
+        QTRY_COMPARE(restart.count(), 1);
+        QCOMPARE(readAll(image), fresh);
+        QVERIFY(QFileInfo(image).isExecutable());
+        qunsetenv("APPIMAGE");
+
+        // Not now hides it until the next version, across restarts.
+        updater.dismiss();
+        Updater later(Updater::Kind::AppImage, settings, api, "1.0.0");
+        later.check();
+        QTest::qWait(200);
+        QVERIFY(!later.available());
+
+        // Turned off, it never asks.
+        later.setEnabled(false);
+        Updater off(Updater::Kind::AppImage, settings, api, "0.1.0");
+        QVERIFY(!off.enabled());
+        off.check();
+        QTest::qWait(200);
+        QVERIFY(!off.available());
     }
 
     void themeFollowsHyprlandRounding() {
@@ -2499,6 +2588,11 @@ private:
         QFile file(path);
         QVERIFY(file.open(QIODevice::WriteOnly));
         file.write(contents);
+    }
+
+    static QByteArray readAll(const QString &path) {
+        QFile file(path);
+        return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
     }
 };
 
