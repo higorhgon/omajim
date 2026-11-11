@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
     Translator translator;
     app.installTranslator(&translator);
 
-    Theme theme;
+    Theme theme({}, nullptr, {}, QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omajim").filePath("omajim.conf"));
 #ifdef Q_OS_WIN
     WinFilePicker filePicker;
 #else

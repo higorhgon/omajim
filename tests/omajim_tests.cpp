@@ -101,7 +101,7 @@ private slots:
     void themeFallsBack() {
         QTemporaryDir dir;
         Theme theme(dir.path());
-        QCOMPARE(theme.accent(), QString("#FFD60A"));
+        QCOMPARE(theme.accent(), QString("#FFFFFF"));
         QCOMPARE(theme.accentForeground(), QString("black"));
     }
 
@@ -133,8 +133,33 @@ private slots:
         // Without Omarchy, a full palette still comes out.
         QTemporaryDir empty;
         Theme fallback(empty.path());
-        QCOMPARE(fallback.colors().value("accent").value<QColor>(), QColor("#FFD60A"));
+        QCOMPARE(fallback.colors().value("accent").value<QColor>(), QColor("#ffffff"));
         QVERIFY(fallback.colors().contains("selectionText"));
+    }
+
+    void themeUsesTheChosenSchemeWithoutOmarchy() {
+        QTemporaryDir empty, config;
+        const QString settings = config.filePath("omajim.conf");
+        {
+            Theme theme(empty.path(), nullptr, {}, settings);
+            QVERIFY(!theme.followsOmarchy());
+            theme.setScheme("catppuccin");
+            QCOMPARE(theme.colors().value("background").value<QColor>(), QColor("#1e1e2e"));
+            QCOMPARE(theme.accent(), QString("#89B4FA"));
+            theme.setScheme("light");
+            QCOMPARE(theme.colors().value("background").value<QColor>(), QColor("#fafafa"));
+            theme.setScheme("nonsense");
+            QCOMPARE(theme.scheme(), QString("light"));
+        }
+        // The choice is kept, and an Omarchy theme wins over it.
+        Theme reopened(empty.path(), nullptr, {}, settings);
+        QCOMPARE(reopened.scheme(), QString("light"));
+        QTemporaryDir omarchy;
+        QDir(omarchy.path()).mkpath("theme");
+        write(omarchy.path() + "/theme/colors.toml", "background = \"#101010\"\n");
+        Theme followed(omarchy.path(), nullptr, {}, settings);
+        QVERIFY(followed.followsOmarchy());
+        QCOMPARE(followed.colors().value("background").value<QColor>(), QColor("#101010"));
     }
 
     void themeFollowsHyprlandRounding() {

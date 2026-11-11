@@ -5,15 +5,29 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QStyleHints>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <cmath>
 
-Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
+Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl, const QString &settingsFile)
     : QObject(parent),
       m_directory(directory.isEmpty() ? QDir::homePath() + "/.local/state/omarchy/current" : directory) {
+    if (!settingsFile.isEmpty()) {
+        m_settings = std::make_unique<QSettings>(settingsFile, QSettings::IniFormat);
+        const QString saved = m_settings->value("appearance/scheme").toString();
+        if (QStringList{"system", "light", "dark", "catppuccin"}.contains(saved))
+            m_scheme = saved;
+    }
+    // "System" follows the desktop switching between light and dark.
+    if (qGuiApp)
+        connect(qGuiApp->styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
+            if (m_scheme == "system")
+                reload();
+        });
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(80);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
@@ -101,13 +115,56 @@ void Theme::reload() {
             m_watcher.addPath(path);
 
     const QString path = m_directory + "/theme/colors.toml";
-    const auto accent = readAccent(path);
-    const QVariantMap colors = palette(readColors(path));
-    if (accent != m_accent || colors != m_colors) {
+    const bool omarchy = QFileInfo::exists(path);
+    const auto values = omarchy ? readColors(path) : schemeColors(m_scheme);
+    const auto accent = omarchy ? readAccent(path) : values.value("accent").name().toUpper();
+    const QVariantMap colors = palette(values);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // The window's title bar (Windows draws it) in the scheme's light or dark.
+    if (!omarchy && qGuiApp)
+        qGuiApp->styleHints()->setColorScheme(m_scheme == "system" ? Qt::ColorScheme::Unknown
+                                              : m_scheme == "light" ? Qt::ColorScheme::Light
+                                              : Qt::ColorScheme::Dark);
+#endif
+    if (accent != m_accent || colors != m_colors || omarchy != m_followsOmarchy) {
         m_accent = accent;
         m_colors = colors;
+        m_followsOmarchy = omarchy;
         emit changed();
     }
+}
+
+void Theme::setScheme(const QString &scheme) {
+    if (scheme == m_scheme || !QStringList{"system", "light", "dark", "catppuccin"}.contains(scheme))
+        return;
+    m_scheme = scheme;
+    if (m_settings)
+        m_settings->setValue("appearance/scheme", scheme);
+    reload();
+    emit changed();  // the scheme itself, even when the colors came out the same
+}
+
+QMap<QString, QColor> Theme::schemeColors(const QString &scheme) {
+    QString name = scheme;
+    if (name == "system")
+        name = qGuiApp && qGuiApp->styleHints()->colorScheme() == Qt::ColorScheme::Light ? "light" : "dark";
+    auto colors = [](std::initializer_list<std::pair<const char *, const char *>> entries) {
+        QMap<QString, QColor> values;
+        for (const auto &[key, hex] : entries)
+            values.insert(key, QColor(hex));
+        return values;
+    };
+    if (name == "light")
+        return colors({{"background", "#fafafa"}, {"foreground", "#18181b"}, {"accent", "#a16207"},
+                       {"lighter_background", "#e9e9ec"}, {"selection", "#f3e2b0"},
+                       {"red", "#c62828"}, {"green", "#15803d"}, {"yellow", "#ca8a04"}, {"orange", "#c2410c"}});
+    // Catppuccin Mocha, as Omarchy's catppuccin theme has it.
+    if (name == "catppuccin")
+        return colors({{"background", "#1e1e2e"}, {"foreground", "#cdd6f4"}, {"accent", "#89b4fa"},
+                       {"lighter_background", "#313244"}, {"selection", "#45475a"},
+                       {"red", "#f38ba8"}, {"green", "#a6e3a1"}, {"yellow", "#f9e2af"}, {"orange", "#fab387"}});
+    // Dark: Omajim's neutral, with a white accent rather than Omarchy's yellow.
+    return colors({{"background", "#16161a"}, {"foreground", "#e4e4e7"}, {"accent", "#FFFFFF"}});
 }
 
 QMap<QString, QColor> Theme::readColors(const QString &path) {

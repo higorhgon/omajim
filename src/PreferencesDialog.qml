@@ -20,6 +20,7 @@ AppDialog {
         readMarkersBox.checked = backend.sendReadMarkers
         closeChoice.value = backend.closeAction
         dateChoice.value = backend.dateFormat
+        schemeChoice.value = theme.scheme
         syncChoice.value = [30, 90, 365, -1].find(days => !backend.historyReaches(days)) ?? -1
     }
     onAccepted: {
@@ -30,6 +31,8 @@ AppDialog {
         backend.sendReadMarkers = readMarkersBox.checked
         backend.closeAction = closeChoice.value
         backend.dateFormat = dateChoice.value
+        if (!theme.followsOmarchy)
+            theme.scheme = schemeChoice.value
     }
 
     component Section: Label {
@@ -80,6 +83,22 @@ AppDialog {
             id: sections
             width: parent.width
             spacing: 10
+
+            // Omarchy's theme decides the colors when there is one; elsewhere
+            // (Windows, other distributions) a built-in scheme does.
+            Section {
+                visible: !theme.followsOmarchy
+                text: qsTr("Appearance").toUpperCase()
+            }
+            AppSegmented {
+                id: schemeChoice
+                visible: !theme.followsOmarchy
+                Layout.fillWidth: true
+                options: [{label: qsTr("System"), value: "system"},
+                          {label: qsTr("Light"), value: "light"},
+                          {label: qsTr("Dark"), value: "dark"},
+                          {label: "Catppuccin", value: "catppuccin"}]
+            }
 
             Section { text: qsTr("Automatic away").toUpperCase() }
             MinutesRow {
