@@ -1,0 +1,132 @@
+name: Release
+
+# Disparado à mão: um release é entrega, não algo para sair a cada push.
+# Gera o AppImage (Ubuntu 24.04 / Linux Mint 22 em diante) e o instalador do
+# Windows em paralelo e, só se os dois saírem, publica os arquivos numa
+# release com um SHA256SUMS.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag da release (em branco usa v<versão do main.cpp>)"
+        required: false
+        type: string
+      prerelease:
+        description: "Marcar como pré-lançamento"
+        required: false
+        default: false
+        type: boolean
+
+# Necessário para criar a release e subir os arquivos nela.
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+
+    outputs:
+      versao: ${{ steps.pacote.outputs.versao }}
+      tag: ${{ steps.pacote.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # bin/appimage compila dentro do container Ubuntu 24.04 descrito em
+      # packaging/appimage.Dockerfile — o mesmo caminho de quem gera na
+      # própria máquina, então o arquivo publicado aqui é o que se obtém lá.
+      # É a glibc desse container, não a do runner, que decide onde ele roda.
+      - name: Gera o AppImage
+        run: ./bin/appimage
+
+      - name: Confere que a interface carrega num Ubuntu 24.04 limpo
+        run: |
+          docker run --rm -v "$PWD/dist":/d:ro ubuntu:24.04 sh -c '
+            set -e
+            apt-get update -qq >/dev/null
+            apt-get install -y -qq --no-install-recommends \
+                libgl1 libegl1 libfontconfig1 libglib2.0-0t64 dbus-x11 >/dev/null
+            cd /tmp && /d/omajim-*-x86_64.AppImage --appimage-extract >/dev/null
+            export HOME=/tmp/casa && mkdir -p "$HOME"
+            set +e
+            QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+                timeout 15 dbus-run-session -- ./squashfs-root/AppRun
+            codigo=$?
+            if [ "$codigo" -ne 124 ]; then
+              echo "A interface nao ficou de pe (codigo $codigo)." >&2
+              exit 1
+            fi'
+
+      - name: Descobre a versão e o arquivo
+        id: pacote
+        # A tag entra pelo ambiente, não interpolada no meio do script: um
+        # `${{ }}` de texto livre vira parte do shell antes de ele rodar.
+        env:
+          TAG_PEDIDA: ${{ inputs.tag }}
+        run: |
+          versao="$(sed -n 's/.*setApplicationVersion("\([^"]*\)").*/\1/p' src/main.cpp)"
+          arquivo="dist/omajim-$versao-x86_64.AppImage"
+          if [ ! -f "$arquivo" ]; then
+            echo "O AppImage esperado nao apareceu em $arquivo. O que ha em dist/:" >&2
+            ls -la dist/ >&2
+            exit 1
+          fi
+          tag="$TAG_PEDIDA"
+          [ -n "$tag" ] || tag="v$versao"
+          {
+            echo "versao=$versao"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omajim-linux-x64
+          path: dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    uses: ./.github/workflows/windows.yml
+
+  publicar:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: omajim-*-x64
+          path: dist
+          merge-multiple: true
+
+      # Acompanha os arquivos: é a forma de quem baixa conferir que chegaram
+      # inteiros.
+      - name: Calcula o SHA256
+        run: |
+          cd dist
+          ls -la
+          sha256sum omajim-* > SHA256SUMS
+          cat SHA256SUMS
+
+      # `gh` já vem no runner, então nada de terceiros para publicar. Uma
+      # release que já exista é reaproveitada, com os arquivos substituídos.
+      # A tag nasce no commit que foi compilado.
+      - name: Publica na release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.linux.outputs.tag }}
+          VERSAO: ${{ needs.linux.outputs.versao }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            extra=""
+            [ "$PRERELEASE" = "true" ] && extra="--prerelease"
+            gh release create "$TAG" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "Omajim $VERSAO" \
+              --generate-notes \
+              $extra
+          fi

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Arch é a plataforma alvo (Omarchy) e traz as versões que o Omajim usa.
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    steps:
+      - name: Instala as dependências
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git \
+            qt6-base qt6-declarative qt6-wayland qt6-imageformats \
+            qxmpp wayland wayland-protocols
+
+      - uses: actions/checkout@v4
+
+      - name: Testa
+        run: ./bin/test
+
+      - name: Compila
+        run: ./bin/build
+
+  # O mesmo build que o release publica, para que a compilação no Windows não
+  # quebre sem aviso.
+  windows:
+    uses: ./.github/workflows/windows.yml
