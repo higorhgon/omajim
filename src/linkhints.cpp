@@ -42,7 +42,9 @@ void collect(QQuickItem *item, QQuickItem *root, QRectF clip, QVariantList &foun
     if (!item->isVisible() || !item->isEnabled() || item->opacity() <= 0 || item->inherits("QQuickOverlay")
         || item->objectName() == QLatin1String("hintLayer"))
         return;
-    const QRectF rect = item->mapRectToItem(root, item->boundingRect());
+    // The item's own box: a text field's bounding rect follows its font's
+    // metrics, so the label would drift with the fonts installed.
+    const QRectF rect = item->mapRectToItem(root, QRectF(0, 0, item->width(), item->height()));
     if (!rect.isEmpty() && clip.contains(rect.center()) && clickable(item)) {
         const QPointF at = (rect & clip).topLeft();
         found.append(QVariantMap{{"item", QVariant::fromValue<QObject *>(item)}, {"x", at.x()}, {"y", at.y()}});
