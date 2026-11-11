@@ -197,6 +197,24 @@ nome, e o antigo `omajim-qt`: quem tem um deles instalado recebe este no
 sudo pacman -S omajim-git
 ```
 
+### Outras distribuições e Windows
+
+As [releases](https://github.com/higorhgon/omajim/releases) trazem:
+
+- `omajim-<versão>-x86_64.AppImage`: um arquivo só, com o Qt e a QXmpp
+  dentro, que roda no Ubuntu 24.04, no Linux Mint 22 e em distribuições mais
+  novas. Para guardar a senha no chaveiro, instale o `secret-tool`
+  (`sudo apt install libsecret-tools`).
+- `omajim-<versão>-windows-x64-setup.exe`: o instalador do Windows; ou o
+  `.zip`, que roda sem instalar. A senha fica no Gerenciador de Credenciais.
+
+A release é gerada à mão, pelo workflow **Release** (Actions → Release → Run
+workflow). Para gerar o AppImage na própria máquina, com docker ou podman:
+
+```sh
+bin/appimage            # em dist/, compilado num container Ubuntu 24.04
+```
+
 ## Desenvolvimento
 
 Precisa de `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qxmpp` e
