@@ -10,9 +10,14 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QClipboard>
+#include <QtGlobal>
+#ifdef Q_OS_WIN
+#include <QProcess>
+#else
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
+#endif
 #include <QImage>
 #include <QMimeData>
 #include <QDesktopServices>
@@ -3564,6 +3569,10 @@ void Backend::openFolder(const QString &path) {
         setError(tr("%1 isn't there anymore.").arg(path));
         return;
     }
+#ifdef Q_OS_WIN
+    // O Explorer abre a pasta com o arquivo selecionado.
+    QProcess::startDetached("explorer.exe", {"/select,", QDir::toNativeSeparators(path)});
+#else
     // Most file managers show the file selected; the folder alone if none answers.
     QDBusMessage call = QDBusMessage::createMethodCall("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",
                                                        "org.freedesktop.FileManager1", "ShowItems");
@@ -3574,6 +3583,7 @@ void Backend::openFolder(const QString &path) {
             QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
         watcher->deleteLater();
     });
+#endif
 }
 
 void Backend::saveFileAs(const QString &path, const QString &suggestedName) {

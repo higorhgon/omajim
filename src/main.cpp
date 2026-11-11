@@ -1,8 +1,16 @@
 // Omajim: an XMPP chat client for Omarchy.
 
+#include <QtGlobal>
+
+#ifdef Q_OS_WIN
+// QtWidgets só no Windows: a bandeja (QSystemTrayIcon) e o diálogo de
+// arquivos do Explorer (QFileDialog) pedem um QApplication.
+#include <QApplication>
+#else
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusVariant>
+#endif
 #include <QDir>
 #include <QFont>
 #include <QGuiApplication>
@@ -23,11 +31,18 @@
 #include "instance.h"
 #include "linkhints.h"
 #include "notifier.h"
-#include "portalfilepicker.h"
 #include "secretstore.h"
 #include "theme.h"
-#include "tray.h"
 #include "translator.h"
+#ifdef Q_OS_WIN
+#include "winfilepicker.h"
+#include "wintray.h"
+#else
+#include "portalfilepicker.h"
+#include "tray.h"
+#endif
+
+#ifndef Q_OS_WIN
 
 // The desktop's interface font, e.g. "Adwaita Sans 11", from the settings
 // portal, as Hype does; without it Qt's default font stays.
@@ -47,19 +62,30 @@ static void adoptDesktopFont() {
     font.setPointSizeF(size);
     QGuiApplication::setFont(font);
 }
+#endif
 
 int main(int argc, char *argv[]) {
     // Omajim draws every control in the Omarchy theme's colors itself; the
     // gtk3 platform theme would only bring GTK's own look and font rules.
+#ifdef Q_OS_WIN
+    // No Windows o tema da plataforma é o que traz o diálogo de arquivos
+    // nativo, então fica.
+    QApplication app(argc, argv);
+#else
     qputenv("QT_QPA_PLATFORMTHEME", "generic");
     QGuiApplication app(argc, argv);
+#endif
     app.setApplicationName("omajim");
     app.setApplicationVersion("1.0.0");
 
     // Matches the window to omajim.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.
     app.setDesktopFileName("omajim");
+#ifdef Q_OS_WIN
+    app.setWindowIcon(QIcon(":/windows/omajim.svg"));
+#else
     app.setWindowIcon(QIcon::fromTheme("omajim"));
+#endif
 
     Instance instance;
     if (!instance.claim())
@@ -69,7 +95,9 @@ int main(int argc, char *argv[]) {
     // the app decides itself when to quit.
     app.setQuitOnLastWindowClosed(false);
 
+#ifndef Q_OS_WIN
     adoptDesktopFont();
+#endif
     // The plain Basic style, restyled in QML with the theme's palette, the
     // way Omarchy's own apps (Hype) look.
     QQuickStyle::setStyle("Basic");
@@ -80,7 +108,11 @@ int main(int argc, char *argv[]) {
     app.installTranslator(&translator);
 
     Theme theme;
+#ifdef Q_OS_WIN
+    WinFilePicker filePicker;
+#else
     PortalFilePicker filePicker;
+#endif
     SecretStore secrets;
     Notifier notifier;
     const QString config = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omajim";
@@ -89,7 +121,13 @@ int main(int argc, char *argv[]) {
     Accounts accounts(config, data, &filePicker, &secrets, &notifier);
     // On the first run, what Gajim (or the Python Omajim) has comes over.
     accounts.start(GajimImport::settingsCandidates(), GajimImport::candidates());
+#ifdef Q_OS_WIN
+    WinTray tray(accounts.current());
+    notifier.setTrayIcon(tray.icon());
+    using Tray = WinTray;
+#else
     Tray tray(accounts.current());
+#endif
     QObject::connect(&accounts, &Accounts::currentChanged, &tray, [&] { tray.setBackend(accounts.current()); });
     QObject::connect(&tray, &Tray::statusRequested, &accounts, &Accounts::setStatus);
     EmojiCatalog emojis(QDir(config).filePath("omajim.conf"));

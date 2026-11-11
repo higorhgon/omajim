@@ -1,4 +1,8 @@
-QT += core gui network xml sql dbus qml quick quickcontrols2
+QT += core gui network xml sql qml quick quickcontrols2
+# No Windows não há D-Bus: bandeja e diálogo de arquivos vêm do QtWidgets, e
+# o ícone (SVG) do QtSvg.
+unix: QT += dbus
+win32: QT += widgets svg
 
 CONFIG += c++20 release
 TARGET = omajim
@@ -20,19 +24,14 @@ HEADERS += \
     src/firewall.h \
     src/gajimimport.h \
     src/history.h \
-    src/instance.h \
     src/linkhints.h \
     src/messagemodel.h \
-    src/notifier.h \
-    src/portalfilepicker.h \
     src/richtext.h \
     src/rosterstore.h \
-    src/secretstore.h \
     src/smileys.h \
     src/textformat.h \
     src/theme.h \
-    src/translator.h \
-    src/tray.h
+    src/translator.h
 
 SOURCES += \
     src/main.cpp \
@@ -46,25 +45,27 @@ SOURCES += \
     src/firewall.cpp \
     src/gajimimport.cpp \
     src/history.cpp \
-    src/instance.cpp \
     src/linkhints.cpp \
     src/messagemodel.cpp \
-    src/notifier.cpp \
-    src/portalfilepicker.cpp \
     src/richtext.cpp \
     src/rosterstore.cpp \
-    src/secretstore.cpp \
     src/smileys.cpp \
     src/textformat.cpp \
     src/theme.cpp \
-    src/translator.cpp \
-    src/tray.cpp
+    src/translator.cpp
 
 RESOURCES += src/resources.qrc
 
+# A mesma interface em cada sistema: no Linux sobre D-Bus e Wayland, no
+# Windows sobre as APIs dele (os arquivos *_win.cpp e win*.cpp).
+HEADERS += src/idlemonitor.h src/instance.h src/notifier.h src/secretstore.h
+
+unix {
+HEADERS += src/portalfilepicker.h src/tray.h
+SOURCES += src/instance.cpp src/notifier.cpp src/portalfilepicker.cpp src/secretstore.cpp src/tray.cpp
+
 # Idle time from the compositor (ext-idle-notify-v1): the protocol's C code
 # is generated at build time by wayland-scanner, never committed.
-HEADERS += src/idlemonitor.h
 SOURCES += src/idlemonitor.cpp
 CONFIG += link_pkgconfig
 PKGCONFIG += wayland-client
@@ -80,3 +81,17 @@ wayland_code.commands = wayland-scanner private-code ${QMAKE_FILE_IN} ${QMAKE_FI
 wayland_code.variable_out = SOURCES
 wayland_code.depends = ${QMAKE_FILE_BASE}-client-protocol.h
 QMAKE_EXTRA_COMPILERS += wayland_header wayland_code
+}
+
+win32 {
+HEADERS += src/winfilepicker.h src/wintray.h
+SOURCES += src/idlemonitor_win.cpp src/instance_win.cpp src/notifier_win.cpp src/secretstore_win.cpp \
+    src/winfilepicker.cpp src/wintray.cpp
+RESOURCES += src/windows.qrc
+# Gerenciador de Credenciais e GetLastInputInfo.
+LIBS += -ladvapi32 -luser32
+# Ícone do .exe; sem console atrás da janela.
+RC_ICONS = packaging/windows/omajim.ico
+CONFIG += windows
+CONFIG -= console
+}
