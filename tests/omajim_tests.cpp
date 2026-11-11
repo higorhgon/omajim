@@ -162,6 +162,16 @@ private slots:
         QCOMPARE(followed.colors().value("background").value<QColor>(), QColor("#101010"));
     }
 
+    void localPathsBecomeFileUrlsAndBack() {
+        // The URL Qt makes, not "file://" glued on: on Windows that would be
+        // file://C:/…, which nothing loads; and # or % in a name survive.
+        const QString path = QDir::tempPath() + "/a picture #1 100%.png";
+        const QString url = Backend::fileUrl(path);
+        QCOMPARE(url, QUrl::fromLocalFile(path).toString());
+        QCOMPARE(Backend::localPath(url), path);
+        QVERIFY(Backend::fileUrl({}).isEmpty());
+    }
+
     void themeFollowsHyprlandRounding() {
         QTemporaryDir dir;
         const QString response = dir.filePath("response.json"), command = dir.filePath("hyprctl");

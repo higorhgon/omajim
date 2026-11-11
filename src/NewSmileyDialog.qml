@@ -52,7 +52,7 @@ AppDialog {
                 anchors.centerIn: parent
                 width: 44
                 height: 44
-                source: smileyDialog.picture === "" ? "" : "file://" + smileyDialog.picture
+                source: backend.fileUrl(smileyDialog.picture)
                 fillMode: Image.PreserveAspectFit
             }
         }

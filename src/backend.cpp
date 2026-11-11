@@ -3596,3 +3596,11 @@ void Backend::saveFileAs(const QString &path, const QString &suggestedName) {
     m_saveSource = path;
     m_filePicker->saveFile(tr("Save %1").arg(suggestedName), suggestedName);
 }
+
+QString Backend::fileUrl(const QString &path) {
+    return path.isEmpty() ? QString() : QUrl::fromLocalFile(path).toString();
+}
+
+QString Backend::localPath(const QString &url) {
+    return url.isEmpty() ? QString() : QUrl(url).toLocalFile();
+}

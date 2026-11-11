@@ -38,7 +38,7 @@ Item {
         if (kind !== "text" || texts.length !== 1 || body.trim() !== texts[0])
             return ""
         const path = backend.smileys.pathOf(smileys[texts[0]])
-        return path === "" ? "" : "file://" + path
+        return backend.fileUrl(path)
     }
 
     readonly property var ui: theme.colors
@@ -64,7 +64,7 @@ Item {
     // A copy of the file on this computer: the file itself once it's here,
     // or the preview of a picture still on the server.
     readonly property string localPath: transferState === "done" && filePath !== "" ? filePath
-                                      : preview !== "" ? decodeURIComponent(preview.replace("file://", "")) : ""
+                                      : backend.localPath(preview)
 
     // Size, and how it's going while it isn't done.
     readonly property string fileDetails: [fileSize,

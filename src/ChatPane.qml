@@ -1368,7 +1368,7 @@ Rectangle {
             // until the layout gives it a width.
             Layout.preferredHeight: 220
             visible: pasteDialog.picture
-            source: pasteDialog.picture ? "file://" + pasteDialog.paths[0] : ""
+            source: pasteDialog.picture ? backend.fileUrl(pasteDialog.paths[0]) : ""
             sourceSize.width: 800
             fillMode: Image.PreserveAspectFit
             // Loaded at once, so the dialog doesn't grow after it opens.

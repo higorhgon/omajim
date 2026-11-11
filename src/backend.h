@@ -141,6 +141,10 @@ public:
     QString dateFormat() const;
     void setDateFormat(const QString &format);
     QDate today() const { return m_today; }
+    // A local path as a file: URL and back, right on Windows too
+    // ("file:///C:/…"), where gluing "file://" to the path is not a URL.
+    Q_INVOKABLE static QString fileUrl(const QString &path);
+    Q_INVOKABLE static QString localPath(const QString &url);
     Q_INVOKABLE QStringList dateFormats() const;
     // A date as the preferences show it, in the format given.
     Q_INVOKABLE QString dateExample(const QString &format) const;
