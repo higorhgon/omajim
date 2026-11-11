@@ -2,3 +2,6 @@
 /pkgbuild/pkg/
 /pkgbuild/src/
 *.pkg.tar.*
+/dist/
+/AppDir/
+/.appimage-tools/

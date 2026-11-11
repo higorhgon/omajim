@@ -1,0 +1,159 @@
+#!/usr/bin/env sh
+# Gera o Omajim portátil: um arquivo só, com o Qt, a QXmpp e o QML dentro.
+#
+# Por padrão compila num container Ubuntu 24.04 (packaging/appimage.Dockerfile),
+# e isso não é detalhe: um AppImage só roda onde a glibc é pelo menos tão nova
+# quanto a de onde foi gerado. Feito no Arch, rodaria só no Arch.
+#
+#   bin/appimage            compila no container (docker ou podman)
+#   bin/appimage --native   compila nesta máquina, para testar aqui
+set -eu
+
+version_of() {
+    sed -n 's/.*setApplicationVersion("\([^"]*\)").*/\1/p' "$1/src/main.cpp"
+}
+
+# Da árvore de fontes ao arquivo pronto. Também chamada de dentro do
+# container, que faz source deste script para isso.
+build_appimage() {
+    work="$1"
+    out="$2"
+    version="$3"
+
+    cd "$work"
+    rm -rf build AppDir
+    mkdir -p build
+    (
+        cd build
+        # CXX vem do container (g++-14); fora dele, o compilador padrão.
+        qmake6 "$work/omajim.pro" \
+            QMAKE_CC="${CC:-gcc}" QMAKE_CXX="${CXX:-g++}" QMAKE_LINK="${CXX:-g++}"
+        make -j"$(nproc)"
+    )
+
+    install -Dm755 build/omajim AppDir/usr/bin/omajim
+    install -Dm644 pkgbuild/omajim.desktop AppDir/usr/share/applications/omajim.desktop
+    install -Dm644 pkgbuild/omajim.svg AppDir/usr/share/icons/hicolor/scalable/apps/omajim.svg
+    install -Dm644 -t AppDir/usr/share/icons/hicolor/scalable/status pkgbuild/icons/omajim-status-*-symbolic.svg
+    install -Dm644 LICENSE AppDir/usr/share/licenses/omajim/LICENSE
+
+    qmake_bin="$(command -v qmake6 || command -v qmake)"
+    qt_plugins="$("$qmake_bin" -query QT_INSTALL_PLUGINS)"
+
+    # O linuxdeploy leva o plugin de plataforma Wayland, mas não a integração
+    # de buffers que ele carrega ao iniciar; sem ela o app morre numa sessão
+    # Wayland ("Failed to load client buffer integration: wayland-egl"). Vai
+    # para o lugar antes, e as bibliotecas Qt que esses plugins ligam são
+    # nomeadas ao linuxdeploy, que só segue o que ele mesmo copiou.
+    extra_libraries=""
+    if [ -d "$qt_plugins/wayland-graphics-integration-client" ]; then
+        mkdir -p AppDir/usr/plugins
+        cp -a "$qt_plugins/wayland-graphics-integration-client" AppDir/usr/plugins/
+        for plugin in AppDir/usr/plugins/wayland-graphics-integration-client/*.so; do
+            for library in $(ldd "$plugin" 2>/dev/null | awk '/=> \//{print $3}'); do
+                case "$library" in
+                    *libQt6*) extra_libraries="$extra_libraries --library=$library" ;;
+                esac
+            done
+        done
+    fi
+
+    # O linuxdeploy e o plugin dele são AppImages também, extraídos em vez de
+    # montados, porque container não tem FUSE.
+    tools="$work/.appimage-tools"
+    mkdir -p "$tools"
+    for tool in linuxdeploy linuxdeploy-plugin-qt; do
+        if [ ! -x "$tools/$tool" ]; then
+            curl -fsSL -o "$tools/$tool" \
+                "https://github.com/linuxdeploy/$tool/releases/download/continuous/$tool-x86_64.AppImage"
+            chmod +x "$tools/$tool"
+        fi
+    done
+
+    APPIMAGE_EXTRACT_AND_RUN=1
+    PATH="$tools:$PATH"
+    QML_SOURCES_PATHS="$work/src"
+    QMAKE="$qmake_bin"
+    VERSION="$version"
+    # Por padrão só o xcb vai (o Mint com Cinnamon é X11); o Wayland é o do
+    # Ubuntu e do Omarchy, e o offscreen é o que deixa conferir o arquivo
+    # pronto sem tela.
+    # O Qt 6.10 juntou os plugins Wayland num só (libqwayland.so).
+    if [ -f "$qt_plugins/platforms/libqwayland.so" ]; then
+        EXTRA_PLATFORM_PLUGINS="libqwayland.so;libqoffscreen.so"
+    else
+        EXTRA_PLATFORM_PLUGINS="libqwayland-generic.so;libqwayland-egl.so;libqoffscreen.so"
+    fi
+    # tls: a QXmpp fala TLS pelo Qt, cujos backends são plugins à parte.
+    EXTRA_QT_PLUGINS="wayland-decoration-client;wayland-graphics-integration-client;wayland-shell-integration;tls"
+    export APPIMAGE_EXTRACT_AND_RUN PATH QML_SOURCES_PATHS QMAKE VERSION
+    export EXTRA_PLATFORM_PLUGINS EXTRA_QT_PLUGINS
+
+    # Sem aspas de propósito: cada --library=… é um argumento.
+    # shellcheck disable=SC2086
+    linuxdeploy --appdir AppDir --plugin qt $extra_libraries \
+        --desktop-file AppDir/usr/share/applications/omajim.desktop \
+        --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/omajim.svg \
+        --custom-apprun "$work/packaging/AppRun" \
+        --output appimage
+
+    # O linuxdeploy dá ao arquivo o Name do .desktop, com maiúscula; a release
+    # usa a grafia do comando.
+    mkdir -p "$out"
+    mv ./*.AppImage "$out/omajim-$version-x86_64.AppImage"
+}
+
+# O container faz source deste arquivo para reaproveitar build_appimage() e
+# para aqui. Por variável, não argumento, porque o `.` do dash (o /bin/sh do
+# Ubuntu) não repassa argumentos.
+if [ "${OMAJIM_APPIMAGE_SOURCE_ONLY:-}" = "1" ]; then
+    return 0
+fi
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+DIST="$ROOT/dist"
+IMAGE="omajim-appimage:ubuntu-24.04"
+
+if [ "${1:-}" = "--native" ]; then
+    build_appimage "$ROOT" "$DIST" "$(version_of "$ROOT")"
+    echo "Gerado: $DIST/omajim-$(version_of "$ROOT")-x86_64.AppImage"
+    echo "Feito nesta máquina: roda só onde a glibc for pelo menos tão nova quanto a daqui."
+    exit 0
+fi
+
+if command -v docker >/dev/null 2>&1; then
+    engine=docker
+elif command -v podman >/dev/null 2>&1; then
+    engine=podman
+else
+    echo "docker ou podman são necessários para gerar um AppImage portátil." >&2
+    echo "Use 'bin/appimage --native' para gerar um que rode só nesta máquina." >&2
+    exit 1
+fi
+
+mkdir -p "$DIST"
+
+# Feita uma vez e reaproveitada; só o build do Omajim é pago de novo.
+echo "Preparando o ambiente de build ($IMAGE)…"
+"$engine" build -q -t "$IMAGE" -f "$ROOT/packaging/appimage.Dockerfile" "$ROOT/packaging" >/dev/null
+
+"$engine" run --rm \
+    -v "$ROOT":/src:ro \
+    -v "$DIST":/out \
+    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+    "$IMAGE" sh -c '
+set -eu
+mkdir /work
+cd /src
+# Só o que o git conhece (rastreado ou novo), sem build/ e dist/ de quem roda.
+git -c safe.directory=/src ls-files -co --exclude-standard -z | xargs -0 cp --parents -t /work
+cd /work
+export OMAJIM_APPIMAGE_SOURCE_ONLY=1
+. ./bin/appimage
+unset OMAJIM_APPIMAGE_SOURCE_ONLY
+build_appimage /work /out "$(version_of /work)"
+chown "$HOST_UID:$HOST_GID" /out/omajim-*.AppImage
+'
+
+echo "Gerado em $DIST:"
+ls -1 "$DIST"

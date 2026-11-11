@@ -1,0 +1,16 @@
+#!/bin/sh
+# Ponto de entrada do AppImage: põe na frente do PATH e do caminho de
+# bibliotecas o que viaja dentro do pacote antes de passar adiante.
+#
+# O secret-tool (senha no chaveiro) não vai junto: ele conversa com o
+# chaveiro do sistema e é do sistema. No Ubuntu e no Mint vem no pacote
+# libsecret-tools.
+HERE="$(dirname "$(readlink -f "$0")")"
+export PATH="$HERE/usr/bin:$PATH"
+# Plugins do Qt carregados em tempo de execução (a integração de buffers do
+# Wayland, por exemplo) ligam bibliotecas que também viajam aqui, e ninguém
+# ajustou o caminho de busca delas.
+export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
+# Os ícones de status da bandeja são procurados pelo nome no tema.
+export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+exec "$HERE/usr/bin/omajim" "$@"
