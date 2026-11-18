@@ -197,7 +197,7 @@ nome, e o antigo `omajim-qt`: quem tem um deles instalado recebe este no
 sudo pacman -S omajim-git
 ```
 
-### Outras distribuições e Windows
+### Outras distribuições, Windows e macOS
 
 As [releases](https://github.com/higorhgon/omajim/releases) trazem:
 
@@ -207,6 +207,10 @@ As [releases](https://github.com/higorhgon/omajim/releases) trazem:
   (`sudo apt install libsecret-tools`).
 - `omajim-<versão>-windows-x64-setup.exe`: o instalador do Windows; ou o
   `.zip`, que roda sem instalar. A senha fica no Gerenciador de Credenciais.
+- `omajim-<versão>-macos-x64.dmg`: imagem para Macs Intel com macOS 13
+  ou posterior, com Qt e QXmpp incluídos. Abra a imagem e arraste o Omajim
+  para Aplicativos. O pacote tem assinatura ad hoc e pode exigir confirmação
+  em Privacidade e Segurança. [Orientações da Apple](https://support.apple.com/pt-br/102445).
 
 O AppImage e o Windows procuram versões novas nas releases uma vez por dia e
 avisam na janela. **Atualizar e reiniciar** baixa o arquivo, confere com o
@@ -250,6 +254,9 @@ bin/install   # instala Omajim.app em /Applications
 Se preferir instalar só para o seu usuário, rode
 `OMAJIM_APPLICATIONS_DIR="$HOME/Applications" bin/install`. Abra o Omajim
 pelo Finder. A senha da conta é armazenada no app Chaves do macOS.
+
+Para gerar o instalador distribuído nas releases, rode `bin/dmg`. Use o Qt
+Intel e as opções da QXmpp do workflow de release. O arquivo sai em `dist/`.
 
 ## Desenvolvimento
 

@@ -1,0 +1,76 @@
+#!/bin/bash
+set -euo pipefail
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT"
+
+if [[ "$(uname -s)" != Darwin || "$(uname -m)" != x86_64 ]]; then
+    echo "Execute este script em um Mac Intel." >&2
+    exit 1
+fi
+
+qmake="${QMAKE:-qmake6}"
+qxmpp="${QXMPP_PREFIX:-$(brew --prefix qxmpp)}"
+export QXMPP_PREFIX="$qxmpp"
+bin/build
+
+version="$(sed -n 's/.*setApplicationVersion("\([^"]*\)").*/\1/p' src/main.cpp)"
+[[ -n "$version" ]]
+mkdir -p dist
+stage="$(mktemp -d "$ROOT/build/macos/dmg.XXXXXXXX")"
+trap 'rm -rf "$stage"' EXIT
+
+bundle="$stage/Omajim.app"
+ditto build/macos/Omajim.app "$bundle"
+binary="$bundle/Contents/MacOS/Omajim"
+frameworks="$bundle/Contents/Frameworks"
+
+# QXmpp é uma biblioteca externa ao Qt. Preserva o nome que o executável
+# gravou ao ligar, mesmo que na instalação ele seja um link simbólico.
+qxmpp_load="$(otool -L "$binary" | awk '$1 ~ /\/libQXmppQt6\..*\.dylib$/ { print $1; exit }')"
+[[ -n "$qxmpp_load" ]]
+qxmpp_name="${qxmpp_load##*/}"
+qxmpp_lib="$frameworks/$qxmpp_name"
+mkdir -p "$frameworks"
+cp -L "$qxmpp/lib/$qxmpp_name" "$qxmpp_lib"
+install_name_tool -change "$qxmpp_load" "@executable_path/../Frameworks/$qxmpp_name" "$binary"
+
+# Tirar os caminhos do SDK e conferir que a QXmpp usa as bibliotecas do app.
+remove_absolute_rpaths() {
+    local file="$1" path
+    while IFS= read -r path; do
+        install_name_tool -delete_rpath "$path" "$file"
+    done < <(otool -l "$file" | awk '/cmd LC_RPATH$/ { r=1; next } r && /path / {
+        sub(/^ *path /, ""); sub(/ \(offset [0-9]+\)$/, ""); if ($0 ~ /^\//) print; r=0
+    }' | sort -u)
+}
+
+install_name_tool -id "@rpath/$qxmpp_name" "$qxmpp_lib"
+remove_absolute_rpaths "$qxmpp_lib"
+mkdir -p "$bundle/Contents/Resources"
+cp LICENSE "$bundle/Contents/Resources/"
+
+qt_bin="$("$qmake" -query QT_INSTALL_BINS)"
+"$qt_bin/macdeployqt" "$bundle" "-qmldir=$ROOT/src" -no-strip -appstore-compliant -codesign=-
+# Só o SQLite é usado pelo histórico. Os demais drivers precisam de
+# clientes de banco que não são distribuídos com o aplicativo.
+sql_drivers="$bundle/Contents/PlugIns/sqldrivers"
+[[ -f "$sql_drivers/libqsqlite.dylib" ]]
+find "$sql_drivers" -name '*.dylib' ! -name libqsqlite.dylib -delete
+remove_absolute_rpaths "$binary"
+codesign --force --sign - "$bundle"
+codesign --verify --deep --strict "$bundle"
+
+[[ "$(lipo -archs "$binary")" = x86_64 ]]
+for library in "$binary" "$qxmpp_lib"; do
+    if ! otool -L "$library" | awk 'NR > 1 && $1 ~ /^\// && $1 !~ /^\/(System\/Library|usr\/lib)\// {
+        print "Dependência externa ao aplicativo: " $1 > "/dev/stderr"; erro=1
+    } END { exit erro }'; then
+        exit 1
+    fi
+done
+
+ln -s /Applications "$stage/Applications"
+image="$ROOT/dist/omajim-$version-macos-x64.dmg"
+hdiutil create -ov -format UDZO -volname Omajim -srcfolder "$stage" "$image"
+hdiutil verify "$image"
