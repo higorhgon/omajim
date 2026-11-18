@@ -1,11 +1,13 @@
 #pragma once
 
 #include <QObject>
+#ifdef Q_OS_MACOS
+#include <QThreadPool>
+#endif
 #include <functional>
 
-// Keeps the account password in the desktop keyring (Secret Service) through
-// secret-tool, never in a config file. The keyring may ask the user to
-// unlock it, so every call is asynchronous.
+// Keeps the account password in the system credential store. Operations
+// complete asynchronously because the store may ask the user to unlock it.
 class SecretStore : public QObject {
     Q_OBJECT
 
@@ -24,8 +26,13 @@ public:
     virtual void clear(const QString &account, Done done);
 
 private:
+#ifdef Q_OS_MACOS
+    void lookupService(const QString &service, const QString &account, LookupDone done);
+    QThreadPool m_keychain;
+#else
     void run(const QStringList &arguments, const QByteArray &input,
              std::function<void(int exitCode, const QByteArray &out, const QString &error)> done);
 
     QString m_secretTool;
+#endif
 };

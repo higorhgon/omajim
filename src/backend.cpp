@@ -11,7 +11,7 @@
 #include <QSaveFile>
 #include <QClipboard>
 #include <QtGlobal>
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
 #include <QProcess>
 #else
 #include <QDBusConnection>
@@ -135,15 +135,16 @@ static const int RoomHistoryStanzas = 50;
 static const qint64 PreviewLimit = 10 * 1024 * 1024;
 
 Backend::Backend(const QString &configDirectory, const QString &dataDirectory, FilePicker *filePicker,
-                 SecretStore *secrets, Notifier *notifier, QObject *parent)
+                 SecretStore *secrets, Notifier *notifier, QObject *parent, const QString &downloadDirectory)
     : QObject(parent),
       m_settings(QDir(configDirectory).filePath("omajim.conf"), QSettings::IniFormat),
       m_dataDirectory(dataDirectory),
-      m_smileys(SmileyStore::shared(QDir(dataDirectory).filePath("smileys"))),
+      m_downloadDirectory(downloadDirectory),
       m_filePicker(filePicker),
       m_secrets(secrets),
       m_notifier(notifier),
-      m_client(std::make_unique<QXmppClient>()) {
+      m_client(std::make_unique<QXmppClient>()),
+      m_smileys(SmileyStore::shared(QDir(dataDirectory).filePath("smileys"))) {
     trace("start");
     if (tracing()) {
         auto *logger = new QXmppLogger(this);
@@ -2080,13 +2081,18 @@ void Backend::applyOutOfBand(HistoryEntry &entry, const QXmppMessage &message) c
     entry.state = entry.outgoing ? "done" : "remote";
 }
 
+QString Backend::downloadDirectory() const {
+    return m_downloadDirectory.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::DownloadLocation) : m_downloadDirectory;
+}
+
 void Backend::downloadFile(qint64 messageId) {
     if (m_downloads.contains(messageId))
         return;
     const QString url = m_messages.url(messageId);
     if (url.isEmpty())
         return;
-    const QString directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    const QString directory = downloadDirectory();
     if (!QDir().mkpath(directory)) {
         setError(tr("The download folder %1 can't be created.").arg(directory));
         return;
@@ -2139,7 +2145,7 @@ void Backend::acceptFile(qint64 messageId) {
     auto it = m_jobs.find(messageId);
     if (it == m_jobs.end() || !it->job || it->job->direction() != QXmppTransferJob::IncomingDirection)
         return;
-    const QString directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    const QString directory = downloadDirectory();
     if (!QDir().mkpath(directory)) {
         setError(tr("The download folder %1 can't be created.").arg(directory));
         return;
@@ -3572,6 +3578,8 @@ void Backend::openFolder(const QString &path) {
 #ifdef Q_OS_WIN
     // O Explorer abre a pasta com o arquivo selecionado.
     QProcess::startDetached("explorer.exe", {"/select,", QDir::toNativeSeparators(path)});
+#elif defined(Q_OS_MACOS)
+    QProcess::startDetached("/usr/bin/open", {"-R", QFileInfo(path).absoluteFilePath()});
 #else
     // Most file managers show the file selected; the folder alone if none answers.
     QDBusMessage call = QDBusMessage::createMethodCall("org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",

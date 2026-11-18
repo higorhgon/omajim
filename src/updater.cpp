@@ -29,10 +29,12 @@ static Updater::Kind detectKind() {
     // The installer leaves its uninstaller next to the program.
     return QFile::exists(QCoreApplication::applicationDirPath() + "/unins000.exe")
                ? Updater::Kind::WindowsInstalled : Updater::Kind::WindowsPortable;
-#else
+#elif defined(Q_OS_LINUX)
     // The AppImage runtime says where the image is; a package doesn't.
     const QString image = qEnvironmentVariable("APPIMAGE");
     return !image.isEmpty() && QFileInfo(image).isFile() ? Updater::Kind::AppImage : Updater::Kind::None;
+#else
+    return Updater::Kind::None;
 #endif
 }
 

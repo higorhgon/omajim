@@ -9,11 +9,8 @@ struct ext_idle_notifier_v1;
 struct wl_event_queue;
 struct wl_registry;
 
-// Tells how long the user has been away from the computer, from the
-// compositor (ext-idle-notify-v1, which Hyprland implements and which honors
-// idle inhibitors such as a playing video). Given timeouts in increasing
-// order, the level is how many have passed: 0 while in use. Outside Wayland,
-// or with a compositor without the protocol, it stays at 0.
+// The idle level counts how many enabled timeouts have passed. On Linux
+// it stays at 0 if the compositor doesn't support ext-idle-notify-v1.
 class IdleMonitor : public QObject {
     Q_OBJECT
 
@@ -21,7 +18,13 @@ public:
     explicit IdleMonitor(const QList<int> &timeoutsMs, QObject *parent = nullptr);
     ~IdleMonitor() override;
 
-    bool available() const { return m_notifier != nullptr; }
+    bool available() const {
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+        return m_dispatch.isActive();
+#else
+        return m_notifier != nullptr;
+#endif
+    }
     int level() const { return m_level; }
 
 signals:

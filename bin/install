@@ -3,5 +3,31 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 "$ROOT/bin/build"
+
+if [ "$(uname -s)" = Darwin ]; then
+    destination="${OMAJIM_APPLICATIONS_DIR:-/Applications}"
+    installed="$destination/Omajim.app"
+    mkdir -p "$destination"
+    stage="$(mktemp -d "$destination/.omajim-install.XXXXXXXX")"
+    cleanup() {
+        if [ -e "$stage/previous.app" ] && [ ! -e "$installed" ]; then
+            mv "$stage/previous.app" "$installed" || return
+        fi
+        rm -rf "$stage"
+    }
+    trap cleanup EXIT
+    bundle="$stage/Omajim.app"
+    ditto "$ROOT/build/macos/Omajim.app" "$bundle"
+    codesign --force --sign - "$bundle"
+    codesign --verify --deep --strict "$bundle"
+
+    if [ -e "$installed" ]; then
+        mv "$installed" "$stage/previous.app"
+    fi
+    mv "$bundle" "$installed"
+    echo "Installed $installed"
+    exit 0
+fi
+
 cd "$ROOT/pkgbuild"
 exec makepkg -fsi "$@"

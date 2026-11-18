@@ -2,11 +2,9 @@
 
 #include <QtGlobal>
 
-#ifdef Q_OS_WIN
-// QtWidgets só no Windows: a bandeja (QSystemTrayIcon) e o diálogo de
-// arquivos do Explorer (QFileDialog) pedem um QApplication.
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
 #include <QApplication>
-#else
+#elif defined(Q_OS_LINUX)
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusVariant>
@@ -35,15 +33,15 @@
 #include "theme.h"
 #include "updater.h"
 #include "translator.h"
-#ifdef Q_OS_WIN
-#include "winfilepicker.h"
-#include "wintray.h"
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+#include "widgetfilepicker.h"
+#include "widgettray.h"
 #else
 #include "portalfilepicker.h"
 #include "tray.h"
 #endif
 
-#ifndef Q_OS_WIN
+#ifdef Q_OS_LINUX
 
 // The desktop's interface font, e.g. "Adwaita Sans 11", from the settings
 // portal, as Hype does; without it Qt's default font stays.
@@ -68,9 +66,7 @@ static void adoptDesktopFont() {
 int main(int argc, char *argv[]) {
     // Omajim draws every control in the Omarchy theme's colors itself; the
     // gtk3 platform theme would only bring GTK's own look and font rules.
-#ifdef Q_OS_WIN
-    // No Windows o tema da plataforma é o que traz o diálogo de arquivos
-    // nativo, então fica.
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     QApplication app(argc, argv);
 #else
     qputenv("QT_QPA_PLATFORMTHEME", "generic");
@@ -82,8 +78,8 @@ int main(int argc, char *argv[]) {
     // Matches the window to omajim.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.
     app.setDesktopFileName("omajim");
-#ifdef Q_OS_WIN
-    app.setWindowIcon(QIcon(":/windows/omajim.svg"));
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    app.setWindowIcon(QIcon(":/widgets/omajim.svg"));
 #else
     app.setWindowIcon(QIcon::fromTheme("omajim"));
 #endif
@@ -96,7 +92,7 @@ int main(int argc, char *argv[]) {
     // the app decides itself when to quit.
     app.setQuitOnLastWindowClosed(false);
 
-#ifndef Q_OS_WIN
+#ifdef Q_OS_LINUX
     adoptDesktopFont();
 #endif
     // The plain Basic style, restyled in QML with the theme's palette, the
@@ -109,8 +105,8 @@ int main(int argc, char *argv[]) {
     app.installTranslator(&translator);
 
     Theme theme({}, nullptr, {}, QDir(QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/omajim").filePath("omajim.conf"));
-#ifdef Q_OS_WIN
-    WinFilePicker filePicker;
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    WidgetFilePicker filePicker;
 #else
     PortalFilePicker filePicker;
 #endif
@@ -122,10 +118,10 @@ int main(int argc, char *argv[]) {
     Accounts accounts(config, data, &filePicker, &secrets, &notifier);
     // On the first run, what Gajim (or the Python Omajim) has comes over.
     accounts.start(GajimImport::settingsCandidates(), GajimImport::candidates());
-#ifdef Q_OS_WIN
-    WinTray tray(accounts.current());
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    WidgetTray tray(accounts.current());
     notifier.setTrayIcon(tray.icon());
-    using Tray = WinTray;
+    using Tray = WidgetTray;
 #else
     Tray tray(accounts.current());
 #endif

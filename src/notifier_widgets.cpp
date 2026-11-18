@@ -1,6 +1,4 @@
-// Notifier no Windows: as notificações saem pelo ícone da bandeja
-// (QSystemTrayIcon::showMessage), que o Windows mostra como notificação do
-// sistema. Clicar nela traz a conversa, como no Linux.
+// Notificações do sistema pelo ícone da bandeja no Windows e no macOS.
 #include "notifier.h"
 
 #include <QSystemTrayIcon>
@@ -18,9 +16,7 @@ void Notifier::setTrayIcon(QSystemTrayIcon *icon) {
 void Notifier::notify(const QString &key, const QString &title, const QString &body) {
     if (!m_trayIcon || !m_trayIcon->isVisible())
         return;
-    // O Windows só diz que a última foi clicada, então é dela a chave.
+    // A bandeja só informa que houve um clique, sem identificar a mensagem.
     m_shownKey = key;
     m_trayIcon->showMessage(title, body, m_trayIcon->icon(), 10000);
 }
-
-void Notifier::onActionInvoked(uint, const QString &) {}

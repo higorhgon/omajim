@@ -1,4 +1,4 @@
-#include "wintray.h"
+#include "widgettray.h"
 
 #include <QActionGroup>
 #include <QCoreApplication>
@@ -19,9 +19,9 @@ static QString statusLabel(const QString &status) {
     return QCoreApplication::translate("TrayMenu", "Offline");
 }
 
-WinTray::WinTray(Backend *backend, QObject *parent) : QObject(parent) {
+WidgetTray::WidgetTray(Backend *backend, QObject *parent) : QObject(parent) {
     m_toggle = m_menu.addAction(QString());
-    connect(m_toggle, &QAction::triggered, this, &WinTray::toggleWindowRequested);
+    connect(m_toggle, &QAction::triggered, this, &WidgetTray::toggleWindowRequested);
     m_menu.addMenu(&m_statusMenu);
     auto *group = new QActionGroup(this);
     for (const QString &value : Statuses) {
@@ -33,9 +33,9 @@ WinTray::WinTray(Backend *backend, QObject *parent) : QObject(parent) {
     }
     m_menu.addSeparator();
     m_quit = m_menu.addAction(QString());
-    connect(m_quit, &QAction::triggered, this, &WinTray::quitRequested);
+    connect(m_quit, &QAction::triggered, this, &WidgetTray::quitRequested);
 
-    m_icon.setIcon(QIcon(QStringLiteral(":/windows/omajim.svg")));
+    m_icon.setIcon(QIcon(QStringLiteral(":/widgets/omajim.svg")));
     m_icon.setContextMenu(&m_menu);
     // Um clique (ou dois) no ícone mostra ou esconde a janela; o direito abre
     // o menu.
@@ -50,22 +50,22 @@ WinTray::WinTray(Backend *backend, QObject *parent) : QObject(parent) {
     }
 }
 
-void WinTray::setBackend(Backend *backend) {
+void WidgetTray::setBackend(Backend *backend) {
     for (const auto &connection : std::as_const(m_watching))
         disconnect(connection);
     m_watching.clear();
     m_backend = backend;
-    m_watching << connect(backend, &Backend::connectionStateChanged, this, &WinTray::refresh)
-               << connect(backend, &Backend::errorTextChanged, this, &WinTray::refresh)
-               << connect(backend->contacts(), &ContactModel::totalUnreadChanged, this, &WinTray::refresh)
-               << connect(backend, &Backend::statusChanged, this, &WinTray::refresh)
-               << connect(backend, &Backend::signedInChanged, this, &WinTray::refresh);
+    m_watching << connect(backend, &Backend::connectionStateChanged, this, &WidgetTray::refresh)
+               << connect(backend, &Backend::errorTextChanged, this, &WidgetTray::refresh)
+               << connect(backend->contacts(), &ContactModel::totalUnreadChanged, this, &WidgetTray::refresh)
+               << connect(backend, &Backend::statusChanged, this, &WidgetTray::refresh)
+               << connect(backend, &Backend::signedInChanged, this, &WidgetTray::refresh);
     refresh();
 }
 
 // Textos (o idioma pode ter mudado), o status marcado e a dica do ícone, que
 // faz o papel dos ícones de status do Linux.
-void WinTray::refresh() {
+void WidgetTray::refresh() {
     QString tip = QStringLiteral("Omajim");
     if (m_backend->signedIn())
         tip += QStringLiteral(" — ") + statusLabel(m_backend->status());

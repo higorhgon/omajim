@@ -2,10 +2,19 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+if [ "$(uname -s)" = Darwin ]; then
+    mkdir -p "$ROOT/build/macos"
+    cd "$ROOT/build/macos"
+    "${QMAKE:-qmake6}" "$ROOT/omajim.pro" "QMAKE_APPLE_DEVICE_ARCHS=$(uname -m)"
+    make -j"$(getconf _NPROCESSORS_ONLN)"
+    echo "Built $PWD/Omajim.app"
+    exit 0
+fi
+
 mkdir -p "$ROOT/build"
 cd "$ROOT/build"
 
-qmake6 "$ROOT/omajim.pro"
+"${QMAKE:-qmake6}" "$ROOT/omajim.pro"
 make -j"$(nproc)"
 
 echo "Built $ROOT/build/omajim"

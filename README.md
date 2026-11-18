@@ -222,6 +222,35 @@ workflow). Para gerar o AppImage na própria máquina, com docker ou podman:
 bin/appimage            # em dist/, compilado num container Ubuntu 24.04
 ```
 
+### macOS Intel
+
+Em um Mac Intel, instale as ferramentas de linha de comando da Apple
+(`xcode-select --install`), o Qt 6 com Qt Declarative e Qt SVG, e a QXmpp
+1.17 compilada com o mesmo Qt. Use versões que incluam `x86_64`. Se forem
+instalados pelo Homebrew, os pacotes são `qtbase qtdeclarative qtsvg qxmpp`.
+No Intel, o Homebrew pode compilar dependências a partir do código-fonte.
+Também é possível usar os binários Intel do Qt e compilar a QXmpp à parte.
+Nesse caso, exporte `QMAKE` com o caminho para o `qmake` do Qt 6 e
+`QXMPP_PREFIX` com o caminho do prefixo de instalação da QXmpp
+(o diretório que contém `include/` e `lib/`).
+
+Se for compilar a QXmpp separadamente, configure o CMake com
+`CMAKE_PREFIX_PATH` apontando para o prefixo do Qt.
+Use `CMAKE_OSX_ARCHITECTURES=x86_64` e defina
+`CMAKE_OSX_DEPLOYMENT_TARGET` de acordo com o Qt e as demais bibliotecas
+usadas. Mantenha Qt e QXmpp em prefixos persistentes, pois o Omajim
+instalado carrega as bibliotecas desses locais.
+
+```sh
+bin/build     # gera build/macos/Omajim.app
+bin/test      # roda os testes offscreen
+bin/install   # instala Omajim.app em /Applications
+```
+
+Se preferir instalar só para o seu usuário, rode
+`OMAJIM_APPLICATIONS_DIR="$HOME/Applications" bin/install`. Abra o Omajim
+pelo Finder. A senha da conta é armazenada no app Chaves do macOS.
+
 ## Desenvolvimento
 
 Precisa de `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qxmpp` e

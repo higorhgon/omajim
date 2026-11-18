@@ -3,13 +3,12 @@
 #include <QHash>
 #include <QObject>
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
 class QSystemTrayIcon;
 #endif
 
-// Desktop notifications over org.freedesktop.Notifications, which Omarchy's
-// notification daemon serves. Clicking one brings the conversation up. On
-// Windows they come from the tray icon instead (notifier_win.cpp).
+// Desktop notifications through D-Bus on Linux and through the tray icon on
+// Windows and macOS. Clicking one brings the conversation up.
 class Notifier : public QObject {
     Q_OBJECT
 
@@ -17,20 +16,22 @@ public:
     explicit Notifier(QObject *parent = nullptr);
 
     void notify(const QString &key, const QString &title, const QString &body);
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     void setTrayIcon(QSystemTrayIcon *icon);
 #endif
 
 signals:
     void activated(const QString &key);
 
+#ifdef Q_OS_LINUX
 private slots:
     void onActionInvoked(uint id, const QString &action);
 
 private:
     QHash<uint, QString> m_keys;
     QHash<QString, uint> m_ids;
-#ifdef Q_OS_WIN
+#elif defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+private:
     QSystemTrayIcon *m_trayIcon = nullptr;
     QString m_shownKey;
 #endif

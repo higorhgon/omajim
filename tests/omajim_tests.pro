@@ -1,5 +1,6 @@
-QT += core gui network xml sql dbus quick quickcontrols2 testlib
+QT += core gui network xml sql quick quickcontrols2 testlib
 CONFIG += c++20 testcase
+CONFIG -= app_bundle
 TARGET = omajim_tests
 TEMPLATE = app
 
@@ -28,8 +29,7 @@ HEADERS += \
     ../src/textformat.h \
     ../src/theme.h \
     ../src/translator.h \
-    ../src/updater.h \
-    ../src/tray.h
+    ../src/updater.h
 
 SOURCES += \
     omajim_tests.cpp \
@@ -45,13 +45,24 @@ SOURCES += \
     ../src/history.cpp \
     ../src/linkhints.cpp \
     ../src/messagemodel.cpp \
-    ../src/notifier.cpp \
     ../src/richtext.cpp \
     ../src/rosterstore.cpp \
-    ../src/secretstore.cpp \
     ../src/smileys.cpp \
     ../src/textformat.cpp \
     ../src/theme.cpp \
     ../src/translator.cpp \
-    ../src/updater.cpp \
-    ../src/tray.cpp
+    ../src/updater.cpp
+
+linux {
+    QT += dbus
+    HEADERS += ../src/tray.h
+    SOURCES += ../src/notifier.cpp ../src/secretstore.cpp ../src/tray.cpp
+}
+
+macx {
+    QT += widgets
+    SOURCES += ../src/notifier_widgets.cpp
+    OBJECTIVE_SOURCES += ../src/secretstore_mac.mm
+    QMAKE_CXXFLAGS += -fobjc-arc
+    LIBS += -framework Foundation -framework Security
+}

@@ -22,26 +22,41 @@ namespace GajimImport {
 enum { Chat = 1, GroupChat = 2, PrivateMessage = 3 };
 enum { Outgoing = 2 };
 
-QStringList candidates() {
-    const QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+static QStringList findCandidates(const QStringList &roots, const QString &file) {
     QStringList found;
-    for (const QString &name : {QStringLiteral("gajim"), QStringLiteral("omajim")}) {
-        const QString path = QDir(data).filePath(name + "/logs.db");
-        if (QFileInfo::exists(path))
-            found << path;
+    for (const QString &root : roots) {
+        for (const QString &name : {QStringLiteral("gajim"), QStringLiteral("omajim")}) {
+            const QString path = QDir(root).filePath(name + '/' + file);
+            if (QFileInfo::exists(path))
+                found << path;
+        }
     }
+    found.removeDuplicates();
     return found;
 }
 
+#ifdef Q_OS_MACOS
+static QString xdgRoot(const char *variable, const QString &fallback) {
+    const QString path = qEnvironmentVariable(variable);
+    return QDir::isAbsolutePath(path) ? path : QDir::home().filePath(fallback);
+}
+#endif
+
+QStringList candidates() {
+    QStringList roots{QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)};
+#ifdef Q_OS_MACOS
+    // Gajim uses GLib, which follows XDG paths on macOS as well.
+    roots << xdgRoot("XDG_DATA_HOME", ".local/share");
+#endif
+    return findCandidates(roots, "logs.db");
+}
+
 QStringList settingsCandidates() {
-    const QString config = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
-    QStringList found;
-    for (const QString &name : {QStringLiteral("gajim"), QStringLiteral("omajim")}) {
-        const QString path = QDir(config).filePath(name + "/settings.sqlite");
-        if (QFileInfo::exists(path))
-            found << path;
-    }
-    return found;
+    QStringList roots{QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)};
+#ifdef Q_OS_MACOS
+    roots << xdgRoot("XDG_CONFIG_HOME", ".config");
+#endif
+    return findCandidates(roots, "settings.sqlite");
 }
 
 // A private copy of the file and its write-ahead log, opened read-only, so

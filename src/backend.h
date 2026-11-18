@@ -107,7 +107,8 @@ class Backend : public QObject {
 
 public:
     Backend(const QString &configDirectory, const QString &dataDirectory, FilePicker *filePicker,
-            SecretStore *secrets, Notifier *notifier = nullptr, QObject *parent = nullptr);
+            SecretStore *secrets, Notifier *notifier = nullptr, QObject *parent = nullptr,
+            const QString &downloadDirectory = {});
     ~Backend() override;
 
     // Signs in with the saved account, if there is one.
@@ -481,9 +482,11 @@ private:
     QString previewPath(const QString &url) const;
     void finishTransfer(qint64 id);
     QList<QSslCertificate> trustedCertificates() const;
+    QString downloadDirectory() const;
 
     QSettings m_settings;
     QString m_dataDirectory;
+    QString m_downloadDirectory;
     FilePicker *m_filePicker;
     SecretStore *m_secrets;
     Notifier *m_notifier;

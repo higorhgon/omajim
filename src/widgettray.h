@@ -7,16 +7,13 @@
 
 class Backend;
 
-// A bandeja no Windows: um ícone na área de notificação com o mesmo menu do
-// StatusNotifierItem do Linux (tray.h), que existe só sobre D-Bus. Para o
-// QML e o main.cpp tem a mesma cara: available, setBackend, retranslate e os
-// mesmos sinais.
-class WinTray : public QObject {
+// A bandeja do Windows e a barra de menus do macOS usam o mesmo menu de status.
+class WidgetTray : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
 
 public:
-    explicit WinTray(Backend *backend, QObject *parent = nullptr);
+    explicit WidgetTray(Backend *backend, QObject *parent = nullptr);
 
     bool available() const { return m_icon.isVisible(); }
     QSystemTrayIcon *icon() { return &m_icon; }

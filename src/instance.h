@@ -3,7 +3,7 @@
 #include <QObject>
 
 // Keeps Omajim to one copy per session: a second launch asks the running
-// one, over D-Bus, to show its window, then exits.
+// one to show its window, then exits.
 class Instance : public QObject {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "io.github.higorhgon.Omajim.Instance")

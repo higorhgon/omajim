@@ -1,5 +1,5 @@
 <RCC>
-    <qresource prefix="/windows">
+    <qresource prefix="/widgets">
         <file alias="omajim.svg">../pkgbuild/omajim.svg</file>
     </qresource>
 </RCC>

@@ -1,8 +1,7 @@
 QT += core gui network xml sql qml quick quickcontrols2
-# No Windows não há D-Bus: bandeja e diálogo de arquivos vêm do QtWidgets, e
-# o ícone (SVG) do QtSvg.
-unix: QT += dbus
-win32: QT += widgets svg
+# No Windows e no macOS, bandeja e diálogo de arquivos vêm do QtWidgets.
+linux: QT += dbus
+win32|macx: QT += widgets svg
 
 CONFIG += c++20 release
 TARGET = omajim
@@ -58,11 +57,10 @@ SOURCES += \
 
 RESOURCES += src/resources.qrc
 
-# A mesma interface em cada sistema: no Linux sobre D-Bus e Wayland, no
-# Windows sobre as APIs dele (os arquivos *_win.cpp e win*.cpp).
+# A mesma interface sobre as APIs de cada sistema.
 HEADERS += src/idlemonitor.h src/instance.h src/notifier.h src/secretstore.h
 
-unix {
+linux {
 HEADERS += src/portalfilepicker.h src/tray.h
 SOURCES += src/instance.cpp src/notifier.cpp src/portalfilepicker.cpp src/secretstore.cpp src/tray.cpp
 
@@ -85,11 +83,23 @@ wayland_code.depends = ${QMAKE_FILE_BASE}-client-protocol.h
 QMAKE_EXTRA_COMPILERS += wayland_header wayland_code
 }
 
+win32|macx {
+HEADERS += src/widgetfilepicker.h src/widgettray.h
+SOURCES += src/instance_local.cpp src/notifier_widgets.cpp src/widgetfilepicker.cpp src/widgettray.cpp
+RESOURCES += src/widgets.qrc
+}
+
+macx {
+TARGET = Omajim
+QMAKE_TARGET_BUNDLE_PREFIX = io.github.higorhgon
+SOURCES += src/idlemonitor_mac.cpp
+OBJECTIVE_SOURCES += src/secretstore_mac.mm
+QMAKE_CXXFLAGS += -fobjc-arc
+LIBS += -framework CoreGraphics -framework Foundation -framework Security
+}
+
 win32 {
-HEADERS += src/winfilepicker.h src/wintray.h
-SOURCES += src/idlemonitor_win.cpp src/instance_win.cpp src/notifier_win.cpp src/secretstore_win.cpp \
-    src/winfilepicker.cpp src/wintray.cpp
-RESOURCES += src/windows.qrc
+SOURCES += src/idlemonitor_win.cpp src/secretstore_win.cpp
 # Gerenciador de Credenciais e GetLastInputInfo.
 LIBS += -ladvapi32 -luser32 -lshell32
 # Ícone do .exe; sem console atrás da janela.

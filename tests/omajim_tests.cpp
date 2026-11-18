@@ -68,7 +68,9 @@
 #include "theme.h"
 #include "translator.h"
 #include "updater.h"
+#ifdef Q_OS_LINUX
 #include "tray.h"
+#endif
 
 // Hands out whatever the test put in, without touching the real keyring.
 class FakeSecretStore : public SecretStore {
@@ -654,12 +656,7 @@ private slots:
     void filesComeDownFromTheServer() {
         QTemporaryDir dir;
         // Downloads land in a folder of the test's own.
-        QDir(dir.path()).mkpath("xdg");
-        QDir(dir.path()).mkpath("downloads");
-        write(dir.filePath("xdg/user-dirs.dirs"), "XDG_DOWNLOAD_DIR=\"" + dir.filePath("downloads").toUtf8() + "\"\n");
-        const QByteArray oldConfig = qgetenv("XDG_CONFIG_HOME");
-        qputenv("XDG_CONFIG_HOME", dir.filePath("xdg").toUtf8());
-        auto restore = qScopeGuard([&] { qputenv("XDG_CONFIG_HOME", oldConfig); });
+        QVERIFY(QDir(dir.path()).mkpath("downloads"));
 
         // A one-file HTTP server.
         QTcpServer server;
@@ -676,7 +673,8 @@ private slots:
         });
 
         FakeSecretStore secrets;
-        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets);
+        Backend backend(dir.filePath("config"), dir.filePath("data"), nullptr, &secrets,
+                        nullptr, nullptr, dir.filePath("downloads"));
         backend.setStatus("offline");
         backend.signIn("alice@example.org", "secret", "127.0.0.1:1", false);
         backend.openChat("bob@example.org");
@@ -2441,6 +2439,7 @@ private slots:
         QVERIFY(!backend.sendReadMarkers());
     }
 
+#ifdef Q_OS_LINUX
     void trayIconShowsNewMessagesFirst() {
         QTemporaryDir dir;
         FakeSecretStore secrets;
@@ -2490,6 +2489,8 @@ private slots:
         QCOMPARE(quit.count(), 1);
         QCOMPARE(menu.EventGroup({DBusMenuEvent{99, "clicked", QDBusVariant(0), 0}}), QList<int>{99});
     }
+
+#endif
 
     void emojiCatalogFindsTonesAndRemembers() {
         QTemporaryDir dir;

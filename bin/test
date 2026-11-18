@@ -5,6 +5,11 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mkdir -p "$ROOT/build/tests"
 cd "$ROOT/build/tests"
 
-qmake6 "$ROOT/tests/omajim_tests.pro"
-make -j"$(nproc)"
+if [ "$(uname -s)" = Darwin ]; then
+    "${QMAKE:-qmake6}" "$ROOT/tests/omajim_tests.pro" "QMAKE_APPLE_DEVICE_ARCHS=$(uname -m)"
+    make -j"$(getconf _NPROCESSORS_ONLN)"
+else
+    "${QMAKE:-qmake6}" "$ROOT/tests/omajim_tests.pro"
+    make -j"$(nproc)"
+fi
 QT_QPA_PLATFORM=offscreen ./omajim_tests
