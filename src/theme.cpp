@@ -107,8 +107,12 @@ void Theme::reload() {
     QString ancestor = m_directory;
     while (!QFileInfo::exists(ancestor) && ancestor != "/")
         ancestor = QFileInfo(ancestor).absolutePath();
+    // Glassy is a toggle file next to the current theme's state, which
+    // omarchy-hyprland-window-transparency adds and removes.
+    const QString toggles = QFileInfo(m_directory).absolutePath() + "/toggles";
     QStringList candidates{ancestor, QFileInfo(ancestor).absolutePath(), m_directory,
-                           m_directory + "/theme", m_directory + "/theme/colors.toml"};
+                           m_directory + "/theme", m_directory + "/theme/colors.toml",
+                           toggles, toggles + "/hypr"};
     candidates.removeDuplicates();
     for (const auto &path : candidates)
         if (QFileInfo::exists(path))
@@ -116,9 +120,10 @@ void Theme::reload() {
 
     const QString path = m_directory + "/theme/colors.toml";
     const bool omarchy = QFileInfo::exists(path);
+    const bool glassy = omarchy && QFileInfo::exists(toggles + "/hypr/window-glassy.lua");
     const auto values = omarchy ? readColors(path) : schemeColors(m_scheme);
     const auto accent = omarchy ? readAccent(path) : values.value("accent").name().toUpper();
-    const QVariantMap colors = palette(values);
+    const QVariantMap colors = palette(values, glassy ? glassOpacity : 1.0);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     // The window's title bar (Windows draws it) in the scheme's light or dark.
     if (!omarchy && qGuiApp)
@@ -126,10 +131,11 @@ void Theme::reload() {
                                               : m_scheme == "light" ? Qt::ColorScheme::Light
                                               : Qt::ColorScheme::Dark);
 #endif
-    if (accent != m_accent || colors != m_colors || omarchy != m_followsOmarchy) {
+    if (accent != m_accent || colors != m_colors || omarchy != m_followsOmarchy || glassy != m_glassy) {
         m_accent = accent;
         m_colors = colors;
         m_followsOmarchy = omarchy;
+        m_glassy = glassy;
         emit changed();
     }
 }
@@ -197,17 +203,29 @@ static QColor contrastInk(const QColor &color) {
     return luminance > .179 ? QColor("#111111") : QColor("#ffffff");
 }
 
-QVariantMap Theme::palette(const QMap<QString, QColor> &values) {
+// The same color, see-through by the given opacity.
+static QColor faded(QColor color, double opacity) {
+    color.setAlphaF(opacity);
+    return color;
+}
+
+QVariantMap Theme::palette(const QMap<QString, QColor> &values, double surfaceOpacity) {
     // Without Omarchy: a dark neutral with the default yellow accent.
     const QColor background = values.value("background", QColor("#16161a"));
     const QColor foreground = values.value("foreground", QColor("#e4e4e7"));
     const QColor accent = values.value("accent", QColor("#FFD60A"));
     const QColor selection = values.value("selection", mix(background, accent, .3));
     const QColor border = mix(background, foreground, .22);
+    const QColor panel = mix(background, foreground, .025);
     return {{"background", background},
             {"foreground", foreground},
             {"accent", accent},
-            {"panel", mix(background, foreground, .025)},
+            {"panel", panel},
+            // The window's own surfaces (its frame, the sidebar, the
+            // conversation), see-through under Glassy. Cards, bubbles, menus
+            // and dialogs keep panel and background, so they stay solid.
+            {"glassPanel", faded(panel, surfaceOpacity)},
+            {"glassBackground", faded(background, surfaceOpacity)},
             {"button", values.value("lighter_background", mix(background, foreground, .08))},
             {"hover", mix(background, accent, .22)},
             {"border", border},

@@ -136,6 +136,12 @@ int main(int argc, char *argv[]) {
     // Text drawn by FreeType with the desktop's hinting, like every other app:
     // Qt Quick's default distance-field text smears small bold type at 1x.
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+    // Omarchy's Glassy windows need a window that can be see-through, and the
+    // buffer is picked when the window is made, so it is asked for up front;
+    // the window stays opaque until the theme says Glassy.
+    QQuickWindow::setDefaultAlphaBuffer(true);
+#endif
 
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
