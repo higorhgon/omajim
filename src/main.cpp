@@ -137,9 +137,9 @@ int main(int argc, char *argv[]) {
     // Qt Quick's default distance-field text smears small bold type at 1x.
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
 #if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
-    // Omarchy's Glassy windows need a window that can be see-through, and the
+    // Omarchy's Glassy and Transparent windows need a window that can be see-through, and the
     // buffer is picked when the window is made, so it is asked for up front;
-    // the window stays opaque until the theme says Glassy.
+    // the window stays opaque until the theme says Glassy or Transparent.
     QQuickWindow::setDefaultAlphaBuffer(true);
 #endif
 

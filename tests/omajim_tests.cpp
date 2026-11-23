@@ -155,9 +155,18 @@ private slots:
 
         Theme theme(current);
         QVERIFY(!theme.glassy());
-        // Off, the glass surfaces are the solid ones.
+        // With no toggle, windows are Transparent, Omarchy's default: a light fade.
+        QVERIFY(theme.translucent());
+        QVERIFY(qAbs(theme.colors().value("glassBackground").value<QColor>().alphaF() - Theme::transparentOpacity) < 0.01);
+
+        // Opaque makes the glass surfaces the solid ones.
+        const QString opaque = state.filePath("toggles/hypr/window-opaque.lua");
+        write(opaque, "-- opaque\n");
+        QTRY_VERIFY(!theme.translucent());
         QCOMPARE(theme.colors().value("glassPanel").value<QColor>(), theme.colors().value("panel").value<QColor>());
         QCOMPARE(theme.colors().value("glassBackground").value<QColor>().alphaF(), 1.0);
+        QVERIFY(QFile::remove(opaque));
+        QTRY_VERIFY(theme.translucent());
 
         // Turning Glassy on while the app runs fades the surfaces, not their color.
         write(toggle, "-- glassy\n");
@@ -170,6 +179,7 @@ private slots:
 
         QVERIFY(QFile::remove(toggle));
         QTRY_VERIFY(!theme.glassy());
+        QVERIFY(theme.translucent());
 
         // Without an Omarchy theme there is nothing to be glassy with.
         QTemporaryDir bare;
@@ -178,6 +188,7 @@ private slots:
         write(bare.filePath("toggles/hypr/window-glassy.lua"), "-- glassy\n");
         Theme fallback(bare.filePath("current"));
         QVERIFY(!fallback.glassy());
+        QVERIFY(!fallback.translucent());
     }
 
     void themeUsesTheChosenSchemeWithoutOmarchy() {

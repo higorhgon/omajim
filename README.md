@@ -100,6 +100,8 @@ janela: seus contatos à esquerda e a conversa à direita.
   glassy`, o fundo da janela, a barra lateral e a conversa ficam
   translúcidos e o Hyprland borra o que está atrás; texto, mensagens,
   campos, menus e diálogos continuam sólidos. Liga e desliga ao vivo.
+  Com `transparent` (o padrão do Omarchy) o efeito é o mesmo, bem mais
+  leve (0,96); com `opaque` tudo fica sólido.
 - Certificados autoassinados: o Omajim mostra a impressão digital SHA-256 e
   só se autentica depois que você confia no certificado.
 - Ausente automático, como no Gajim: depois de 5 minutos sem usar o

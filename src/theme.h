@@ -31,6 +31,10 @@ class Theme : public QObject {
     // glassPanel and glassBackground carry it; they match panel and background
     // when Glassy is off.
     Q_PROPERTY(bool glassy READ glassy NOTIFY changed)
+    // True under Glassy and under Omarchy's default Transparent windows
+    // (omarchy hyprland window transparency transparent); false when Omarchy
+    // asks for opaque windows or the theme isn't Omarchy's.
+    Q_PROPERTY(bool translucent READ translucent NOTIFY changed)
 
 public:
     explicit Theme(const QString &currentDirectory = {}, QObject *parent = nullptr, const QString &hyprctl = {},
@@ -43,12 +47,16 @@ public:
     QVariantMap colors() const { return m_colors; }
     bool followsOmarchy() const { return m_followsOmarchy; }
     bool glassy() const { return m_glassy; }
+    bool translucent() const { return m_opacity < 1.0; }
     QString scheme() const { return m_scheme; }
     void setScheme(const QString &scheme);
 
     // How opaque the window's surfaces are under Glassy: Omarchy fades GTK
     // windows to 0.75 there, and the text drawn over them stays solid here.
     static constexpr double glassOpacity = 0.75;
+    // Transparent, the default: Omarchy's inactive window opacity (0.96), so
+    // the blur shows faintly through the window's own surfaces.
+    static constexpr double transparentOpacity = 0.96;
 
     static QString readAccent(const QString &path);
     // Every "name = #rrggbb" in a colors.toml.
@@ -70,6 +78,7 @@ private:
     QVariantMap m_colors;
     bool m_followsOmarchy = false;
     bool m_glassy = false;
+    double m_opacity = 1.0;
     QString m_scheme = "system";
     std::unique_ptr<QSettings> m_settings;
     QFileSystemWatcher m_watcher;
