@@ -25,7 +25,7 @@ Rectangle {
             font.pixelSize: 12
         }
     }
-    color: ui.background
+    color: ui.glassBackground
 
     // Copies what's selected in the conversation: whole messages picked with
     // Shift+click, or text dragged across them. False when there's nothing.

@@ -16,7 +16,7 @@ Rectangle {
     // A search lists every contact and room; otherwise only the open
     // conversations show.
     readonly property bool searching: search.text.trim() !== ""
-    color: ui.panel
+    color: ui.glassPanel
 
     function sectionName(group) {
         return group === "#rooms" ? qsTr("Group chats") : group === "" ? qsTr("No group") : group

@@ -144,6 +144,42 @@ private slots:
         QVERIFY(fallback.colors().contains("selectionText"));
     }
 
+    void themeFollowsOmarchyGlassyWindows() {
+        // Laid out as Omarchy's state is: current/theme beside toggles/hypr.
+        QTemporaryDir state;
+        const QString current = state.filePath("current");
+        const QString toggle = state.filePath("toggles/hypr/window-glassy.lua");
+        QDir(state.path()).mkpath("current/theme");
+        QDir(state.path()).mkpath("toggles/hypr");
+        write(current + "/theme/colors.toml", "background = \"#1e1e2e\"\nforeground = \"#cdd6f4\"\n");
+
+        Theme theme(current);
+        QVERIFY(!theme.glassy());
+        // Off, the glass surfaces are the solid ones.
+        QCOMPARE(theme.colors().value("glassPanel").value<QColor>(), theme.colors().value("panel").value<QColor>());
+        QCOMPARE(theme.colors().value("glassBackground").value<QColor>().alphaF(), 1.0);
+
+        // Turning Glassy on while the app runs fades the surfaces, not their color.
+        write(toggle, "-- glassy\n");
+        QTRY_VERIFY(theme.glassy());
+        const QColor glass = theme.colors().value("glassBackground").value<QColor>();
+        QCOMPARE(glass.rgb(), QColor("#1e1e2e").rgb());
+        QVERIFY(qAbs(glass.alphaF() - Theme::glassOpacity) < 0.01);
+        // Cards and controls stay solid.
+        QCOMPARE(theme.colors().value("panel").value<QColor>().alphaF(), 1.0);
+
+        QVERIFY(QFile::remove(toggle));
+        QTRY_VERIFY(!theme.glassy());
+
+        // Without an Omarchy theme there is nothing to be glassy with.
+        QTemporaryDir bare;
+        QDir(bare.path()).mkpath("current");
+        QDir(bare.path()).mkpath("toggles/hypr");
+        write(bare.filePath("toggles/hypr/window-glassy.lua"), "-- glassy\n");
+        Theme fallback(bare.filePath("current"));
+        QVERIFY(!fallback.glassy());
+    }
+
     void themeUsesTheChosenSchemeWithoutOmarchy() {
         QTemporaryDir empty, config;
         const QString settings = config.filePath("omajim.conf");

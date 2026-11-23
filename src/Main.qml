@@ -15,7 +15,12 @@ ApplicationWindow {
     // The whole window takes the Omarchy theme's palette, as Hype does.
     readonly property var ui: theme.colors
     readonly property int inset: 20
-    color: ui.panel
+    // Under Omarchy's Glassy the window's surfaces are see-through (glassPanel,
+    // glassBackground) and Hyprland blurs the desktop behind them. Each part of
+    // the window carries its own glass (the top bar, the sidebar, the
+    // conversation, or the backdrop behind signing in), so the window itself
+    // stays clear rather than doubling it up.
+    color: theme.glassy ? "transparent" : ui.panel
     palette.window: ui.panel
     palette.base: ui.background
     palette.text: ui.foreground
@@ -184,7 +189,7 @@ ApplicationWindow {
         id: topBar
         height: 60
         background: Rectangle {
-            color: win.ui.panel
+            color: win.ui.glassPanel
             Rectangle {
                 x: win.inset
                 width: parent.width - 2 * win.inset
@@ -461,6 +466,14 @@ ApplicationWindow {
         anchors.fill: parent
         LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
         LayoutMirroring.childrenInherit: true
+
+        // Under Glassy, the glass behind signing in and starting up, where
+        // the sidebar and the conversation aren't there to carry it.
+        Rectangle {
+            anchors.fill: parent
+            visible: theme.glassy && !backend.signedIn
+            color: win.ui.glassPanel
+        }
 
         ColumnLayout {
             anchors.fill: parent
