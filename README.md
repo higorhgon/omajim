@@ -1,5 +1,7 @@
 # Omajim
 
+[![CI](https://github.com/higorhgon/omajim/actions/workflows/ci.yml/badge.svg)](https://github.com/higorhgon/omajim/actions/workflows/ci.yml)
+
 ![Omajim mostrando uma conversa com mensagens e arquivos](docs/screenshot.png)
 
 Cliente XMPP para o [Omarchy](https://omarchy.org), feito em C++ e Qt Quick
@@ -33,9 +35,9 @@ janela: seus contatos à esquerda e a conversa à direita.
   se ele atravessa várias mensagens, cada uma vem com horário e nome:
   `[27/10/2026 14:33] Ana: texto`.
 - A conversa é separada por dias: Hoje, Ontem, o dia da semana e, antes
-  disso, a data. O formato da data, que também vale na lista de conversas e
-  ao copiar mensagens, se escolhe nas preferências; o padrão segue o idioma
-  e a região do computador. Ao rolar, o dia da mensagem do topo fica
+  disso, a data. Você escolhe o formato da data nas preferências (ele vale
+  também na lista de conversas e ao copiar mensagens); o padrão segue o
+  idioma e a região do computador. Ao rolar, o dia da mensagem do topo fica
   flutuando até chegar ao separador dele, como no ZapFast.
 - O que fica escrito numa conversa espera nela como rascunho, com a
   formatação, mesmo depois de fechar o Omajim, como no Gajim e no ZapFast.
@@ -144,7 +146,7 @@ no Gajim, continua na branch `python`.
 | Ctrl+C (com seleção) | Copiar as mensagens selecionadas |
 | Ctrl+Q | Sair |
 
-Num app de chat quase sempre se está digitando, então os atalhos usam um
+Num app de chat você quase sempre está digitando, então os atalhos usam um
 modificador. A exceção é o `?`, que mostra os atalhos como nos outros apps
 do Omarchy, mas só quando o foco não está num campo de texto.
 
@@ -234,22 +236,18 @@ bin/appimage            # em dist/, compilado num container Ubuntu 24.04
 
 ### macOS Intel
 
-Em um Mac Intel, instale as ferramentas de linha de comando da Apple
-(`xcode-select --install`), o Qt 6 com Qt Declarative e Qt SVG, e a QXmpp
-1.17 compilada com o mesmo Qt. Use versões que incluam `x86_64`. Se forem
-instalados pelo Homebrew, os pacotes são `qtbase qtdeclarative qtsvg qxmpp`.
-No Intel, o Homebrew pode compilar dependências a partir do código-fonte.
-Também é possível usar os binários Intel do Qt e compilar a QXmpp à parte.
-Nesse caso, exporte `QMAKE` com o caminho para o `qmake` do Qt 6 e
-`QXMPP_PREFIX` com o caminho do prefixo de instalação da QXmpp
-(o diretório que contém `include/` e `lib/`).
+No Mac Intel, instale as ferramentas de linha de comando da Apple
+(`xcode-select --install`), o Qt 6 (com Qt Declarative e Qt SVG) e a QXmpp
+1.17 compilada com o mesmo Qt, tudo em `x86_64`. Pelo Homebrew, os pacotes
+são `qtbase qtdeclarative qtsvg qxmpp` (no Intel ele pode compilar parte
+disso do código-fonte).
 
-Se for compilar a QXmpp separadamente, configure o CMake com
-`CMAKE_PREFIX_PATH` apontando para o prefixo do Qt.
-Use `CMAKE_OSX_ARCHITECTURES=x86_64` e defina
-`CMAKE_OSX_DEPLOYMENT_TARGET` de acordo com o Qt e as demais bibliotecas
-usadas. Mantenha Qt e QXmpp em prefixos persistentes, pois o Omajim
-instalado carrega as bibliotecas desses locais.
+Se preferir baixar os binários Intel do Qt e compilar a QXmpp à parte,
+aponte `CMAKE_PREFIX_PATH` para o prefixo do Qt, passe
+`CMAKE_OSX_ARCHITECTURES=x86_64` e ajuste `CMAKE_OSX_DEPLOYMENT_TARGET`
+para a versão do Qt usado. Depois, exporte `QMAKE` (caminho do `qmake` do
+Qt 6) e `QXMPP_PREFIX` (a pasta que tem `include/` e `lib/`). Deixe os
+dois em pastas fixas, porque o app instalado carrega as bibliotecas de lá.
 
 ```sh
 bin/build     # gera build/macos/Omajim.app
@@ -257,12 +255,12 @@ bin/test      # roda os testes offscreen
 bin/install   # instala Omajim.app em /Applications
 ```
 
-Se preferir instalar só para o seu usuário, rode
+Para instalar só para o seu usuário, rode
 `OMAJIM_APPLICATIONS_DIR="$HOME/Applications" bin/install`. Abra o Omajim
-pelo Finder. A senha da conta é armazenada no app Chaves do macOS.
+pelo Finder; a senha da conta fica no app Chaves do macOS.
 
-Para gerar o instalador distribuído nas releases, rode `bin/dmg`. Use o Qt
-Intel e as opções da QXmpp do workflow de release. O arquivo sai em `dist/`.
+Para gerar o `.dmg` igual ao das releases, rode `bin/dmg` com o Qt Intel e
+as opções da QXmpp do workflow `macos.yml`. O arquivo sai em `dist/`.
 
 ## Desenvolvimento
 
