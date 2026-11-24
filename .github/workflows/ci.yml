@@ -27,7 +27,15 @@ jobs:
       - name: Compila
         run: ./bin/build
 
-  # O mesmo build que o release publica, para que a compilação no Windows não
-  # quebre sem aviso.
+  # Compila e confere que o omajim.exe abre no Windows, sem gerar zip,
+  # instalador nem artefatos (isso fica só no release.yml).
   windows:
     uses: ./.github/workflows/windows.yml
+    with:
+      empacotar: false
+
+  # Testa e compila no macOS Intel (com Qt e QXmpp em cache), sem gerar DMG nem artefato.
+  macos:
+    uses: ./.github/workflows/macos.yml
+    with:
+      empacotar: false

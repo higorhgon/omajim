@@ -22,147 +22,15 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-24.04
-
-    outputs:
-      versao: ${{ steps.pacote.outputs.versao }}
-      tag: ${{ steps.pacote.outputs.tag }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      # bin/appimage compila dentro do container Ubuntu 24.04 descrito em
-      # packaging/appimage.Dockerfile — o mesmo caminho de quem gera na
-      # própria máquina, então o arquivo publicado aqui é o que se obtém lá.
-      # É a glibc desse container, não a do runner, que decide onde ele roda.
-      - name: Gera o AppImage
-        run: ./bin/appimage
-
-      - name: Confere que a interface carrega num Ubuntu 24.04 limpo
-        run: |
-          docker run --rm -v "$PWD/dist":/d:ro ubuntu:24.04 sh -c '
-            set -e
-            apt-get update -qq >/dev/null
-            apt-get install -y -qq --no-install-recommends \
-                libgl1 libegl1 libfontconfig1 libglib2.0-0t64 dbus-x11 >/dev/null
-            cd /tmp && /d/omajim-*-x86_64.AppImage --appimage-extract >/dev/null
-            export HOME=/tmp/casa && mkdir -p "$HOME"
-            set +e
-            QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-                timeout 15 dbus-run-session -- ./squashfs-root/AppRun
-            codigo=$?
-            if [ "$codigo" -ne 124 ]; then
-              echo "A interface nao ficou de pe (codigo $codigo)." >&2
-              exit 1
-            fi'
-
-      - name: Descobre a versão e o arquivo
-        id: pacote
-        # A tag entra pelo ambiente, não interpolada no meio do script: um
-        # `${{ }}` de texto livre vira parte do shell antes de ele rodar.
-        env:
-          TAG_PEDIDA: ${{ inputs.tag }}
-        run: |
-          versao="$(sed -n 's/.*setApplicationVersion("\([^"]*\)").*/\1/p' src/main.cpp)"
-          arquivo="dist/omajim-$versao-x86_64.AppImage"
-          if [ ! -f "$arquivo" ]; then
-            echo "O AppImage esperado nao apareceu em $arquivo. O que ha em dist/:" >&2
-            ls -la dist/ >&2
-            exit 1
-          fi
-          tag="$TAG_PEDIDA"
-          [ -n "$tag" ] || tag="v$versao"
-          {
-            echo "versao=$versao"
-            echo "tag=$tag"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: omajim-linux-x64
-          path: dist/*.AppImage
-          if-no-files-found: error
-          retention-days: 7
+    uses: ./.github/workflows/appimage.yml
+    with:
+      tag: ${{ inputs.tag }}
 
   windows:
     uses: ./.github/workflows/windows.yml
 
   macos:
-    runs-on: macos-15-intel
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Instala o Qt para Intel
-        run: |
-          python -m pip install aqtinstall==3.3.0
-          aqt install-qt mac desktop 6.10.3 clang_64 -O "$RUNNER_TEMP/qt"
-          qt="$RUNNER_TEMP/qt/6.10.3/macos"
-          echo "QT_PREFIX=$qt" >> "$GITHUB_ENV"
-          echo "QMAKE=$qt/bin/qmake" >> "$GITHUB_ENV"
-
-      - name: Compila a QXmpp
-        run: |
-          cd "$RUNNER_TEMP"
-          curl -fL --retry 3 https://invent.kde.org/libraries/qxmpp/-/archive/v1.17.2/qxmpp-v1.17.2.tar.bz2 -o qxmpp.tar.bz2
-          echo '810aefa4f6c5f64ab5f2e169d89d2a84b2c7c4cd52fe353b4afa366a23abe0bc  qxmpp.tar.bz2' | shasum -a 256 -c
-          tar -xf qxmpp.tar.bz2
-          # O aplicativo usa o TLS nativo do Qt. OMEMO, arquivos criptografados
-          # pela QXmpp e chamadas com GStreamer não fazem parte deste build.
-          cmake -S qxmpp-v1.17.2 -B qxmpp-build \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
-            -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/qxmpp" \
-            -DBUILD_DOCUMENTATION=OFF -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF \
-            -DBUILD_OMEMO=OFF -DWITH_GSTREAMER=OFF -DWITH_ENCRYPTION=OFF
-          cmake --build qxmpp-build --parallel "$(getconf _NPROCESSORS_ONLN)"
-          cmake --install qxmpp-build
-          echo "QXMPP_PREFIX=$RUNNER_TEMP/qxmpp" >> "$GITHUB_ENV"
-
-      - name: Testa
-        run: ./bin/test
-
-      - name: Gera o DMG
-        run: ./bin/dmg
-
-      - name: Confere que o app abre a partir do DMG
-        run: |
-          # Esconde as dependências do build para testar a cópia distribuída.
-          mv "$QT_PREFIX" "$RUNNER_TEMP/qt-para-compilar"
-          mv "$QXMPP_PREFIX" "$RUNNER_TEMP/qxmpp-para-compilar"
-          volume="$RUNNER_TEMP/omajim-dmg"
-          mkdir -p "$volume"
-          hdiutil attach -readonly -nobrowse -mountpoint "$volume" dist/*-macos-x64.dmg
-          pid=""
-          trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; hdiutil detach "$volume"' EXIT
-          test "$(readlink "$volume/Applications")" = /Applications
-          codesign --verify --deep --strict "$volume/Omajim.app"
-          log="$RUNNER_TEMP/omajim.log"
-          QT_QUICK_BACKEND=software QML_IMPORT_TRACE=1 \
-            "$volume/Omajim.app/Contents/MacOS/Omajim" > "$log" 2>&1 &
-          pid=$!
-          for tentativa in {1..30}; do
-            kill -0 "$pid" 2>/dev/null || break
-            grep -q 'qrc:/Main.qml.*QtQuick.Controls.Basic' "$log" && break
-            sleep 1
-          done
-          sleep 5
-          if ! kill -0 "$pid" || ! grep -q 'qrc:/Main.qml.*QtQuick.Controls.Basic' "$log"; then
-            tail -100 "$log"
-            exit 1
-          fi
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: omajim-macos-x64
-          path: dist/*-macos-x64.dmg
-          if-no-files-found: error
-          retention-days: 7
+    uses: ./.github/workflows/macos.yml
 
   publicar:
     needs: [linux, windows, macos]

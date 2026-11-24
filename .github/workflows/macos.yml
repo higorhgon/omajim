@@ -1,0 +1,128 @@
+name: macOS
+
+# Build do Omajim para macOS Intel (x64), reaproveitado pelo CI (testes e
+# compilação, com Qt e QXmpp em cache) e pelo workflow de release (gera e
+# valida o DMG).
+on:
+  workflow_call:
+    inputs:
+      empacotar:
+        description: "Gerar DMG, validar abertura e subir artefato (usado na release)"
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      empacotar:
+        description: "Gerar DMG e subir artefato"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  macos:
+    runs-on: macos-15-intel
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache do Qt
+        id: cache-qt
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/qt
+          key: macos-x64-qt-6.10.3
+
+      - uses: actions/setup-python@v5
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        with:
+          python-version: "3.13"
+
+      - name: Instala o Qt para Intel
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install aqtinstall==3.3.0
+          aqt install-qt mac desktop 6.10.3 clang_64 -O "$RUNNER_TEMP/qt"
+
+      - name: Configura caminhos do Qt
+        run: |
+          qt="$RUNNER_TEMP/qt/6.10.3/macos"
+          echo "QT_PREFIX=$qt" >> "$GITHUB_ENV"
+          echo "QMAKE=$qt/bin/qmake" >> "$GITHUB_ENV"
+
+      - name: Cache da QXmpp
+        id: cache-qxmpp
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/qxmpp
+          key: macos-x64-qxmpp-1.17.2-qt-6.10.3
+
+      - name: Compila a QXmpp
+        if: steps.cache-qxmpp.outputs.cache-hit != 'true'
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fL --retry 3 https://invent.kde.org/libraries/qxmpp/-/archive/v1.17.2/qxmpp-v1.17.2.tar.bz2 -o qxmpp.tar.bz2
+          echo '810aefa4f6c5f64ab5f2e169d89d2a84b2c7c4cd52fe353b4afa366a23abe0bc  qxmpp.tar.bz2' | shasum -a 256 -c
+          tar -xf qxmpp.tar.bz2
+          # O aplicativo usa o TLS nativo do Qt. OMEMO, arquivos criptografados
+          # pela QXmpp e chamadas com GStreamer não fazem parte deste build.
+          cmake -S qxmpp-v1.17.2 -B qxmpp-build \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/qxmpp" \
+            -DBUILD_DOCUMENTATION=OFF -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF \
+            -DBUILD_OMEMO=OFF -DWITH_GSTREAMER=OFF -DWITH_ENCRYPTION=OFF
+          cmake --build qxmpp-build --parallel "$(getconf _NPROCESSORS_ONLN)"
+          cmake --install qxmpp-build
+
+      - name: Configura caminhos da QXmpp
+        run: echo "QXMPP_PREFIX=$RUNNER_TEMP/qxmpp" >> "$GITHUB_ENV"
+
+      - name: Testa
+        run: ./bin/test
+
+      - name: Compila (CI)
+        if: ${{ inputs.empacotar == false }}
+        run: ./bin/build
+
+      - name: Gera o DMG
+        if: ${{ inputs.empacotar != false }}
+        run: ./bin/dmg
+
+      - name: Confere que o app abre a partir do DMG
+        if: ${{ inputs.empacotar != false }}
+        run: |
+          # Esconde as dependências do build para testar a cópia distribuída.
+          mv "$QT_PREFIX" "$RUNNER_TEMP/qt-para-compilar"
+          mv "$QXMPP_PREFIX" "$RUNNER_TEMP/qxmpp-para-compilar"
+          volume="$RUNNER_TEMP/omajim-dmg"
+          mkdir -p "$volume"
+          hdiutil attach -readonly -nobrowse -mountpoint "$volume" dist/*-macos-x64.dmg
+          pid=""
+          trap 'if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; hdiutil detach "$volume" 2>/dev/null || true; if [ -d "$RUNNER_TEMP/qt-para-compilar" ]; then mv "$RUNNER_TEMP/qt-para-compilar" "$QT_PREFIX"; fi; if [ -d "$RUNNER_TEMP/qxmpp-para-compilar" ]; then mv "$RUNNER_TEMP/qxmpp-para-compilar" "$QXMPP_PREFIX"; fi' EXIT
+          test "$(readlink "$volume/Applications")" = /Applications
+          codesign --verify --deep --strict "$volume/Omajim.app"
+          log="$RUNNER_TEMP/omajim.log"
+          QT_QUICK_BACKEND=software QML_IMPORT_TRACE=1 \
+            "$volume/Omajim.app/Contents/MacOS/Omajim" > "$log" 2>&1 &
+          pid=$!
+          for tentativa in {1..30}; do
+            kill -0 "$pid" 2>/dev/null || break
+            grep -q 'qrc:/Main.qml.*QtQuick.Controls.Basic' "$log" && break
+            sleep 1
+          done
+          sleep 5
+          if ! kill -0 "$pid" || ! grep -q 'qrc:/Main.qml.*QtQuick.Controls.Basic' "$log"; then
+            tail -100 "$log"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.empacotar != false }}
+        with:
+          name: omajim-macos-x64
+          path: dist/*-macos-x64.dmg
+          if-no-files-found: error
+          retention-days: 7
